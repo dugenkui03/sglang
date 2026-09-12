@@ -10,11 +10,19 @@
 
 行数是 2026-09 对本仓库的扫描（含空行与注释）。文件会涨，以路径为准。
 
+## 项目架构全景
+
+SGLang 把已训练模型组织成推理服务。下图展示应用入口、SRT 与 Diffusion 两个运行时、共享算子库，以及可选集群网关之间的关系。
+
+![SGLang 项目架构全景：应用入口、SRT、Diffusion、共享算子库与集群网关](assets/sglang-architecture-overview-zh.png)
+
+[查看原图](assets/sglang-architecture-overview-zh.png) · [完整架构图解与源码依据](assets/sglang-architecture-zh.md) · [绘图提示词](assets/sglang-architecture-zh.prompts.md)
+
 ---
 
 ## 先建立心智模型
 
-SRT（SGLang Runtime）是**三进程 ZMQ 管道**，不是单进程 Flask 服务。
+以基础单实例部署为例，SRT（SGLang Runtime）可以理解为**三进程 ZMQ 管道**。启用多卡并行、DP 或其它部署模式后，进程数量和连接方式会扩展。
 
 ```
 主进程                         子进程                      子进程
@@ -48,7 +56,11 @@ Req → ScheduleBatch（Scheduler，多半在 CPU）
 
 ## 核心路径（必须跟一遍）
 
-这是学引擎**唯一**要跟的请求路径。其它特性（投机解码、PD 分离、LoRA、扩散）都是这条路上的支线。
+这是学习 SRT 引擎时首先要跟通的请求路径。投机解码、PD 分离、LoRA 等特性在这条主线上展开；图像 / 视频生成由 Diffusion 的独立 runtime 处理。
+
+![SRT 内部请求流程：进程边界、调度批次、模型前向、采样与回包](assets/sglang-architecture-srt-zh.png)
+
+[查看 SRT 内部架构原图](assets/sglang-architecture-srt-zh.png)。图中区分了启动配置、逐请求数据流与按需功能；下面沿实际调用链跟代码。
 
 ```
 sglang serve
@@ -60,12 +72,13 @@ sglang serve
                         → Scheduler.event_loop
                             → process_input_requests
                             → get_next_batch_to_run   # ScheduleBatch
-                            → TpModelWorker.run_batch
-                                → ForwardBatch.init_new
-                                → ModelRunner.forward
-                                    → model.forward + Attention backend
-                                    → mem_cache 读写 KV
-                                    → Sampler
+                            → Scheduler.run_batch
+                                → TpModelWorker.forward_batch_generation
+                                    → ForwardBatch.init_new
+                                    → ModelRunner.forward
+                                        → model.forward + Attention backend
+                                        → mem_cache 读写 KV
+                                    → ModelRunner.sample → Sampler
                             → process_batch_result
                             → ZMQ → DetokenizerManager
                         → ZMQ → TokenizerManager.handle_loop
@@ -157,6 +170,12 @@ scheduler / model_runner / attention backend
             pool/ (GPU L1)  --hicache-->  pool_host/ (Host L2)  -->  storage/ (L3)
             radix cache                前缀 → 节点（复用 / 淘汰）
 ```
+
+下图把前缀复用、内存分层和分布式部署放在一起，区分集群网关、实例内调度、模型并行与 P/D 分离的职责。
+
+![KV 缓存与分布式部署：Radix 索引、内存池、HiCache、集群路由、并行与 P/D 分离](assets/sglang-architecture-scaling-zh.png)
+
+[查看缓存与分布式架构原图](assets/sglang-architecture-scaling-zh.png)。主机 / 外部缓存及 P/D 分离按配置启用；Radix 管复用与淘汰，allocator 管槽位，pool 持有实际数据。
 
 ---
 

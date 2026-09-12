@@ -188,6 +188,12 @@ work_dirs/
 !logo.png
 !docs/images/*.png
 
+# Learning guide illustrations
+!assets/sglang-explained-zh.png
+!assets/sglang-architecture-overview-zh.png
+!assets/sglang-architecture-srt-zh.png
+!assets/sglang-architecture-scaling-zh.png
+
 # Prerequisites
 *.d
 
