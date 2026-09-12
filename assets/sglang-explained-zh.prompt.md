@@ -1,9 +1,11 @@
 # SGLang 中文科普图：生成提示词与依据
 
 - 成图：[sglang-explained-zh.png](sglang-explained-zh.png)
-- 生成方式：内置 `image_gen`，单张新图（infographic-diagram）。
-- 研究范围：当前工作区的 `LEARN.md` 与源码；Git HEAD 为 `2380121e9`。
+- 生成方式：内置 `image_gen`，单张新图及一次局部校对修订（infographic-diagram）。
+- 最终成图：1536 × 1024，PNG；已目视核对中文、进程边界、请求/回包箭头、共享 KV 图示与子系统名称。
+- 研究范围：当前工作区的 `LEARN.md` 与源码；开始研究时 Git HEAD 为 `2380121e9`。
 - 内容范围：普通自回归 SRT 请求主链路，省略并行副本、PD 分离及其它可选分支。
+- 图中 token 编号为概念示例，不对应某个特定分词器的实际编码。
 
 ## 核对依据
 
@@ -114,3 +116,23 @@ Final quality:
 Carefully typeset exact Chinese characters, correct SGLang capitalization, readable long names such as DetokenizerManager and TpModelWorker, consistent numbered headers, enough margins, no cropped text, no pseudo-writing, no watermarks. Keep diagram arrows well separated from text. The result should be suitable to share as an attractive finished educational poster.
 ```
 
+## 校对修订提示词
+
+初稿检查后，对缓存复用连线和输入/输出 token 示例编号做局部修订。以下为最终修订指令；原始图保留在内置工具输出目录，项目内保存最终选定版本。
+
+```text
+Use case: infographic-diagram
+Input images: Image 1 is the edit target, the existing finished Chinese SGLang educational infographic.
+
+Make a precise technical correction to the token/KV data annotations only. Preserve the complete original poster composition, all three numbered sections, dimensions and 3:2 aspect ratio, typography, palette, GPU illustration, process-zone boundaries, all IPC arrow directions, repository row, header and reading-route footer. Keep every existing title, caption, and description unchanged. This is a local correction, not a redesign.
+
+1. In section 02, touch ONLY the middle card titled "RadixAttention 前缀复用". Keep the title and the two bottom caption lines exactly:
+"相同 token 前缀复用 KV"
+"KV = 注意力计算的中间状态"
+Redraw just the mini-diagram inside that card, within its existing footprint, to unambiguously show ONE common token prefix reusing ONE shared KV block, followed by TWO separate question suffixes.
+Arrange a single blue rounded token-prefix block labeled "公共前缀" at the left. A direct arrow from this block points to a single blue memory stack in the middle labeled "共享 KV". From that middle shared KV stack, branch toward two distinct small suffix blocks at the right, upper "问题 A" in pale orange and lower "问题 B" in pale blue. The two question suffix blocks stay separate. The branch visually means both requests build on the same cached prefix. Do not draw arrows that merge the unique question suffixes into one shared cached result. A clean common-prefix → shared-KV → two-distinct-continuations motif is the entire diagram. No new explanatory text.
+
+2. In section 01, inside the RIGHTMOST DetokenizerManager box, change ONLY its three numerical token tile labels from "101", "2054", "318" to "502", "811", "907", keeping the "…" tile. This makes output token IDs visually distinct from input IDs. Preserve the input token tiles in the left process, preserve the speech bubble text, all colors, shapes, arrows and all other labels in this right box.
+
+Keep the rest of the image identical. Do not add further annotations, slogans, decorations, claims or text. Maintain crisp readable Simplified Chinese.
+```
