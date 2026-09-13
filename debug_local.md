@@ -13,6 +13,26 @@ Python 还会创建一个 `resource_tracker` 辅助进程，用于管理 multipr
 
 当前未启用 PD 分离，因此没有独立的 Prefill 进程和 Decode 进程；两者都由同一个 Scheduler 子进程处理。
 
+## 环境要求
+
+- Apple Silicon Mac（M1/M2/M3/M4）和 macOS 14 或更新版本。
+- Python **3.12**；脚本会创建 `.venv/qwen35-mac`，但不会替你安装系统 Python。
+- `uv`，用于创建虚拟环境和安装 MLX 依赖。
+- 至少预留约 6 GB 磁盘空间，用于 Python 环境、模型权重和 Hugging Face 缓存。
+
+使用 Homebrew 可安装所需工具：
+
+```bash
+brew install python@3.12 uv
+```
+
+如果 `python3.12` 不在 `PATH` 中，后续初始化时显式指定解释器：
+
+```bash
+PYTHON_BIN=/opt/homebrew/opt/python@3.12/bin/python3.12 \
+  ./scripts/learn/setup_qwen35_macos.sh
+```
+
 ```text
 浏览器
   │ 访问调试页面
