@@ -2303,6 +2303,7 @@ class Scheduler(
         )
 
     def init_req_max_new_tokens(self, req):
+        """根据输入长度和服务端容量限制，设置请求最多可生成的 token 数，并同步约束最少生成数量。"""
         input_len = len(req.origin_input_ids) # 输入 token 长度
         max_new_tokens = ( # 输出最大长度
             req.sampling_params.max_new_tokens
@@ -2897,6 +2898,7 @@ class Scheduler(
             self._prefetch_kvcache(req)
             self.waiting_queue.append(req)
             req.time_stats.set_wait_queue_entry_time()
+        # PD 分离由 P/D 实例接力完成请求，流程说明见 docs/learn/03-pd-disaggregation.md。
         elif self.disaggregation_mode == DisaggregationMode.PREFILL:
             self._prefetch_kvcache(req)
             self.disagg_prefill_bootstrap_queue.add(

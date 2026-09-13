@@ -289,7 +289,9 @@ def resolve_draft_attention_backend(
 
 
 class ModelRunner:
-    """ModelRunner runs the forward passes of the models."""
+    """ModelRunner runs the forward passes of the models.
+    【重要】执行 forward
+    """
 
     @property
     def sampling_observer(self) -> Optional[SamplingObserver]:
@@ -1601,7 +1603,8 @@ class ModelRunner:
                 forward_batch,
             ) as recorder_outputs,
         ):
-            output = self._forward_raw(
+            # 执行路径说明：[CUDA Graph 与 Eager](../../../../docs/learn/04-model-forward-execution.md)
+            output = self._forward_raw( # 【重要】真正执行推理的地方
                 forward_batch,
                 pp_proxy_tensors,
                 reinit_attn_backend,
@@ -1782,6 +1785,7 @@ class ModelRunner:
                 # load_batch time. Move it into the prefill cuda graph runner
                 # to capture only the model.forward part.
                 with device_timer_ctx(self.device_timer, category):
+                    # 【重要】真正执行推理的地方
                     ret = self.prefill_cuda_graph_runner.execute(
                         forward_batch, **kwargs
                     )
