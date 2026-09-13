@@ -33,6 +33,12 @@ class SpeculativeAlgorithm(Enum):
     ``CustomSpecAlgo`` instances; ``from_string`` returns either type, and
     both expose the same ``is_*()`` / ``create_worker`` interface so callers
     dispatch uniformly without isinstance checks.
+
+    内置的推测解码算法。
+
+    通过插件注册的算法是 CustomSpecAlgo 实例；from_string 可以返回这两种类型中的任意一种。
+    两者都提供相同的 is_*() / create_worker 接口，调用方可以统一分派处理，
+    无需使用 isinstance 判断类型。
     """
 
     DFLASH = auto()

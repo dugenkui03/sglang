@@ -1,0 +1,77 @@
+Use case: scientific-educational
+Asset type: Chinese educational infographic for a SGLang code-reading article.
+Execution: Create a NEW composed infographic, using the supplied two images only as technical references. They are reference images, not edit targets.
+Format: Exactly 4:3 LANDSCAPE, width greater than height. Prefer 2048 x 1536. High-resolution crisp Chinese typography. Entire canvas fully opaque white, no transparency, no dark background. Professional textbook diagram, carefully aligned panels, generous padding, legible labels, no decorative photo or mascot.
+
+Primary request: Explain DFlash with both inference and training, grounded in the DFlash paper https://arxiv.org/html/2602.06036v1 sections 4.1 and 4.2 and the two user reference diagrams. Use the concrete deployment example Qwen3.8-27B paired with incoai/Qwen3.8-27B-DFlash2. Explain the common DFlash mechanism; label that the internal structure is simplified from the original DFlash paper while the example checkpoint is DFlash2. Do not claim DFlash2 has exactly the same full architecture, and do not invent layer counts.
+
+Reference roles:
+Image 1: scientific architecture reference. Preserve its correct mechanism: fused multi-layer target context features are injected into the KV inputs of EACH draft layer; confirmed anchor token plus mask tokens enter a shared target embedding; lightweight draft layers use bidirectional attention within the candidate block and MLP; target LM head converts the draft outputs to proposed token IDs.
+Image 2: training principle reference. Preserve frozen target model, clean anchor tokens plus masked future positions, context feature visibility constrained by the anchor, bidirectional attention within each block and isolation between different blocks. Make a small simplified teaching graphic instead of reproducing the dense original matrix.
+
+Visual language: flat scientific diagram with rounded rectangular panels and clear arrows. Use the reference colors consistently: light blue for target context features, amber for confirmed anchor token, light green for masked candidate positions/draft processing, red for rejection, muted gray for discarded tokens/invisible attention. Dark navy or charcoal text. Green outlines/check symbols may indicate accepted tokens. Tiny color legend at top or bottom.
+
+Text and layout:
+Main heading, large bold: "DFlash：先并行打草稿，再批量校验"
+Subheading: "轻量草稿模型预测多个 token，目标模型决定最终输出"
+Under title, compact two-model banner:
+"目标模型：Qwen3.8-27B"
+"配套草稿：incoai/Qwen3.8-27B-DFlash2"
+Preserve both model names exactly, do not truncate or change spelling. Fit the longer checkpoint name on its own line if necessary.
+
+Panel 1, full width upper third, heading "① 推理：目标模型提供线索，草稿并行预测"
+Create the dominant left-to-right technical architecture schematic:
+- At left, input "提示词 / 已确认上下文" enters a blue target model box "目标模型". Note "Prefill / 上轮校验".
+- Upper output branch: "多层隐藏特征" → "拼接 + 投影" → a strip of blue feature squares labelled "融合上下文特征". A clearly routed blue line distributes those features to the context KV of each draft layer below. Label "注入每一层的上下文 KV". These blue conditioning features are computed FROM target hidden states; do NOT show the target model's raw KV cache being directly copied as draft KV.
+- Lower output branch: an amber confirmed token A, next to three light-green boxes labelled "[mask]". Label this sequence "A 已确认；其余位置待预测".
+- This sequence passes through "目标 Embedding（共享）", then a green draft network with two representative blocks "草稿层 1" → "草稿层 2 …". Within the first block show "上下文 KV" plus "块内双向注意力" and "MLP"; context KV arrows from the top reach both representative blocks.
+- Then "目标 LM Head（共享）" → a clearly outlined token group "候选 B、C、D".
+- A small caption: "草稿的一次前向计算，并行预测一组候选".
+Treat the diagram as a simplified original-paper mechanism. Keep all arrows unambiguous and do not route the mask-token input directly to accepted output.
+A small named pointer connects these candidate tokens into the verification panel below.
+
+Panel 2, full width middle band, heading "② 校验与修正：只提交连续通过的前缀"
+Draw a three-column comparison with clearly separated context and result lines:
+Column B: "校验 B" / "依据 A" / "通过 ✓"
+Column C: "校验 C" / "依据 A、B" / "失败 ×"
+Column D: "校验 D" / "依据 A、B、C" / "即使通过，也丢弃"
+A bracket or label above columns: "目标模型一次前向，并行计算这些位置"
+Put red rejection mark at C, and gray/red strike-through over BOTH old C and old D in a candidate sequence.
+Below, a large confirmed output strip, exactly "A → B → C′ → 下一轮".
+A curved loop arrow leads from the end of the confirmed strip toward "草稿生成" in the preceding panel, with the label "更新上下文与缓存".
+Explain in two short legible notes:
+"D 依赖旧 C；C 失败后，旧 D 也失效"
+"C′ 使用本次校验得到的分布产生"
+Mention "A/B/C/D 为示意 token" in small text.
+Do NOT retain D after rejection of C. Do NOT show C′ as an independent guessed correction by the small draft model. Do NOT imply another target forward is required solely to compute C′.
+
+Bottom row two balanced panels:
+Panel 3 heading "③ 训练：固定目标模型，训练配套草稿"
+Show a frozen target model icon labelled "目标模型参数固定", providing "内部特征 + 训练答案" to a small draft model labelled "只更新草稿参数".
+Show two compact masked training blocks, e.g. amber A followed by two green [m] boxes, and amber B followed by two green [m] boxes. Use bidirectional arrows WITHIN each block, with a dividing white gap and label "块间隔离".
+Show a tiny schematic visibility matrix if room allows: two 3×3 diagonal blocks; the first column within each block amber, remaining two light green; off-diagonal cells white. Caption "块内可见，跨块不可见". Do not draw future answer tokens as visible inputs to the earlier masked positions.
+Add these short readable notes:
+"遮盖后续 token，学习同时预测"
+"目标特征按锚点限制可见范围"
+"已有配套权重，直接加载使用"
+
+Panel 4 heading "④ 加速来自哪里？"
+Show a compact comparison:
+"逐个生成：多轮串行等待"
+"草稿 + 校验：更少轮次，更多并行"
+Three short reasons:
+"草稿更小：单次计算更轻"
+"块内并行：一次预测多个候选"
+"批量校验：提高 GPU 利用率"
+Formula, readable and visually balanced:
+"平均每 token 耗时 ≈"
+"（草稿耗时 + 校验耗时）÷ 平均实际推进的 token 数"
+One short condition: "草稿足够快、接受足够多，才有加速收益"
+Do not claim fixed acceleration factors or invent experimental timings. Do not show 8/16 draft tokens as a guaranteed accepted count.
+
+Footer, small but legible:
+"随机采样按概率接受与修正，保留目标模型的输出分布"
+"结构按 DFlash 原论文简化；示例权重为 DFlash2。来源：arXiv:2602.06036"
+Tiny legend with light-blue square "上下文特征", amber square "已确认 token", green square "待预测位置", white outlined square "不可见".
+
+Constraints: Chinese-first, large enough text to read without zooming at the intended screen size. Clear numbered sections. Do not overcrowd: prioritize correct arrows and the acceptance/correction example over extra decoration. Use consistent model naming. Keep title fully within the canvas. No clipping, overlapping text, translucent dark wash, watermark or invented branding. Do not present target hidden features as training labels; labels are original response tokens. Training target parameters stay frozen. Masked positions must not see original future answers.
