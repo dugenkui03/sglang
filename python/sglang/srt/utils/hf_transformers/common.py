@@ -646,8 +646,15 @@ def get_sparse_attention_config(
 
 # Some models don't have an available processor, e.g.: InternVL
 def get_tokenizer_from_processor(processor):
+    """
+    Processor：统一的输入预处理器
+        ├─ tokenizer：文本 → token ID
+        ├─ image_processor：图片 → 缩放、归一化后的图像张量
+        └─ feature_extractor：音频 → 模型需要的音频特征
+    """
     from transformers import PreTrainedTokenizerBase
 
+    # return tokenizer if processor is a tokenizer
     if isinstance(processor, PreTrainedTokenizerBase):
         return processor
     return processor.tokenizer

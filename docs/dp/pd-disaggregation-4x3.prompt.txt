@@ -1,0 +1,95 @@
+Use case: scientific-educational infographic edit.
+Edit the attached infographic into an EXACT 4:3 LANDSCAPE image (width:height = 4:3), preferably 3200×2400 or 2048×1536, using the highest feasible native resolution. This is a complete layout reflow of the same poster, NOT stretching the portrait image, NOT cropping it, NOT putting the unchanged portrait into a wide blank canvas. The content must fill the 4:3 landscape canvas with professional readable typography.
+
+Keep the Chinese educational subject, six numbered sections, color semantics (blue Prefill, green Decode, orange KV transfer, red waiting), scientific detail, and the source image's technical textbook style. White background, solid dark navy titles, lighter panel borders, no dark gradient behind the header. Preserve the content while adjusting line breaks and compacting captions for a balanced 2-column × 3-row reading layout:
+row 1: section 1 on left; section 2 on right
+row 2: section 3 on left; section 4 on right
+row 3: section 5 on left; section 6 on right
+Full-width title/subtitle at top; full-width concise terminology strip and note at bottom.
+Give timelines enough usable horizontal width and retain readable font sizes. Avoid excessively dense fine print. Use diagrams, tables and short bullets. No extra watermark or brand logos.
+
+Exact title: “Decode 依赖 Prefill，为什么还要 PD 分离？”
+Subtitle: “单个请求保持先后依赖；不同请求通过分工并行，减少干扰。”
+Legend: “蓝：Prefill　绿：Decode　橙：KV 传输　红：等待”
+
+SECTION 1 “① 一次生成，两个阶段”
+Preserve these concepts with two phase cards connected by orange KV Cache:
+- Prefill｜预填充：“处理输入，建立各层 KV Cache，通常产生首个输出 token。”
+- Decode｜逐步生成：“复用 KV Cache，逐步生成后续 token，并更新缓存。”
+- “KV Cache：历史 token 的 Key / Value 中间结果，减少重复计算。”
+- mini flow “输入 → Prefill → 首个 token → Decode → 后续 token”
+It must be visually obvious that generic ordinary generation processes a prompt and then iterates decode.
+
+SECTION 2 “② 混合部署：新请求可能干扰已有请求”
+Single logical shared-instance timeline:
+“A·D1” → “A·D2” → LONG BLUE “B·Prefill” → “A·D3” → “A·D4”
+Time goes left-to-right. A has completed Prefill before this shown time window.
+Above B block: “请求 B：长提示词”
+Below B block red bracket: “A 等待，输出间隔变长”
+Concise explanatory text:
+“共享推理实例中，长 Prefill 可能延后已有请求的 Decode。”
+“实际影响取决于调度策略与负载。”
+Keep a small label “A 已完成 Prefill”.
+
+SECTION 3 “③ PD 分离：依赖保留，请求间并行”
+This is the most important correction. The reference diagram has timing errors; fix them.
+Two lanes with a common left-to-right time axis: “Prefill 资源池” above “Decode 资源池”.
+Use the following normalized chronological positions WITHIN THIS PANEL'S plotting area (0%..100% time width):
+- Top BLUE P(A): 0%..15%.
+- Top BLUE P(B): 25%..50%.
+- Top BLUE P(C): 60%..80%.
+- Lower GREEN A·D1: 22%..32%; A·D2: 32%..42%; A·D3: 42%..52%; A·D4: 52%..62%.
+- Lower GREEN B·D1: 70%..80%; B·D2: 80%..90%.
+- An orange A KV arrow MUST originate from the RIGHT END of P(A), at 15%, and point downward and right to START of A·D1 at 22%. Label “A 的 KV”. Visible transfer interval.
+- An orange B KV arrow MUST originate from the RIGHT END of P(B), at 50%, and point downward and right to START of B·D1 at 70%. Label “B 的 KV”. NEVER start this arrow from P(C).
+- No Decode block can start before its own Prefill END. Arrows connect Prefill FINISH to Decode START, not block centers.
+- Highlight true simultaneous interval P(B) and A decode (25%..50%) with a light transparent rectangle.
+Caption “A 的 Decode 与 B 的 Prefill 可同时进行”.
+Small dependency rule “同一请求：Prefill 完成 → KV 到达 → Decode”
+No numerical timing or speedup claims; these are explanatory timelines.
+
+SECTION 4 “④ 两阶段，分别优化”
+Two-column comparison with headers “Prefill” and “Decode”:
+Prefill:
+“批量处理输入 token”
+“通常更偏计算密集”
+“关注输入处理效率、首 token 延迟”
+Decode:
+“逐步处理新 token”
+“通常更受显存带宽影响”
+“关注生成吞吐、输出间隔”
+Bottom explanation:
+“分别配置批处理与资源规模，减少互相干扰。”
+“瓶颈随模型、长度、batch 和硬件变化。”
+
+SECTION 5 “⑤ SGLang 如何接起来？”
+Topology must be corrected compared with reference:
+One “请求 / SMG 网关” box, one BLUE “Prefill worker” box, one GREEN “Decode worker” box.
+ONE thin control arrow from SMG to Prefill worker.
+A SEPARATE thin control arrow from SMG to Decode worker. Route it beneath the boxes if needed. Do not point BOTH SMG arrows to the Prefill worker.
+An ORANGE KV Cache transfer arrow DIRECTLY from Prefill worker to Decode worker.
+Both workers show a tag exactly “bootstrap_room = 101”.
+Caption “bootstrap_room：一次请求的 KV 传输配对编号。”
+Small “worker 可使用多张 GPU” and “传输后端示例：Mooncake / NIXL”.
+Keep gateway control arrows different from the orange data transfer arrow. KV Cache does not travel through the HTTP gateway in this schematic.
+
+SECTION 6 “⑥ 收益与代价”
+Green benefit list:
+“减少长 Prefill 对输出的干扰”
+“改善并发吞吐与输出稳定性”
+“按两阶段负载分别扩缩容”
+Orange cost list:
+“KV 传输带来网络与同步开销”
+“队列、路由与资源配置更复杂”
+“低负载或网络较慢时未必受益”
+Small formula:
+“单请求耗时 ≈ 排队 + Prefill + KV 传输 + Decode”
+“简化示意，实际可能有重叠；不保证每个请求更快。”
+Bold takeaway “依赖不变，用传输成本换取更灵活的调度。”
+
+BOTTOM strip:
+“PD = Prefill–Decode：拆分阶段　｜　DP = Data Parallel：不同 worker 处理不同请求　｜　两者可组合”
+Footnote: “依据 SGLang 仓库说明整理；时间轴为原理示意，不代表实测性能。”
+
+Scientific constraints: no same-request Decode before matching Prefill and KV arrival; no invented speedups; keep inter-request concurrency distinct from intra-request dependency; do not equate one worker with one GPU or one physical machine. All Chinese must be sharp and accurate, diagrams unambiguous.
+MOST IMPORTANT OUTPUT FORMAT: EXACT 4:3 LANDSCAPE, full composition reflowed to that ratio.

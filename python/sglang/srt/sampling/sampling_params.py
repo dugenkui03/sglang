@@ -152,6 +152,7 @@ class SamplingParams(msgspec.Struct, kw_only=True, array_like=True):
             self.top_k = TOP_K_ALL  # whole vocabulary
 
     def verify(self, vocab_size):
+        # 验证采样参数是否合法
         if self.beam_width is not None and self.beam_width < 1:
             raise ValueError(f"beam_width must be at least 1, got {self.beam_width}.")
         if not math.isfinite(self.temperature) or self.temperature < 0.0:
@@ -249,6 +250,7 @@ class SamplingParams(msgspec.Struct, kw_only=True, array_like=True):
             self.stop_regex_max_len = stop_regex_max_len
 
         # Validate tokenizer is available for tokenizer-dependent features
+        # 校验、无逻辑处理：使用停止字符串、停止正则或最小生成长度功能时，必须有 tokenizer。
         raise_if_tokenizer_required(
             tokenizer, self.stop_strs, self.stop_regex_strs, self.min_new_tokens
         )

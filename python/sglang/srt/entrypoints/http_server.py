@@ -1726,7 +1726,9 @@ async def openai_v1_completions(request: CompletionRequest, raw_request: Request
 async def openai_v1_chat_completions(
     request: ChatCompletionRequest, raw_request: Request
 ):
-    """OpenAI-compatible chat completion endpoint."""
+    """OpenAI-compatible chat completion endpoint.
+    调用到了 ./srt/entrypoints/openai/serving_base.py:73
+    """
     return await raw_request.app.state.openai_serving_chat.handle_request(
         request, raw_request
     )

@@ -124,26 +124,36 @@ class PickleWrapper(msgspec.Struct, tag=True, array_like=True):
 
 # Parameters for a session
 class SessionParams(msgspec.Struct, kw_only=True, array_like=True):
+    """服务端会话参数，用于将多轮请求关联到同一会话，并控制本轮如何使用历史上下文。
+
+    id 选择会话，rid 选择历史请求节点，其余参数控制上下文的截取、替换和输出保留。
+    """
+
     # The session identifier. Used by the scheduler to look up or create the
     # Session object that groups all requests in a multi-turn conversation.
+    # 会话 ID，用于定位当前请求所属的服务端会话。
     id: Optional[str] = None
     # A request identifier *within* the session. In non-streaming sessions the
     # session maintains a tree of request nodes keyed by rid; this field selects
     # which node to continue from (append) or replace. When None the default
     # branch point is used (latest node for streaming, all nodes cleared on
     # replace).
+    # 会话内的历史请求 ID，用于选择本轮要接续或替换的请求节点。
     rid: Optional[str] = None
     # Token-level insertion point. When set, the new request's tokens are
     # spliced into the accumulated context at this position instead of being
     # appended at the end (i.e. ``context[:offset] + new_tokens``).
+    # 非零时保留历史 context[:offset] 再拼接本轮 tokens，否则追加到末尾；流式会话不支持非零 offset。
     offset: Optional[int] = None
     # When True, the request node identified by ``rid`` (or all nodes if
     # ``rid`` is None) is aborted and its children are cleared before the new
     # request is inserted. Not supported in streaming sessions.
+    # 替换指定历史节点并清除其后续节点，rid 为空时清空全部节点；流式会话不支持。
     replace: Optional[bool] = None
     # When True, the previous request's generated output tokens are excluded
     # from the accumulated context so the new turn sees only the original input.
     # Not supported in streaming sessions.
+    # 构造本轮上下文时排除所选历史请求的生成输出，仅保留其输入；流式会话不支持。
     drop_previous_output: Optional[bool] = None
 
 

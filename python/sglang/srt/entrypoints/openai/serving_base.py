@@ -75,6 +75,9 @@ class OpenAIServingBase(ABC):
     ) -> Union[Any, StreamingResponse, ErrorResponse]:
         """Handle the specific request type with common pattern
         If you want to override this method, you should be careful to record the validation time.
+
+        使用统一的处理流程处理具体类型的请求。
+        如果要重写此方法，请注意记录请求校验耗时。
         """
         received_time = monotonic_time()
 
@@ -85,15 +88,20 @@ class OpenAIServingBase(ABC):
                 return self.create_error_response(error_msg)
 
             # Log the raw OpenAI request payload before conversion to tokenized form.
+            # tokenizer_manager 定义在./python/sglang/srt/managers/tokenizer_manager.py
             request_logger = self.tokenizer_manager.request_logger
             if request_logger.log_requests and request_logger.log_requests_level >= 2:
                 request_logger.log_openai_received_request(request, request=raw_request)
 
             # Convert to internal format
+            # 把 OpenAI/x 等接口的请求格式，转换成 SGLang 推理引擎使用的内部请求格式
+            #   - adapted_request：转换后的 GenerateReqInput，交给 TokenizerManager 执行推理。
+            #   - processed_request：处理后的 ChatCompletionRequest，保留 OpenAI 接口信息，供后续响应处理使用。
             adapted_request, processed_request = self._convert_to_internal_request(
                 request, raw_request
             )
 
+            # 判断 adapted_request 是否是 GenerateReqInput 或 EmbeddingReqInput 的实例
             if isinstance(adapted_request, (GenerateReqInput, EmbeddingReqInput)):
                 # Only set timing fields if adapted_request supports them
                 adapted_request.received_time = received_time
@@ -103,7 +111,7 @@ class OpenAIServingBase(ABC):
                 return await self._handle_streaming_request(
                     adapted_request, processed_request, raw_request
                 )
-            else:
+            else: # note 先看这里
                 return await self._handle_non_streaming_request(
                     adapted_request, processed_request, raw_request
                 )
@@ -182,6 +190,18 @@ class OpenAIServingBase(ABC):
         """Handle non-streaming request
 
         Override this method in child classes that support non-streaming requests.
+
+        处理非流式请求；支持非流式请求的子类应重写此方法。
+
+        参数说明：
+            self: 当前处理器实例，例如 OpenAIServingChat，由 Python 自动传入。
+            adapted_request: 转换后的 SGLang 内部生成请求，包含提示词或 token IDs、
+                采样参数等，用于执行推理。
+            request: 经过处理的接口层请求对象，对应调用方的 processed_request。
+                Chat 场景为 ChatCompletionRequest，保留模型名、响应选项等信息，
+                供后续响应处理使用。
+            raw_request: FastAPI 的 HTTP 请求对象，用于访问请求头、应用状态，
+                以及检查客户端是否断开连接。
         """
         return self.create_error_response(
             message=f"{self.__class__.__name__} does not support non-streaming requests",
@@ -191,7 +211,7 @@ class OpenAIServingBase(ABC):
 
     def _validate_request(self, _: OpenAIServingRequest) -> Optional[str]:
         """Validate request"""
-        pass
+        pass # pass 是 Python 的占位语句，表示 这里什么也不做
 
     def create_error_response(
         self,
