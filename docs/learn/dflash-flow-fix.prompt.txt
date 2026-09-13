@@ -1,0 +1,16 @@
+Use case: scientific-educational
+Intent: precise edit of the attached DFlash infographic.
+Edit target: the already generated 4:3 infographic. Preserve its exact 1448x1086 landscape 4:3 canvas, all four-panel layout, model names, color palette, fonts, opaque white background, title, training panel, speed panel, footer, and most text. Make ONLY the scientific arrow/sequence-label corrections below. This is a targeted technical correctness pass, not a redesign.
+
+1. Panel 1 upper blue conditioning line currently reaches the far-right candidate B/C/D box. REMOVE the entire branch leading from blue fused-context features to that candidate box. Blue fused-context features must feed only the "上下文 KV" input in each illustrated draft layer. Keep two clear downward branches: one ending at the first draft layer's context KV box, one at the second draft layer's context KV box. The line must end at the second KV branch and never feed candidate token output directly.
+Change the small fused-feature subtitle from "作为每层的上下文 KV" to "用于构建每层的上下文 KV", keeping its layout.
+
+2. The target model's lower output must produce the amber anchor token A. Reroute the lower blue branch from the target model so it ends at A (or at the start of the A + masks input sequence). Remove the current direct lower target-model → shared Embedding arrow. Keep the A + three [mask] boxes → shared Embedding → draft layer stack → shared target LM Head → candidates B/C/D path intact. The target hidden-feature extraction branch must remain separate and unchanged.
+
+3. Panel 2 left box currently reads "来自草稿的候选" above A/B/C/D, although A is already confirmed. Change the heading to "A 已确认，B/C/D 为草稿". Color A amber; leave B/C/D light green.
+
+4. Panel 2 output box currently reads "本轮提交的输出" above A/B/C′, although A was already confirmed before this round. Change ONLY that heading to "更新后的已确认序列". Keep the displayed sequence A → B → C′ and next-round box. A may be amber and B green; C′ stays amber. Keep the old C and D crossed out, and the explanatory notes about rejecting D and producing C′.
+
+5. The large blue loop arrow currently returns from Panel 2 output into the candidate output B/C/D box. Remove that incorrectly targeted loop. Draw a clean return path that ends at the draft input, at the amber A / masks sequence (A is the illustrative anchor position). Label it "C′ 作为新锚点，进入下一轮草稿生成". It can run within the narrow gap between Panels 1 and 2 or use an unobtrusive perimeter route. It must NOT land at candidate output, shared LM Head, or the target-model output logits. Avoid crossing text, other arrows, panel headings or the candidate box. If a long returning arrow cannot fit cleanly, use matching small circular connector tags at the confirmed output and draft input, both labelled "下一轮", with a short nearby note "以 C′ 为新锚点"; prioritize unambiguous scientific flow over a long decorative loop.
+
+Everything else must be preserved. Retain exact model names Qwen3.8-27B and incoai/Qwen3.8-27B-DFlash2. Do not crop, resize to another aspect ratio, introduce transparency, invent new claims, or change the training/speed panels. All Chinese labels remain readable.

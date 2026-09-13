@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- 本地 Qwen3.5 Mac 调试页：直接调用已启动的 SGLang HTTP 服务。 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Qwen3.5 Mac 调试请求</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { background: #f6f8fb; color: #1d2939; margin: 0; padding: 32px 16px; }
+    main { background: #fff; border: 1px solid #d8e0ea; border-radius: 12px; box-shadow: 0 4px 18px #1d293914; margin: auto; max-width: 800px; padding: 28px; }
+    h1 { font-size: 24px; margin: 0 0 8px; }
+    p { color: #526070; line-height: 1.6; }
+    label { display: block; font-weight: 600; margin: 18px 0 7px; }
+    textarea, input { border: 1px solid #b9c5d4; border-radius: 7px; box-sizing: border-box; font: inherit; padding: 10px; width: 100%; }
+    textarea { min-height: 110px; resize: vertical; }
+    .row { display: flex; gap: 16px; }
+    .row > div { flex: 1; }
+    button { background: #1769e0; border: 0; border-radius: 7px; color: white; cursor: pointer; font: inherit; font-weight: 600; margin-top: 22px; padding: 10px 16px; }
+    button:disabled { background: #94a3b8; cursor: wait; }
+    button.secondary { background: #64748b; margin-left: 8px; }
+    .status { color: #526070; font-size: 14px; margin-left: 10px; }
+    .answer, pre { background: #f4f7fa; border: 1px solid #d8e0ea; border-radius: 7px; margin-top: 8px; padding: 12px; }
+    .answer { min-height: 24px; white-space: pre-wrap; }
+    pre { max-height: 380px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    @media (max-width: 560px) { .row { display: block; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Qwen3.5-0.8B 本地调试</h1>
+    <p>页面将直接向 <code>127.0.0.1:30000/v1/chat/completions</code> 发送非流式请求。</p>
+
+    <form id="request-form">
+      <label for="prompt">提示词</label>
+      <textarea id="prompt" required>请只回答一个数字：1 + 1 = ?</textarea>
+
+      <div class="row">
+        <div>
+          <label for="temperature">temperature</label>
+          <input id="temperature" type="number" value="0" min="0" max="2" step="0.1">
+        </div>
+        <div>
+          <label for="max-tokens">max_tokens</label>
+          <input id="max-tokens" type="number" value="32" min="1" max="512" step="1">
+        </div>
+      </div>
+
+      <button id="send-button" type="submit">发送请求</button>
+      <button id="health-button" class="secondary" type="button">检查服务</button>
+      <span id="status" class="status">等待请求</span>
+    </form>
+
+    <label>生成结果</label>
+    <div id="answer" class="answer">尚未生成</div>
+
+    <label>完整 JSON 响应</label>
+    <pre id="response">尚未收到响应</pre>
+  </main>
+
+  <script>
+    // 服务由 run_qwen35_macos.sh 启动；此页面只负责构造并发送 HTTP 请求。
+    const serverUrl = "http://127.0.0.1:30000";
+    const form = document.querySelector("#request-form");
+    const sendButton = document.querySelector("#send-button");
+    const healthButton = document.querySelector("#health-button");
+    const status = document.querySelector("#status");
+    const answer = document.querySelector("#answer");
+    const responseBox = document.querySelector("#response");
+
+    function setStatus(message) {
+      status.textContent = message;
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return text;
+      }
+    }
+
+    healthButton.addEventListener("click", async () => {
+      setStatus("检查服务中…");
+      try {
+        const response = await fetch(`${serverUrl}/health`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        setStatus("服务正常（/health 返回 200）");
+      } catch (error) {
+        setStatus(`服务不可用：${error.message}`);
+      }
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const prompt = document.querySelector("#prompt").value.trim();
+      const temperature = Number(document.querySelector("#temperature").value);
+      const maxTokens = Number(document.querySelector("#max-tokens").value);
+
+      if (!prompt || !Number.isFinite(temperature) || !Number.isInteger(maxTokens) || maxTokens < 1) {
+        setStatus("请填写提示词、合法 temperature 和正整数 max_tokens。");
+        return;
+      }
+
+      const payload = {
+        model: "Qwen/Qwen3.5-0.8B",
+        messages: [{ role: "user", content: prompt }],
+        temperature,
+        max_tokens: maxTokens,
+        stream: false,
+      };
+
+      sendButton.disabled = true;
+      answer.textContent = "等待模型生成…";
+      responseBox.textContent = "请求中…";
+      setStatus("请求已发送");
+
+      try {
+        const httpResponse = await fetch(`${serverUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await readJson(httpResponse);
+        responseBox.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+        if (!httpResponse.ok) throw new Error(`HTTP ${httpResponse.status}`);
+
+        const message = data.choices?.[0]?.message ?? {};
+        answer.textContent = message.content || message.reasoning_content || "模型没有返回文本。";
+        setStatus("请求完成");
+      } catch (error) {
+        answer.textContent = "请求失败";
+        setStatus(`请求失败：${error.message}`);
+      } finally {
+        sendButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

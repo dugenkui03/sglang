@@ -401,7 +401,9 @@ class Scheduler(
     SchedulerDllmMixin,
     SchedulerMlxOverlapMixin,
 ):
-    """A scheduler that manages a tensor parallel GPU worker."""
+    """A scheduler that manages a tensor parallel GPU worker.
+        - Tensor Parallel，TP/张量并行：把同一个模型中的计算拆分到多张 GPU 上，由它们协作完成推理
+    """
 
     # Class-level default so on_idle's stall gate works even if a fork
     # overrides init_load_publisher (which would otherwise not set it).
@@ -1587,9 +1589,10 @@ class Scheduler(
         )
 
     def init_request_dispatcher(self):
+        # 调用到了 TypeBasedDispatcher.__init__() 方法
         self._request_dispatcher = TypeBasedDispatcher(
             [
-                (TokenizedGenerateReqInput, self.handle_generate_request),
+                (TokenizedGenerateReqInput, self.handle_generate_request), # 【重要】每个类型的输入及其对应的 handler
                 (TokenizedEmbeddingReqInput, self.handle_embedding_request),
                 (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
@@ -1815,14 +1818,24 @@ class Scheduler(
 
     @DynamicGradMode()
     def event_loop_overlap(self):
-        """A scheduler loop that overlaps the CPU processing and GPU computation."""
+        """A scheduler loop that overlaps the CPU processing and GPU computation.
+            - overlaps a and b：让 a 和 b 同时进行
+        """
+
+        # Deque：双端队列，两端都能添加、取出元素。这里用来暂存各个 batch 及其执行结果。
+        # Tuple：元组，按顺序组合多个元素，创建后不能增删或替换元素。这里每个元组包含两个元素：ScheduleBatch 和对应的结果
         self.result_queue: Deque[
-            Tuple[ScheduleBatch, Union[GenerationBatchResult, EmbeddingBatchResult]]
-        ] = deque()
+            Tuple[
+                    ScheduleBatch,
+                    Union[GenerationBatchResult, EmbeddingBatchResult]
+                 ]
+        ] = deque() # deque() 创建空队列
 
         def pop_and_process():
             # Process the results of the last batch
+            # 从队头取出一组 batch 和结果
             tmp_batch, tmp_result = self.result_queue.popleft()
+            # 处理这组结果 【TODO】待分析
             self.process_batch_result(tmp_batch, tmp_result)
 
         while True:
@@ -1830,6 +1843,8 @@ class Scheduler(
                 break
 
             # Receive requests
+            # 【重要】recv_requests 接收的是 TokenizerManager 刚才发送的请求参数：token、采样参数等。
+            #     recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
             recv_reqs = self.request_receiver.recv_requests()
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
@@ -1938,13 +1953,19 @@ class Scheduler(
 
     @scheduler_nvtx_method("scheduler.process_input_requests")
     def process_input_requests(self, recv_reqs: List):
+        """
+            遍历收到的请求，按类型交给对应处理器
+
+            recv_reqs 类型为 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
+        """
         now = time.monotonic()
         self.session_controller.maybe_reap(now)
+        # 判断服务是否使用 CUDA VMM 方式传输多模态特征，mm 是多模态模型缩写
         if get_mm().mm_feature_transport == "cuda_vmm":
             for recv_req in recv_reqs:
                 self._materialize_cuda_vmm_inputs(recv_req)
 
-        for recv_req in recv_reqs:
+        for recv_req in recv_reqs: # 【重要】遍历收到的请求
             # Skip health check when server is busy — ongoing requests already carry health info.
             if is_health_check_generate_req(recv_req) and not self.is_fully_idle(
                 for_health_check=True
@@ -1954,6 +1975,7 @@ class Scheduler(
                 )
                 continue
 
+            # 调用到了 TypeBasedDispatcher#__call__() 方法
             output = self._request_dispatcher(recv_req)
             if output is not None:
                 if self.rust_server is not None:
@@ -1972,7 +1994,10 @@ class Scheduler(
             self.external_corpus_manager.check_pending_load()
 
     def _materialize_cuda_vmm_inputs(self, recv_req):
-        """Release VMM slices before request handling can reject the request."""
+        """
+         Release VMM(Virtual Memory Management，虚拟内存管理) slices before request handling can reject the request.
+         把收到的多模态输入，整理成 Scheduler 可以使用的数据
+        """
         if isinstance(
             recv_req, (TokenizedGenerateReqInput, TokenizedEmbeddingReqInput)
         ):
@@ -2278,12 +2303,13 @@ class Scheduler(
         )
 
     def init_req_max_new_tokens(self, req):
-        input_len = len(req.origin_input_ids)
-        max_new_tokens = (
+        input_len = len(req.origin_input_ids) # 输入 token 长度
+        max_new_tokens = ( # 输出最大长度
             req.sampling_params.max_new_tokens
             if req.sampling_params.max_new_tokens is not None
             else 1 << 30
         )
+        # 将输入的 max_new_tokens 降级成最大允许值
         if self.max_new_tokens_limit is not None and self.max_new_tokens_limit > 0:
             if max_new_tokens > self.max_new_tokens_limit:
                 logger.warning(
@@ -2432,10 +2458,13 @@ class Scheduler(
             mm.mrope_position_delta = mrope_position_delta
 
     def _maybe_namespace_elastic_radix_cache(self, req: Req) -> None:
+        """
+            ?给请求的缓存键加上当前 EP 规模的标记，让不同并行规模的 KV Cache 分开使用?
+        """
         if (
-            get_exec().moe.elastic_ep_backend is None
-            or self.disable_radix_cache
-            or not self.tree_cache.is_tree_cache()
+            get_exec().moe.elastic_ep_backend is None # ?未配置弹性专家并行后端，即没有启用 Elastic EP?
+            or self.disable_radix_cache # 已禁用 RadixCache。
+            or not self.tree_cache.is_tree_cache() # 当前使用的缓存实现不是树形缓存
         ):
             return
 
@@ -2474,15 +2503,23 @@ class Scheduler(
         recv_req: TokenizedGenerateReqInput,
     ):
         # Route: normal request / session request / session-not-found
+        # session_params.id：传统会话 ID，用于查找已有 Session、衔接请求上下文。
         session_id = (
-            recv_req.session_params.id if recv_req.session_params is not None else None
+            recv_req.session_params.id
+            if recv_req.session_params is not None
+            else None
         )
         # Radix-native sessions use only the top-level session_id.
+        # 顶层 session_id：RadixCache 原生会话 ID，配合服务端开关关联会话与 KV Cache 引用。
         radix_native_session = (
-            recv_req.session_id is not None and self.enable_session_radix_cache
+            recv_req.session_id is not None
+            and self.enable_session_radix_cache # 【note】服务端开启了会话 RadixCache 功能
         )
 
         if session_id is None or radix_native_session:
+            """
+              未指定传统会话 ID（session_params.id），或请求携带 session_id 且服务端开启会话 RadixCache 功能时，构造新的 Req。
+            """
             # Normal non-session request, or a radix-native session request
             if recv_req.input_embeds is not None:
                 # Generate fake input_ids based on the length of input_embeds
@@ -2493,6 +2530,7 @@ class Scheduler(
                 # Use default bootstrap port
                 recv_req.bootstrap_port = get_disagg().disaggregation_bootstrap_port
 
+            # beam 指 Beam Search，中文叫“束搜索”
             is_beam = BeamCoordinator.request_beam_width(recv_req) > 1
             req = Req(
                 recv_req.rid,
@@ -2540,7 +2578,7 @@ class Scheduler(
             )
             req.tokenizer = self.tokenizer
 
-            if radix_native_session:
+            if radix_native_session: # 如果使用了 radix 的原生session
                 req.session_generation = self.tree_cache.ensure_session_generation(
                     recv_req.session_id
                 )
@@ -2553,8 +2591,9 @@ class Scheduler(
                     self.output_streamer.stream_output([req], req.return_logprob)
                     return
 
-            if self.disaggregation_mode != DisaggregationMode.NULL:
-                # Invalid request for disaggregated mode
+            if self.disaggregation_mode != DisaggregationMode.NULL: # 如果启动了分离模式
+                # Invalid request for disaggregated mode。aggregated-聚合的；
+                # disaggregated mode 是“分离部署模式”，这里具体指 Prefill / Decode 分离（PD 分离）
                 if (
                     recv_req.bootstrap_room is None
                     and self.transfer_backend != TransferBackend.FAKE
@@ -2620,7 +2659,9 @@ class Scheduler(
 
         self._maybe_namespace_elastic_radix_cache(req)
 
+        # 当前是否使用 DFLASH / DSPARK 这类推测解码算法。
         if self.spec_algorithm.is_dflash_family():
+            # 检查请求参数与当前运行模式是否兼容。
             error_msg = validate_dflash_request(req, self.enable_overlap)
             if error_msg is not None:
                 req.set_finish_with_abort(error_msg)

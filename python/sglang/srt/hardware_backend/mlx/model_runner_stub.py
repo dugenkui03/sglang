@@ -141,6 +141,11 @@ class MlxModelRunnerStub(ModelRunner):
         self.dtype = self.model_config.dtype
         self.weight_load_mem_usage = 0
 
+    @property
+    def preloaded_weights_bytes(self) -> int:
+        """Return zero because MLX weights are not loaded by this PyTorch stub."""
+        return 0
+
     def _aux_state_slots_per_request(self) -> int:
         """Auxiliary-state slots to reserve per concurrently running request.
 
