@@ -6,10 +6,23 @@
 
 ## 1. 准备环境
 
-前提：Apple Silicon、macOS 14 或更新版本、Python 3.12 和 `uv`。当前机器上的环境会创建在被 Git 忽略的 `.venv/qwen35-mac` 中。
+前提：Apple Silicon、macOS 14 或更新版本、Python 3.12 和 `uv`。当前机器上的环境会创建在被 Git 忽略的 `.venv/qwen35-mac` 中；请至少预留约 6 GB 磁盘空间给 Python 环境、模型权重和 Hugging Face 缓存。
+
+如果尚未安装 Python 3.12 和 `uv`，可使用 Homebrew：
+
+```bash
+brew install python@3.12 uv
+```
 
 ```bash
 ./scripts/learn/setup_qwen35_macos.sh
+```
+
+如果 `python3.12` 不在 `PATH` 中：
+
+```bash
+PYTHON_BIN=/opt/homebrew/opt/python@3.12/bin/python3.12 \
+  ./scripts/learn/setup_qwen35_macos.sh
 ```
 
 脚本会从 `python/pyproject_other.toml` 的 `srt_mps` 依赖安装 MLX、MLX-LM 和 Apple 版 PyTorch，但不会修改当前工作区中的 `python/pyproject.toml` 或 `python/pyproject_other.toml`。启动时通过 `PYTHONPATH` 导入当前分支源码，因此在源码中下断点立即生效。
