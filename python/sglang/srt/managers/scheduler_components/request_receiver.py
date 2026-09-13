@@ -85,6 +85,7 @@ class SchedulerRequestReceiver:
             if not self.recv_skipper.handle(self.get_last_batch()):
                 return []
 
+        # 【重要】接收 TokenizerManager 发送的请求参数：token、采样参数等。
         recv_reqs = self._pull_raw_reqs()
 
         if self.input_blocker is not None:
