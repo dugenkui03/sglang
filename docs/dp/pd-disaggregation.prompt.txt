@@ -1,0 +1,104 @@
+Use case: scientific-educational / infographic-diagram.
+Create ONE new highly detailed Simplified Chinese educational infographic poster explaining SGLang Prefill–Decode disaggregation to a software engineer beginning to study LLM inference. This is an original graphic, not an edit of a screenshot. Use the built-in image generator. All content must fit on ONE polished poster.
+Asset type: repository learning infographic, high-resolution portrait approximately 2:3, ideally 2048×3072 or higher. Crisp Simplified Chinese typography, clear large labels, generous spacing, straight connectors with arrowheads, professional technical book illustration with clean vector-like raster graphics and subtle depth. White or very light neutral background, dark readable body text. Semantic colors: BLUE for Prefill, GREEN for Decode, ORANGE for KV transfer, RED only for waiting/interference. Color coding must remain consistent across the whole poster. Avoid excessive decoration, photorealism, logos, watermarks, tiny illegible footnotes, and overcrowding. Emphasize diagrams and annotated timelines, not walls of prose. Render code identifiers exactly.
+
+TITLE, very large:
+“Decode 依赖 Prefill，为什么还要 PD 分离？”
+Subtitle:
+“单个请求保持先后依赖；不同请求通过分工并行，减少干扰。”
+Small legend: “蓝色：Prefill　绿色：Decode　橙色：KV 传输　红色：等待”
+
+Arrange SIX numbered, clearly separated panels from top to bottom; timeline panels 2 and 3 should get the largest visual area. Final short terminology strip at bottom.
+
+PANEL 1 — “① 一次生成，两个阶段”
+Draw input token tiles leading into a blue Prefill block, a KV-cache icon, then a green sequence of decode steps. Use the following concise accurate copy in well-separated subcards:
+“Prefill｜预填充”
+“处理提示词与聊天历史，建立各层 KV Cache，通常产生首个输出 token。”
+“Decode｜逐步生成”
+“复用 KV Cache，每步生成后续 token，并把新 token 的 K/V 加入缓存。”
+A small explanatory cache callout:
+“KV Cache：保存历史 token 的 Key / Value 中间结果，减少重复计算。”
+Simple sequence at panel bottom:
+“输入 → Prefill → 首个输出 token → Decode → 后续 token → 停止”
+This is generic ordinary autoregressive generation, not speculative decoding. Do not imply the whole output is generated in one forward call. Distinguish generating tokens from detokenization.
+
+PANEL 2 — “② 混合部署：新请求可能干扰已有请求”
+Show one logical “共享推理实例” scheduling row on a rightward time axis labeled “时间 →”. It must depict an already-running request A decoding: green blocks “A·D1”, “A·D2”, then a long BLUE block “B·Prefill”, then green “A·D3”, “A·D4”. Request A's prefill has finished before this displayed time window. Above the long B block show an incoming prompt document “请求 B：长提示词”. Below the same B block, show a RED dashed bracket “A 等待，输出间隔变长”.
+Use copy:
+“请求 A 正在输出；请求 B 的长 Prefill 占用共享计算资源。”
+“混合调度下，A 的 Decode 可能被延后，用户感觉输出卡顿。”
+Add small balanced note:
+“这是可能出现的干扰示意；实际影响取决于调度策略与负载。”
+Do not claim every mixed-serving architecture always has a literal interruption. No numerical benchmark claims.
+
+PANEL 3 — “③ PD 分离：依赖保留，请求之间可以并行”
+This is the main teaching figure. Use two vertically aligned lanes on the SAME horizontal time axis, showing two logically separate resource pools:
+top lane “Prefill 实例 / 资源池”
+bottom lane “Decode 实例 / 资源池”.
+Explicit chronological layout:
+- First blue block P(A) on top lane at left.
+- Orange arrow “传输 A 的 KV” from the END of P(A) down to the START of A decode on bottom lane; reserve a visible transfer interval.
+- Immediately after P(A), top lane executes blue P(B), then P(C).
+- Bottom lane A decode is a series of green blocks “A·D1”, “A·D2”, “A·D3”, “A·D4” aligned underneath and overlapping in TIME with top lane P(B).
+- After P(B) ends, an orange arrow “B 的 KV 到达” leads toward a later green decode B segment. B decode must be after completion of its own P(B) and KV transfer. It may wait for decode capacity. Do not draw B decode before its own cache transfer.
+- Highlight the aligned overlap region with a thin translucent rectangle and label “A 的 Decode 与 B 的 Prefill 同时进行”.
+Two bold callouts:
+“同一请求：Prefill → KV 到达 → Decode”
+“不同请求：Decode(A) 与 Prefill(B) 可并行”
+Small note:
+“分离的是执行资源与调度；两类实例的比例可以调整。”
+Both timelines are conceptual; panel 3 must not be represented as a measured equal-GPU-count speed comparison. No axis units or arbitrary speedup percentages.
+
+PANEL 4 — “④ 为什么适合分开优化？”
+Use a clean two-column comparison:
+Column blue “Prefill”
+“输入 token 较多”
+“通常更偏计算密集”
+“关注提示词处理效率与首 token 延迟”
+Column green “Decode”
+“逐步处理新 token”
+“通常更受显存带宽影响”
+“关注持续生成吞吐与输出间隔”
+Below use a horizontal cause-and-effect arrow:
+“分别设置批处理与资源规模 → 减少互相干扰，提高并发服务效率”
+Small qualifier:
+“资源瓶颈会随模型、序列长度、batch 大小和硬件变化。”
+
+PANEL 5 — “⑤ 在 SGLang 中如何接起来？”
+Draw minimal but clear topology:
+“请求 / SMG 网关” connecting to blue “Prefill worker” and green “Decode worker”.
+An ORANGE directed data arrow goes from Prefill worker to Decode worker, labeled “KV Cache 传输”. Worker icon may represent multiple GPUs; do not equate a worker to one physical server or one GPU.
+Place a matching orange tag on BOTH worker sides: “bootstrap_room = 101”.
+Caption:
+“bootstrap_room：一次请求的传输配对编号，关联两端的 KV 传输。”
+Small numbered captions:
+“网关选择 P / D 实例”
+“Prefill 处理输入并准备 KV”
+“Decode 等待匹配的 KV 后继续生成”
+Do not depict KV Cache flowing through the HTTP gateway; the orange KV arrow goes directly between worker sides. Do not imply bootstrap_room is a worker ID or physical room.
+Add an understated label near KV arrow: “传输后端示例：Mooncake / NIXL”.
+
+PANEL 6 — “⑥ 收益与代价：分离不等于每个请求都更快”
+Two balanced cards:
+Green “可能获得的收益”
+“减少长 Prefill 对持续输出的干扰”
+“改善高并发下的吞吐与输出稳定性”
+“按输入、输出负载分别扩缩容”
+Orange “需要付出的成本”
+“KV Cache 传输带来网络与同步开销”
+“队列、路由和资源配置更复杂”
+“低负载或传输较慢时，未必有收益”
+Small formula card:
+“单请求耗时 ≈ 排队 + Prefill + KV 传输 + Decode”
+Under formula:
+“示意公式忽略部分重叠；实际收益需按负载和硬件测量。”
+Prominent short concluding takeaway:
+“依赖关系没有消失：用传输成本换取更灵活的资源调度。”
+
+BOTTOM TERMINOLOGY STRIP:
+“PD = Prefill–Decode：拆分推理阶段”
+“DP = Data Parallel：多个 worker 处理不同请求”
+“PD 与 DP 可以组合使用”
+Small source/footer:
+“依据 SGLang 仓库 PD Disaggregation 说明整理｜时间轴为原理示意，不代表实测性能”
+Do not include unrelated embedding requests, LoRA, model training, speculative decoding, or deployment commands. Prioritize accurate Chinese, unambiguous arrows, consistent stage colors, and correct same-request dependency.

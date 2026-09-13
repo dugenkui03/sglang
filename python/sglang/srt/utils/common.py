@@ -4712,7 +4712,9 @@ def raise_error_or_warn(obj, strict, counter_name, message, log_interval=1000):
 
 
 def get_or_create_event_loop():
-    """Gets the running event loop or creates a new one if it doesn't exist."""
+    """Gets the running event loop or creates a new one if it doesn't exist.
+     获取当前线程正在运行的事件循环，没有就抛出 RuntimeError
+    """
     try:
         return asyncio.get_running_loop()
     except RuntimeError:

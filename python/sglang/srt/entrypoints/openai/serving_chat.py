@@ -242,7 +242,9 @@ def _build_video_config(request: ChatCompletionRequest) -> Optional[Dict[str, An
 
 
 class OpenAIServingChat(OpenAIServingBase):
-    """Handler for /v1/chat/completions requests"""
+    """Handler for /v1/chat/completions requests
+    处理 /v1/chat/completions 请求，生成聊天回复。
+    """
 
     _default_sampling_params_logged = False
     _KIMI_K3_GENERATION_STUB_TOKENS = 3
@@ -1812,11 +1814,16 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request,
     ) -> Union[ChatCompletionResponse, ErrorResponse, ORJSONResponse]:
-        """Handle non-streaming chat completion request"""
+        """Handle non-streaming chat completion request
+            处理 non-streaming 类型请求
+        """
         try:
-            ret = await self.tokenizer_manager.generate_request(
+            # 定义核心逻辑：处理输入 → 分词 → 发给 Scheduler → 模型推理 → 收到输出 → yield 结果 → 赋值给 ret
+            response_generator = self.tokenizer_manager.generate_request(
                 adapted_request, raw_request
-            ).__anext__()
+            )
+            # 真正执行核心逻辑
+            ret = await response_generator.__anext__()
         except ValueError as e:
             return self.create_error_response(str(e))
 
