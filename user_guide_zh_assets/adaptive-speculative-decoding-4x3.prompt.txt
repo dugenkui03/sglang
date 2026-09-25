@@ -1,0 +1,49 @@
+Generation mode: built-in image_gen
+
+Use case: infographic-diagram
+Asset type: Chinese educational infographic for an SGLang learning article.
+Primary request: Explain adaptive speculative decoding with accurate, intuitive visuals. Landscape, exact 4:3 aspect ratio, high resolution, crisp readable Simplified Chinese, clean white background, clear cards and generous spacing. Prefer left-to-right flows. No watermark, no unrelated mascot.
+Title: "自适应推测解码"
+Subtitle: "观察接受长度和批大小，动态决定下一轮猜几步"
+Small scope badge: "EAGLE / EAGLE3 · topk = 1（单链模式）"
+
+Organize into four clearly numbered sections with short exact captions, not long paragraphs. Color vocabulary: blue = target model / verified starting token; purple = draft candidates; green = accepted candidates; orange/red = rejected or wasted candidates.
+
+Section 1, full-width top panel: "① 两个参数，分别控制什么？"
+Show a left-to-right chain of EXACTLY FOUR equal token boxes:
+blue "想" with small caption "已确定起点";
+then purple "去", purple "北京", purple "旅游".
+Use an upper bracket covering ONLY the last THREE boxes labeled "num_steps = 3：向后推测 3 步".
+Use a lower bracket covering ALL FOUR boxes labeled "num_draft_tokens = 4：起点 + 3 个候选".
+Add a compact exact formula: "topk = 1 时：num_draft_tokens = num_steps + 1".
+Each word box is an illustrative token; no branching in this panel.
+
+Section 2, left middle panel: "② 固定步数，为什么会浪费？"
+Two miniature candidate chains each with EXACTLY THREE boxes, all candidates and no root. First chain green A, green B, green C, caption "经常接受 3 个 → 可以尝试更多步".
+Second chain green A, red B, gray C, caption "经常只接受 1 个 → 可以减少步数".
+Make clear C is discarded after rejection at B, not separately accepted.
+At bottom: "批次越大，无效草稿计算的代价通常越高".
+These are conceptual trends, not deterministic exact policy outputs.
+
+Section 3, right middle panel: "③ 按批大小分别学习"
+Two rows of compact cards:
+"小批次区间" → "独立统计接受长度" → "选择本区间档位"
+"大批次区间" → "独立统计接受长度" → "选择本区间档位"
+Shared small label: "EMA：平滑近期观测，减少波动"
+Candidate-chip example: "示例候选步数：1 / 3 / 7"
+Small caption: "候选档位按配置定义；各区间互不干扰"
+Do not present these values or any batch threshold as universal current defaults.
+
+Section 4, full-width bottom panel: "④ 每轮形成一个反馈循环"
+Five left-to-right numbered boxes:
+"按当前批大小选档位" → "草稿生成" → "目标模型批量校验" → "统计接受长度 · 更新 EMA" → "决定后续轮次档位".
+A curved feedback arrow from final box back to first, label "下一轮".
+Below these boxes show three small prebuilt state cards "1 步状态", "3 步状态", "7 步状态", each with tiny labels "注意力后端 + CUDA 图"; selection arrow from a switch icon goes to ONE card, caption "提前准备，轮次边界切换".
+Final two concise bottom notes: "预热 + 更新间隔 + 滞回：避免频繁切换" and "目标：减少无效草稿计算；实际收益取决于负载".
+Important technical constraints: adapt NUM STEPS rather than relaxing correctness/acceptance criteria; no top-2 acceptance claim; no graph recapture in the middle of a round; no promise of guaranteed speedups; count candidate tokens excluding root for acceptance length; verify-node count includes root. Optional 0-step mode exists in some versions but OMIT it here to keep this concept diagram focused. All labels must remain readable and fully inside canvas.
+
+Final edit prompt (built-in image_gen):
+Use case: precise-object-edit.
+Edit this existing Chinese educational infographic. Preserve the exact 4:3 landscape composition, all Chinese/English labels, numbers, equations, four sections, token boxes and arrow geometry.
+The ONLY requested correction is background/rendering cleanup: replace all transparent or black-looking empty areas with a clean solid opaque white background (#FFFFFF), including behind the title, subtitle, between panels, and around the bottom feedback arrow and state switch. Remove ragged cutout edges and restore crisp anti-aliased text/lines where transparency damaged their readability.
+This must be a fully opaque finished infographic on a white rectangular canvas, NOT a transparent sticker sheet. No alpha holes, no transparency, no black background. Ensure the title "自适应推测解码", subtitle "观察接受长度和批大小，动态决定下一轮猜几步", the bottom "下一轮" and "提前准备，轮次边界切换" labels are crisp and legible. Keep every informational element and all token counts unchanged.
