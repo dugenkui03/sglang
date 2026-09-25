@@ -193,7 +193,7 @@ work_dirs/
 !assets/sglang-architecture-overview-zh.png
 !assets/sglang-architecture-srt-zh.png
 !assets/sglang-architecture-scaling-zh.png
-!user_guide_zh_assets/*.png
+!user_guide_zh/assets/*.png
 
 # Prerequisites
 *.d
