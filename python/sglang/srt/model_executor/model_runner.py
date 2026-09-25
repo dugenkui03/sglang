@@ -1515,9 +1515,11 @@ class ModelRunner:
     def _extend_forward_kwargs(
         self, forward_batch: ForwardBatch, pp_proxy_tensors
     ) -> dict:
-        """Build the extend/prefill model.forward kwargs (pp_proxy_tensors +
-        input_embeds / replace_embeds overrides + get_embedding), shared by the
-        prefill cuda-graph path and the EagerRunner's eager extend path."""
+        """
+            Build the extend/prefill model.forward kwargs
+            (pp_proxy_tensors + input_embeds / replace_embeds overrides + get_embedding),
+            shared by the prefill cuda-graph path and the EagerRunner's eager extend path.
+        """
         kwargs = self._pp_kwargs(pp_proxy_tensors)
         if forward_batch.input_embeds is not None:
             kwargs["input_embeds"] = forward_batch.input_embeds.bfloat16()
