@@ -137,7 +137,9 @@ def enable_cp_v2() -> bool:
 
 
 def is_cp_v2_active(forward_batch) -> bool:
-    """Return whether the current forward batch is running through CP-v2."""
+    """
+        Return whether the current forward batch is running through CP-v2.
+    """
     if not enable_cp_v2():
         return False
     forward_mode = getattr(forward_batch, "forward_mode", None)

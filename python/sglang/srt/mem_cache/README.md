@@ -1,84 +1,55 @@
 # `mem_cache/`
 
-Everything that owns KV / SSM-state memory: who hands out slots, who holds the bytes on
-the device, who mirrors them to host and disk, and which radix cache decides what
-to keep. The layout is specified in
-[#25371](https://github.com/sgl-project/sglang/issues/25371).
+该目录包含负责管理键值缓存(Key/Value Cache, KV Cache)和状态空间模型(State Space Model, SSM)状态内存的实现：由谁分配槽位(Slot)、由谁在设备(Device)上存放实际数据、由谁将数据镜像到主机(Host)和磁盘，以及由哪个基数树缓存(Radix Cache)决定保留哪些缓存。目录布局见 [#25371](https://github.com/sgl-project/sglang/issues/25371)。
 
-## Layers
+## 分层(Layers)
 
-```
-        scheduler / model_runner / attention backend
-                          |
-                          v
-        allocation.py                  per-batch allocation policy
-                          |
-                          v
-        hybrid_cache/                  multi-pool router (layer_id -> pool)
-                          |
-                          v
-        allocator/                     "give me N slots"  (need_size -> indices)
-                          | holds a reference to
-                          v
-        pool/ (device, L1)  --hicache-->  pool_host/ (host, L2)  -->  storage/ (L3)
-        (layer_id, indices)               device_indices <->
-             <-> tensor                   host_indices
+```mermaid
+flowchart LR
+    A["调度器(Scheduler) / 模型运行器(ModelRunner)<br/>注意力后端(Attention Backend)"] --> B["allocation.py<br/>每个批次(Batch)的分配策略"]
+    B --> C["hybrid_cache/<br/>多个内存池(Memory Pool)之间的路由"]
+    C --> D["allocator/<br/>分配 N 个槽位(Slot)"]
+    D -->|"持有引用(Reference)"| E["pool/<br/>设备(Device)，一级缓存(L1)"]
+    E -->|"分层缓存(HiCache)"| F["pool_host/<br/>主机(Host)，二级缓存(L2)"]
+    F --> G["storage/<br/>外部存储(Storage)，三级缓存(L3)"]
 ```
 
-| Layer | Cares about | In -> Out |
+| 层(Layer) | 关注内容 | 输入(Input) → 输出(Output) |
 |---|---|---|
-| `allocation.py` | per-batch allocation policy | `batch` -> `out_cache_loc` |
-| `hybrid_cache/` | per-layer routing across pools | `layer_id` -> pool |
-| `allocator/` | which slots are free | `need_size` -> `indices` |
-| `pool/` | physical KV / SSM state layout | `(layer_id, indices)` <-> tensor |
-| `pool_host/` | host mirror + H2D/D2H | `device_indices` <-> `host_indices` |
-| `storage/` | L3 backends (file, NIXL, HF3FS, Mooncake, ...) | hash -> bytes |
-| radix cache | what to keep and what to evict | token prefix -> node |
+| `allocation.py` | 每个批次(Batch)的分配策略(Allocation Policy) | `batch` → `out_cache_loc` |
+| `hybrid_cache/` | 根据模型层，在多个内存池(Memory Pool)之间路由 | `layer_id` → 内存池(Pool) |
+| `allocator/` | 哪些槽位(Slot)空闲 | `need_size` → `indices`，即槽位索引(Indices) |
+| `pool/` | KV / SSM 状态的物理布局(Physical Layout) | `(layer_id, indices)` ↔ 张量(Tensor) |
+| `pool_host/` | 主机镜像(Host Mirror)，以及主机到设备(Host-to-Device, H2D)和设备到主机(Device-to-Host, D2H)的数据传输 | `device_indices` ↔ `host_indices` |
+| `storage/` | 三级缓存后端(L3 Backend)，如文件、NIXL、HF3FS、Mooncake 等 | 哈希值(Hash) → 字节数据(Bytes) |
+| 基数树缓存(Radix Cache) | 保留哪些缓存、淘汰哪些缓存 | 词元前缀(Token Prefix) → 树节点(Node) |
 
-Two groups sit outside that stack:
+另外两组实现位于上述分层之外：
 
-- **Radix cache** is its own axis. The per-model variants (`radix_cache.py`,
-  `swa_radix_cache.py`, `mamba_radix_cache.py`, `hiradix_cache.py`, `chunk_cache.py`)
-  are converging onto the **Unified Radix Cache** (`unified_cache/`,
-  [#20415](https://github.com/sgl-project/sglang/issues/20415)), whose Full/SWA/Mamba
-  component model is documented in
-  [`unified_cache/components/README.md`](unified_cache/components/README.md).
-- **Construction** cuts across every layer rather than sitting in it:
-  `kv_cache_configurator.py`, `kv_cache_builder.py`, `cache_init_params.py`,
-  `allocation_sizing.py`, `kv_cache_dtype.py`, `kv_vmm_backing.py`, and
-  `hybrid_cache/hybrid_pool_assembler.py` decide the shapes and build the objects above.
+- **基数树缓存(Radix Cache)** 是独立的一条管理维度。针对不同模型的变体，如 `radix_cache.py`、`swa_radix_cache.py`、`mamba_radix_cache.py`、`hiradix_cache.py` 和 `chunk_cache.py`，正在向**统一基数树缓存(Unified Radix Cache)**收敛。实现位于 `unified_cache/`，相关讨论见 [#20415](https://github.com/sgl-project/sglang/issues/20415)。其全注意力(Full Attention)、滑动窗口注意力(Sliding Window Attention, SWA)和 Mamba 的组件模型(Component Model)，见 [`unified_cache/components/README.md`](unified_cache/components/README.md)。
+- **构造(Construction)** 逻辑贯穿各层：`kv_cache_configurator.py`、`kv_cache_builder.py`、`cache_init_params.py`、`allocation_sizing.py`、`kv_cache_dtype.py`、`kv_vmm_backing.py` 和 `hybrid_cache/hybrid_pool_assembler.py` 负责确定形状(Shape)，并构建上述对象。
 
-## Where does my class go?
+## 类(Class)应该放在哪？
 
-By base class, never by name:
+根据基类(Base Class)确定归属，不根据类名确定：
 
-| Inherits from | Home |
+| 继承的基类(Base Class) | 所属位置 |
 |---|---|
 | `BaseTokenToKVPoolAllocator` | `allocator/<family>.py` |
 | `KVCache`, `BaseSWAKVPool`, `ReqToTokenPool`, `MambaPool` | `pool/<family>.py` |
 | `HostKVCache` | `pool_host/<family>.py` |
 | `HiCacheStorage` | `storage/<backend>/` |
-| `BasePrefixCache` | one module at the `mem_cache/` root |
+| `BasePrefixCache` | `mem_cache/` 根目录下的一个模块(Module) |
 
-`<family>` is the attention or state family: `mha`, `mla`, `dsa`, `mamba`, `swa`,
-`hisparse`, `deepseek_v4`. A new quantization or layout variant of an existing family is
-a new file in that family's module, not a new class in a catch-all one.
+`<family>` 表示注意力(Attention)或状态类别(State Family)，例如 `mha`、`mla`、`dsa`、`mamba`、`swa`、`hisparse` 和 `deepseek_v4`。现有类别新增量化(Quantization)或布局(Layout)变体时，应在该类别的模块(Module)中新增文件，而不是在一个包罗所有类别的模块中新增类。
 
-`Allocator` means two different things and they do not share a directory:
+分配器(Allocator)有两种不同含义，分别放在不同目录中：
 
-- **slot allocator** -- a `BaseTokenToKVPoolAllocator` subclass, hands out KV slots,
-  lives in `allocator/`.
-- **host tensor allocator** -- `HostTensorAllocator` and its subclasses, hands out pinned
-  host memory, lives in `pool_host/common.py` and `storage/`.
+- **槽位分配器(Slot Allocator)**：`BaseTokenToKVPoolAllocator` 的子类(Subclass)，负责分配 KV 槽位(Slot)，位于 `allocator/`。
+- **主机张量分配器(Host Tensor Allocator)**：`HostTensorAllocator` 及其子类(Subclass)，负责分配主机锁页内存(Pinned Host Memory)，位于 `pool_host/common.py` 和 `storage/`。
 
-## Conventions
+## 约定(Conventions)
 
-- **Names drop affixes that do not differentiate.** If every file in a directory shares
-  the role the directory already names, the affix carries nothing: `pool_host/mha.py`,
-  not `pool_host/mha_pool_host.py`. Keep a role affix only where same-directory siblings
-  have different roles.
-- **A family is a module; a module may be a package.** One file per family by default;
-  past ~1500 lines the family becomes a package.
-- **Layers do not import upwards.** `pool/` and `pool_host/` must not import
-  `allocator/`, `hybrid_cache/`, or `allocation.py`; `allocator/` may hold the pool it
-  allocates into, not the reverse; none of the three may import the construction layer.
+- **名称应去掉没有区分作用的词缀(Affix)。** 如果一个目录中的所有文件都承担目录名称已经表明的职责，重复的词缀就没有意义：使用 `pool_host/mha.py`，而不是 `pool_host/mha_pool_host.py`。只有同目录中的文件职责不同时，才保留表示职责的词缀。
+- **一个类别(Family)对应一个模块(Module)，模块可以组织为包(Package)。** 默认每个类别使用一个文件；超过约 1500 行时，将该类别组织为包。
+- **各层不向上导入(Import)。** `pool/` 和 `pool_host/` 不得导入 `allocator/`、`hybrid_cache/` 或 `allocation.py`；`allocator/` 可以持有它负责分配槽位的内存池(Pool)，内存池不得反向持有分配器(Allocator)。`allocator/`、`pool/` 和 `pool_host/` 这三层都不得导入构造层(Construction Layer)。

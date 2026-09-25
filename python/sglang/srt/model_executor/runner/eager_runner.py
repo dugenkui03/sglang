@@ -220,11 +220,11 @@ class EagerRunner(BaseRunner):
             forward_batch.forward_mode = ForwardMode.EXTEND
             mode = ForwardMode.EXTEND
         if mode.is_decode():
-            return self._execute_decode(forward_batch, pp_proxy_tensors)
+            return self._execute_decode(forward_batch, pp_proxy_tensors) # 【重要】Decode
         if mode.is_idle():
             return self._execute_idle(forward_batch, pp_proxy_tensors)
         if mode.is_extend(include_draft_extend_v2=True):
-            return self._execute_extend(forward_batch, pp_proxy_tensors)
+            return self._execute_extend(forward_batch, pp_proxy_tensors) # 【重要】PreFill
         raise ValueError(f"Invalid forward mode for eager runner: {mode}")
 
     def _resolve_decode_pdmux(
@@ -271,15 +271,16 @@ class EagerRunner(BaseRunner):
 
     def _execute_extend(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch, # 推理入参
         pp_proxy_tensors=None,
     ) -> Union[LogitsProcessorOutput, PPProxyTensors, EmbeddingPoolerOutput]:
         model_runner = self.model_runner
+        # 组装 Prefill 模型前向计算需要的额外参数
         kwargs = model_runner._extend_forward_kwargs(forward_batch, pp_proxy_tensors)
 
         if not self.enable_pdmux:
             forward_batch = self.load_batch(forward_batch, pp_proxy_tensors)
-
+        # 判断当前 batch 是否走 CP(Context Parallelism 上下文并行) V2 上下文并行的 Prefill 路径。
         cp_v2_active = is_cp_v2_active(forward_batch)
         if cp_v2_active:
             prepare_cp_forward(forward_batch)
