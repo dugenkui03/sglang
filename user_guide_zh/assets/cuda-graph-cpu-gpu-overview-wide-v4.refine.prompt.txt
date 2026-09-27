@@ -1,0 +1,7 @@
+Use case: precise-object-edit.
+Input image 1 is the edit target: the almost-final wide SGLang Eager / CUDA Graph infographic.
+Make ONLY two tiny arrow-clarity corrections. Preserve everything else exactly: entire left panel, all hardware, headings, labels, dimensions, placement, comparison layout, and the CPU card / write action / start execution / four-step GPU sequence.
+1. Inside the left CPU software card of the RIGHT panel, change the downward arrow labelled "随后" from blue to NEUTRAL GRAY. This arrow indicates method-call order, not tensor data flow. Preserve its label and position.
+2. The blue data arrow currently leaves the static input buffer but stops on the green GPU frame's top edge. Extend/re-route this ONE solid blue arrow so it visibly terminates at the TOP EDGE of the FIRST GPU execution node labelled "读取本轮数据". This is essential. The arrow must connect the memory buffer directly and unambiguously to the read-data node, not to a generic enclosure or the multiplication node. Use a clean short orthogonal elbow if necessary, and shift the green enclosure's heading slightly ONLY if needed to keep the arrow off the text. Do not add another arrow or cross any words, other arrows, or computation nodes.
+Preserve the orange CPU load_batch control arrow to "写入数据", the blue new-input-to-write-to-buffer data path, and the CPU replay control path to "启动执行" and then "读取本轮数据". Keep the whole execution chain inside the green GPU frame.
+The final image must still be a wide low approximately 3:1 banner. This is an arrow-only refinement, not a redesign.

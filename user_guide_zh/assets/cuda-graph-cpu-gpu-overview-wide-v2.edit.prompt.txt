@@ -1,0 +1,24 @@
+Use case: precise-object-edit
+Asset type: A wide, low scientific educational infographic for a Chinese SGLang article.
+Edit target: /Users/bytedance/.codex/worktrees/c33e/sglang/user_guide_zh/assets/cuda-graph-cpu-gpu-overview-wide.png
+Primary request: Make the STATIC INPUT BUFFER concept explicit in the CUDA Graph half of this existing infographic. Preserve the existing teaching style and comparison.
+
+Invariants: Keep the 3:1 wide landscape aspect ratio, opaque white background, two comparison panels, legible Chinese typography, overall hardware illustration style and restrained colors. Keep the left Eager panel intact. Keep the existing two footer lines intact. Preserve both GPUs' three-operation dependency chain, "乘法 1" then "激活" then "乘法 2". GPU computation still happens with every replay. Keep the "CUDA 图 CUDA Graph" right heading and a compact capture card labelled "提前捕获 Capture" / "记录操作与依赖". No large new overall title.
+
+Targeted change: Recompose the middle of the RIGHT panel enough to clearly show one persistent input buffer as part of GPU memory, instead of the old tiny unlabeled numeric tile grid. You may shrink/reposition only the right CPU, capture card and GPU illustration to create readable space, while keeping the left panel unchanged.
+
+The right panel must visually distinguish THREE concepts:
+1. CPU command submission: the CPU issues a SINGLE orange arrow to the GPU boundary, labelled "一次回放 Replay". This is a control/launch command. Do not make this arrow look like it carries or stores the input tensor, and do not aim it at the final multiplication node.
+2. Fresh data written to a fixed buffer: a small input tile labelled "本轮新输入" has a BLUE arrow labelled "写入" leading into one clearly outlined memory block. Draw this block INSIDE a larger pale area labelled "GPU 显存" on or adjacent to the GPU board, making its GPU memory location unambiguous. Label the block "静态输入缓冲区" and below it "Static Input Buffer". Within the SINGLE block, show "A → B" with a short caption "每轮覆盖内容", conveying overwriting the same memory between iterations, not two separately allocated buffers. Prominently label the block "地址固定". It must be one buffer with a stable outline/address, not a pair of before-and-after buffers.
+3. GPU reads that same buffer: a GREEN arrow from the memory block goes into the FIRST computation node ("乘法 1"), labelled "读取同一地址". Continue the existing dependency arrows to activation and then multiplication 2. The capture card can have a thin purple dashed association with this memory block labelled "捕获时记录地址", illustrating the recorded pointer, if space permits.
+
+Change the right bottom caption to exactly:
+"同一缓冲区，更新数据后回放"
+
+Keep the shared footer exactly:
+"减少 CPU 提交开销，GPU 仍执行本轮计算"
+"提交通常异步 · 运算依赖保留 · 性能收益需实测"
+
+Prioritize clear spatial grouping: the static buffer belongs to GPU memory; CPU launch is separate from data writes; the GPU calculation chain is still visible. Large crisp readable labels, minimal text, no overlapping labels or confusing crossed arrows. Do not add extra explanatory paragraphs.
+
+Accuracy constraints: Static means stable address/shape/layout within one captured graph, with mutable contents each iteration. Do not imply old output values are cached, the CPU vanishes, inputs are constant, the entire generation is launched just once, operations with dependencies execute simultaneously, or the first operations are skipped. Keep the original 3:1 aspect ratio and low banner height.

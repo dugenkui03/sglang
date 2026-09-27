@@ -1,6 +1,6 @@
 # SGLang 中文学习指南(Chinese Learning Guide)
 
-围绕服务配置、并行策略、注意力与缓存、推测解码、量化与剪枝，结合概念、示意图、配置与代码入口学习 SGLang 推理。
+围绕服务配置、并行策略、注意力与缓存、推测解码、量化与剪枝、编译与计算图，结合概念、示意图、配置与代码入口学习 SGLang 推理。
 
 ## 1. 服务与调优(Serving and Tuning)
 
@@ -16,6 +16,7 @@
 | 1.6 | [编码、预填充与解码分离(EPD Disaggregation)](<1.6 编码、预填充与解码分离(EPD Disaggregation).md>) | 视觉编码独立扩展、编码结果传输、全局多模态嵌入缓存、Qwen VL 与 gRPC 部署 |
 | 1.7 | [长上下文流水线并行(Pipeline Parallelism for Long Context)](<1.7 长上下文流水线并行(Pipeline Parallelism for Long Context).md>) | 异步 P2P 通信、动态分块、平滑因子调优与 NVIDIA H20 部署示例 |
 | 1.8 | [SGLang 模拟器(SGLang Simulator)](<1.8 SGLang 模拟器(SGLang Simulator).md>) | 延迟预测、逻辑时间模拟与实际时间回放、工作负载发送和指标输出 |
+| 1.9 | [模型加载(Model Loading)](<1.9 模型加载(Model Loading).md>) | 加载格式、加载器额外配置、多线程与预取、远程和流式权重加载 |
 
 ## 2. 注意力与缓存(Attention and Caching)
 
@@ -41,6 +42,12 @@
 | 4.2 | [量化键值缓存(Quantized KV Cache)](<4.2 量化键值缓存(Quantized KV Cache).md>) | FP8/FP4 缓存、缩放因子、显存收益与准确率 |
 | 4.3 | [剪枝与推理感知压缩(Pruning and Reasoning-Aware Compression)](<4.3 剪枝与推理感知压缩(Pruning and Reasoning-Aware Compression).md>) | 剪枝原理、思维链校准与压缩后的推理效果 |
 
+## 5. 编译与计算图(Compilation and Computation Graphs)
+
+| 编号 | 文章 | 主要内容 |
+|---|---|---|
+| 5.1 | [分段 CUDA 图(Piecewise CUDA Graph)](<5.1 分段 CUDA 图(Piecewise CUDA Graph).md>) | 分段编译、捕获与回放、形状配置、内存优化、自定义算子兼容及源码入口 |
+
 ## 阅读与命名约定
 
 - 文件名与一级标题统一采用“章节.文章 中文标题(English Title)”，同一主题共用章节编号。
@@ -48,5 +55,5 @@
 - 翻译及基于原文撰写文章时，完整保留原文的内容、条件、示例、数据与链接；只有明确要求删减时才删减，补充内容单独标注。
 - 翻译请求默认将完整译文直接保存到本目录，并更新目录索引；随后在项目中的文档上共同修改。
 - 新增文章末尾附术语与生词表：缩写列英文全称、中文释义和简明英文释义；需要解释的英文单词另附音标，音标紧邻单词；不标字母缩写的音标，不附音频。
-- 文档一般不超过 120 行，示意图按一行计；按已确认的完整翻译要求，1.3、1.4、1.5、1.6、1.7 可以超过此限制，内容仅按明确要求删减。插图与生成提示词统一保存在本目录的 [`assets`](assets/) 子目录中。
+- 文档一般不超过 120 行，示意图按一行计；按已确认的完整翻译要求，1.3、1.4、1.5、1.6、1.7、5.1 可以超过此限制，内容仅按明确要求删减。插图与生成提示词统一保存在本目录的 [`assets`](assets/) 子目录中。
 - 核心请求处理链路另见 [`docs/learn`](../docs/learn/)，从 HTTP 接入、输入分词到调度和模型执行。
