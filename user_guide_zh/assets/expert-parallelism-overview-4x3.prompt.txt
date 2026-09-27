@@ -1,0 +1,119 @@
+Use case: infographic-diagram
+Asset type: 中文技术文章《1.4 专家并行(Expert Parallelism)》的科普插图。
+Primary request: 以清晰图解解释 SGLang 专家并行 EP 的核心工作原理，并重点区分“通信后端”和“计算后端”，同时概括 TBO、SBO、EPLB 的作用。
+Format: landscape 4:3, high resolution, crisp readable Chinese typography with English technical labels. White background, dark navy headings, restrained blue for communication, purple for expert computation, green for completed results. Flat engineering infographic, not a mockup. Generous margins between panels but no large empty regions. Read left-to-right within each diagram. Match a polished Chinese engineering learning guide.
+
+Title (verbatim): "SGLang 专家并行 EP：数据怎么传，专家怎么算"
+Subtitle: "Expert Parallelism：把不同专家放到不同 GPU，让选中的专家协同处理 Token"
+
+Layout: header 9% height; large primary EP diagram 36%; two-backend explanation band 23%; three optimization cards 26%; footer 6%. Large primary diagram dominates the design. Keep labels short and readable.
+
+PRIMARY PANEL — "① EP 发生在模型的 MoE 专家层"
+At the very top of this panel, show a compact left-to-right position strip:
+"注意力 Attention" → highlighted "混合专家层 MoE · EP" → "后续层".
+Below it, draw one Token A flowing through two GPUs, using exactly these labels and relationships:
+Left: a small vector icon labelled "Token A 的隐藏状态 x" → "Top-k 门控" → "选专家 2、3".
+Small text at the gating box: "示例权重：0.7、0.3".
+Then one blue "分发 Dispatch" junction branches to two GPU containers, stacked vertically:
+Upper "GPU 0": contains inactive small box "专家 1" and active purple box "专家 2"; x is delivered ONLY to expert 2, which computes and emits "y₂".
+Lower "GPU 1": contains active purple box "专家 3" and inactive small box "专家 4"; x is delivered ONLY to expert 3, which computes and emits "y₃".
+Both active expert outputs lead to one blue "收回并合并 Combine" node, then one green output "Token A 的输出".
+Under the output show "y = 0.7 y₂ + 0.3 y₃".
+Important diagram invariants: one input token can select multiple experts; the weights 0.7 and 0.3 are illustrative gating weights. Only selected experts execute for this illustrated token. GPU containers own distinct expert weights. Arrows move intermediate tensors, not model weights or raw text.
+Add a short caption: "专家权重存放在对应 GPU；跨卡传输的是 Token 的中间张量。"
+
+MIDDLE BAND — "② 两个后端：通信与计算各司其职"
+Two adjacent cards with very legible exact CLI strings, no spelling changes:
+LEFT BLUE CARD:
+Heading "通信后端 Communication"
+Large monospaced text: "--moe-a2a-backend deepep"
+Explain: "负责分发 Dispatch 与收回合并 Combine"
+Then "DeepEP：把数据送到专家所在 GPU，再把结果收回来。"
+Small implementation label: "Dispatcher.dispatch / Dispatcher.combine"
+Use a blue connector or matching numbered badges linking this card to BOTH blue junctions in the primary panel.
+RIGHT PURPLE CARD:
+Heading "计算后端 Computation"
+Large monospaced text: "--moe-runner-backend deep_gemm"
+Explain: "负责专家神经网络的实际计算"
+Then "DeepGEMM：执行分组矩阵乘法 Grouped GEMM。"
+Small horizontal chain: "前置重排 → 专家计算 → 后置重排"
+Small implementation label: "MoeRunner"
+Match its purple color to active expert boxes in the primary panel.
+Below both cards, small text: "示例组合；后端需匹配硬件、量化方式和并行配置。"
+
+BOTTOM BAND — "③ 进一步提高效率：减少等待，均衡负载"
+Three equal cards:
+CARD TBO:
+Title "双批次重叠 TBO"
+Subtitle "Two-Batch Overlap"
+Use TWO timeline lanes sharing an aligned time axis pointing RIGHT:
+"微批次 A" has a blue bar "通信".
+"微批次 B" has a purple bar "计算" overlapping the communication interval of A.
+A translucent vertical highlight marks the simultaneous interval. This is conceptual timing, not numerical performance measurement.
+Caption "让不同微批次的计算与通信重叠"
+Exact small flag "--enable-two-batch-overlap".
+
+CARD SBO:
+Title "单批次重叠 SBO"
+Subtitle "Single-Batch Overlap"
+TWO timeline lanes for the SAME batch, sharing an aligned time axis pointing RIGHT:
+one purple bar "共享专家计算", and another blue bar "路由专家结果通信", overlapping in time.
+Caption "在同一批次内，让可并行的计算与通信重叠"
+Exact small flag "--enable-single-batch-overlap".
+Do not mislabel the two lanes as different batches; show a small bracket "同一批次".
+
+CARD EPLB:
+Title "专家负载均衡 EPLB"
+Subtitle "Expert Parallelism Load Balancer"
+A simple before/after illustration: before, GPU 0 busy with a tall utilization bar, GPU 1 with a short bar; after, two more balanced bars, not claiming perfectly equal loads.
+Arrow between them: "调整专家布局".
+Caption "统计专家负载，调整放置或复制专家"
+Exact small flag "--enable-eplb".
+Do not depict changing logical expert identities or replacing a chosen expert with another expert.
+
+FOOTER:
+"EP 分专家；通信后端传数据；计算后端做运算；重叠与负载均衡进一步提高利用率。"
+
+Constraints: Accurate engineering concepts, clearly separated dispatch/combine communication versus expert matrix computation. Preserve exact backend strings, acronym spelling, Top-k, subscripted y₂/y₃, and the weighted-sum equation. No claimed fixed speedup, no arbitrary benchmark numbers, no full backend compatibility table, no extra brand logos, no robots, no 3D decorative server racks, no watermarks. Never represent overlap as mere alternating serial execution; the timeline bars MUST overlap in time. Keep the two-backend explanation and its arrows especially clear.
+
+Revision 1 — restore an opaque white background:
+Edit the attached educational infographic. Make ONE targeted correction: restore a clean, fully opaque WHITE background and remove all transparency-related black/cyan speckling and edge noise. The entire 4:3 rectangular canvas must be opaque, like a printed white page; every pixel including margins and text backgrounds should be fully opaque (alpha 255). Do not create transparent cutouts. Reconstruct clean antialiased edges and readable dark navy text wherever the existing alpha mask damaged them.
+
+Keep all existing layout, headings, Chinese/English labels, the expert-routing example, all arrows, the backend cards, the timelines, load-balancing bars, and all numbers unchanged. The two backend strings must remain exactly "--moe-a2a-backend deepep" and "--moe-runner-backend deep_gemm". Keep the output formula "y = 0.7 y₂ + 0.3 y₃". Keep "--enable-two-batch-overlap", "--enable-single-batch-overlap", and "--enable-eplb" exact. Preserve the aspect ratio 4:3, high resolution, blue communication arrows, purple expert computation, green output, and crisp flat infographic style. Output a complete, clean, opaque white-background illustration ready to embed in a document.
+
+Revision 2 — correct labels:
+Edit this existing opaque white-background Chinese infographic. Correction category: precise text corrections and timeline lane labels ONLY. Keep the overall 4:3 composition, white opaque background, blue/purple/green colors, expert routing diagram, backend parameter strings, weighted output formula, all boxes and timeline bar overlap positions. Do not paraphrase or invent text. Use exactly the following replacement labels:
+
+1. Replace the entire subtitle directly under the main title with:
+"Expert Parallelism：不同专家放在不同 GPU，按 Token 选择专家"
+
+2. Replace the caption below the input vector icon with:
+"Token A 的隐藏状态 x"
+Remove the invented numerical input example "[1, 4]".
+
+3. Replace the entire small caption along the bottom of the top EP panel with:
+"专家权重存放在对应 GPU；跨卡传输的是 Token 的中间张量。"
+Remove all occurrences of "Tolan", "Tolan-style", and "按层分布". EP distributes different experts, not model layers.
+
+4. In the bottom-left TBO card, replace the generic vertical axis caption with two individual lane labels:
+"微批次 A" aligned to the blue "通信" bar,
+"微批次 B" aligned to the purple "计算" bar.
+Keep their two bars visibly overlapping in time, keep the horizontal time axis and "--enable-two-batch-overlap". Keep "Two-Batch Overlap". Add the concise small caption "不同微批次重叠" if it fits without crowding.
+
+5. In the bottom-middle SBO card, replace the vertical axis caption with "同一批次" and a bracket spanning both lanes. Preserve the bar texts "共享专家计算" and "路由专家结果通信", their visible time overlap, "Single-Batch Overlap", and "--enable-single-batch-overlap".
+
+6. In the bottom-right EPLB card, replace its English subtitle with exactly:
+"Expert Parallelism Load Balancer"
+Change the annotation above the before/after arrow to "调整专家布局".
+Include the short caption "调整放置或复制专家" if space permits.
+Keep before/after load bars and "--enable-eplb".
+
+Every other text must remain unchanged, especially:
+"--moe-a2a-backend deepep"
+"--moe-runner-backend deep_gemm"
+"Dispatcher.dispatch / Dispatcher.combine"
+"MoeRunner"
+"y = 0.7 y₂ + 0.3 y₃"
+"GPU 0（拥有专家 1、2 的权重）"
+"GPU 1（拥有专家 3、4 的权重）".
+The entire canvas must remain fully opaque WHITE with no alpha cutouts or speckle noise. Clean antialiased strokes and readable Chinese text. Do not add new technical claims, numbers, product names, or summaries.

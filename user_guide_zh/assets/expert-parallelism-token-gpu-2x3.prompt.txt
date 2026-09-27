@@ -1,0 +1,73 @@
+Use case: scientific-educational
+Asset type: 科普插画，放在中文 MoE 代码调用链右侧，占文档一半宽度。
+Primary request: 画出 Token、GPU、专家权重与中间张量如何实际协作。用可视化的 GPU 芯片、专家内部的小矩阵、彩色 Token 数据包、跨 GPU 的传输轨迹来解释；画面主体必须是这些具体对象，不能做成函数名方框串起来的流程图。
+Format: portrait 2:3, 1024 x 1536 or higher. Entire canvas fully OPAQUE WHITE with alpha 255; clean readable dark navy Chinese type, no transparent cutouts. Crisp flat/isometric scientific illustration with clear labels and short captions. Suitable for an engineering tutorial, no fictional robots or factory analogy. Use orange for Token A, blue for Token B, purple for expert weight matrices. Consistent colors throughout.
+
+Title (exact): "Token 如何交给不同 GPU 上的专家？"
+Subtitle: "一个 MoE 层：选专家、传数据、做计算、合并结果"
+
+Scientific example to illustrate faithfully:
+Two tokens A and B, each represented by a short row of colored squares for its hidden-state tensor, not raw text.
+Two GPU devices:
+GPU 0 physically stores expert 1 and expert 2.
+GPU 1 physically stores expert 3 and expert 4.
+For this illustrative Top-2 routing choice:
+A selects experts 1 and 3.
+B selects experts 2 and 3.
+Thus expert 3 receives BOTH A and B, expert 4 is inactive for these tokens.
+Selected experts process the incoming token tensors using their own stored weight matrices.
+Each token's two expert outputs are merged using its routing weights; final outputs are restored in original A, B order.
+Do not imply sending model weights over the communication paths.
+
+Layout:
+Top quarter: source Token tensors and a small router.
+Heading "① 选专家，把数据送过去"
+Draw two compact labeled vector packets "Token A" (orange) and "Token B" (blue).
+A small routing control with a branching icon is labelled "门控选专家 Top-k".
+Show readable selection notes:
+"A → 专家 1、3"
+"B → 专家 2、3"
+Colored curved arrows split from A to expert 1 on GPU 0 and expert 3 on GPU 1, and from B to expert 2 on GPU 0 and expert 3 on GPU 1.
+Label the moving colored packets "传输隐藏状态".
+The main drawing should make the two GPUs and packet destinations immediately obvious.
+
+Middle half: TWO large clearly distinct GPU chip/device illustrations, side by side, with slight isometric depth or pins so they look like GPU hardware, not generic process boxes.
+Heading "② 各 GPU 上的专家分别计算"
+Large device labels "GPU 0" and "GPU 1".
+Inside GPU 0:
+- expert 1: a visible purple small matrix labelled "W₁", receiving the orange A packet, emitting a small orange result packet labelled "A₁".
+- expert 2: a purple small matrix "W₂", receiving blue B, emitting a blue result "B₂".
+Inside GPU 1:
+- expert 3: a purple matrix "W₃", receiving two rows grouped together: orange A above blue B. It emits orange "A₃" and blue "B₃".
+- expert 4: a grey matrix "W₄", labelled "本轮未选中", without incoming data and without active computation arrows.
+Each expert must have its Chinese name "专家 1", "专家 2", "专家 3", or "专家 4", clearly paired with its matrix.
+Beside expert 3's two stacked rows, show a magnifying callout that points to the grouped A/B data:
+"同一专家的 Token 排在一起"
+"归组后，批量执行矩阵运算"
+The concrete picture of two rows multiplied by W₃ should carry this explanation; don't replace it with a flowchart.
+A short label below the GPU illustration:
+"专家权重留在各自 GPU，移动的是 Token 的中间张量。"
+Optional small bilingual callouts:
+"前置重排 Pre-permute：按专家归组"
+"专家计算 Grouped GEMM"
+Keep captions short; make the hardware and tensor pictures dominant.
+
+Bottom quarter: collect and merge token results.
+Heading "③ 找回各 Token 的结果，再加权合并"
+From both GPU devices draw outgoing result packets:
+A₁ and A₃ (both orange) arrive at an orange merge funnel marked "A 的加权合并".
+B₂ and B₃ (both blue) arrive at a blue merge funnel marked "B 的加权合并".
+These merge points are side by side.
+Then show the final two output vector rows in order:
+"输出 A"
+"输出 B"
+Caption: "按路由权重合并，恢复 Token 顺序"
+Small bilingual callout: "后置重排与合并 Post-permute / Combine"
+
+Footer, exact short legend:
+"通信后端负责传数据 · 计算后端负责专家运算"
+
+Critical constraints:
+This must be a CONCRETE SCIENTIFIC ILLUSTRATION of expert placement and token tensor movement. Do not include code-function-name boxes such as TopK.forward, FusedMoE.forward, MoeRunner.forward, quant_method.apply, DispatchOutput, or CombineInput. Those names already appear in the adjacent text diagram; this illustration explains what physically happens.
+Draw exactly two GPUs and exactly four experts. Keep expert placements, selected destinations, output subscripts, and orange/blue data identity consistent. Inactive expert 4 should be clearly grey. A and B may each be routed to more than one expert. The grouped expert-3 batch must visibly contain A and B. The results must be merged per original token, not concatenated into one token. Do not add speedup claims, model-training steps, KV-cache, Attention, server racks, vendor logos, watermarks, or unrelated optimization cards.
+All text must be clean and readable at half-page width, with ample spacing and no clipped elements. Opaque white background, no alpha transparency or edge artifacts.

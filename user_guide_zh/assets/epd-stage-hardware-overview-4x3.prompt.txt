@@ -1,0 +1,62 @@
+Use case: scientific-educational
+Asset type: Chinese educational illustration for an SGLang EPD learner guide.
+Primary request: Explain the different computation characteristics of Encoder, Prefill and Decode, and which hardware properties matter for each stage, through concrete visual objects rather than a software flowchart.
+
+Canvas and style: Exact 4:3 LANDSCAPE aspect ratio, high-resolution, fully opaque pure white background, balanced margins. No overall title or banner. Three equal-width illustrated stage panels across the upper 76% of the page, read left to right: purple Encoder, blue Prefill, green Decode. Use polished scientific textbook illustrations, believable isometric GPUs with visible compute chips and local memory, image patches, tensors, KV cache blocks, clean navy simplified-Chinese type. Light panel backgrounds and restrained accent colors. The drawings are central, not decorative icons surrounding dense prose. Crisp readable labels and ample space. No mascot, brand logos, watermark, photoreal clutter, fake benchmark charts or star ratings.
+
+Top stage panels:
+LEFT:
+Heading exactly "编码 Encoder"
+Small workload badge "通常偏计算密集"
+Concrete scene: a picture of a landscape is split into image patches. The patches go into the compute chip of a GPU labeled "ViT". On the chip show many matrix tiles processed together. Output several purple vector columns labeled "图像嵌入 Embeddings". Include a small CPU preprocessing icon, visually secondary, labeled "图像预处理".
+Short descriptive line exactly "图像编码：将图片转换成向量"
+Under the scene, subheading "选硬件重点"
+Three short lines:
+"有效算力：匹配精度与算子"
+"显存容量：容纳权重与图像批次"
+"数据供给：预处理与加载速度"
+
+MIDDLE:
+Heading exactly "预填充 Prefill"
+Small workload badge "通常偏计算密集"
+Concrete scene: many text-token tiles and the purple image embedding columns enter a GPU together. The GPU's compute chip shows a large tiled matrix multiplication, several input positions active simultaneously. An orange memory stack inside or directly connected to this GPU is labeled "KV Cache". Show meaningful arrows linking the illustration components.
+Short descriptive line exactly "输入批量计算，建立 KV Cache"
+Under the scene, subheading "选硬件重点"
+Three short lines:
+"有效算力：高效矩阵乘法"
+"显存容量：权重、中间结果、KV"
+"多卡计算：关注互连性能"
+
+RIGHT:
+Heading exactly "解码 Decode"
+Small workload badge "常见小批量下偏带宽受限"
+Concrete scene: a single GPU with a compute chip and substantial LOCAL GPU memory inside the same card. Memory has two clearly labeled regions "模型权重" and "KV Cache". A very wide short memory bus labeled "显存带宽" runs FROM LOCAL MEMORY TO THE COMPUTE CHIP, clearly within one GPU. The compute chip performs calculations and produces sequential token tiles "今" then "天" then "…" with modest sequential arrows. Do NOT portray memory alone generating tokens. Do NOT imply tokens are all generated in one step.
+Short descriptive line exactly "逐步生成，反复读取权重与 KV"
+Under the scene, subheading "选硬件重点"
+Three short lines:
+"显存带宽：数据搬得快"
+"显存容量：容纳权重与并发 KV"
+"多卡计算：关注通信延迟"
+
+Between stages, a narrow horizontal transfer strip below the illustrations and above the hardware checklist may connect panels, without overlapping any labels. Distinguish the two actual payloads:
+Encoder to Prefill: purple vector blocks and small arrow labeled "传图像向量"
+Prefill to Decode: orange cache blocks and small arrow labeled "传 KV Cache"
+This depicts the EPD deployment communication. Do NOT label the Encoder output as KV Cache. Do NOT draw a router or client or extra stages.
+
+Bottom explanatory band, divided into four small side-by-side hardware concepts with visual miniatures (compute chip, memory stack, wide memory bus, link joining two GPU cards). Heading-free and compact:
+"算力 Compute" / "TFLOPS：算得多快"
+"显存容量 Capacity" / "GB：能装多少"
+"显存带宽 Bandwidth" / "GB/s：本卡读写多快"
+"互连 Interconnect" / "卡间、机间传输的带宽与延迟"
+
+Bottom footer two concise sentences in readable smaller dark type:
+"常见倾向会随模型、批大小、序列长度与精度变化；算力需在相同精度和可用算子下比较。"
+"分离部署可独立扩容；是否更快，要看收益能否覆盖图像向量与 KV 的传输开销。"
+
+Accuracy constraints: Workload statements are typical tendencies, never universal guarantees. Decode memory bandwidth is local GPU memory bandwidth, not network bandwidth. All three stages need enough memory, and multi-GPU execution has communication costs. Larger batch or speculative verification can alter the bottleneck, covered by the footer. The image conveys hardware characteristics and bottlenecks, not an unsupported ranking of GPU models. Image preprocessing can use CPU; ViT encoding uses GPU in this illustrated deployment. No specific GPU SKU recommendations. Chinese wording verbatim, clean punctuation, no added paragraphs.
+
+Generation mode: Built-in image_gen tool; new image.
+Reference sources (not text to render):
+https://www.lmsys.org/blog/2026-01-12-epd/
+https://developer.nvidia.com/blog/mastering-llm-techniques-inference-optimization/
+https://docs.nvidia.com/dynamo/latest/knowledge-base/concepts/system-architecture/disaggregated-serving
