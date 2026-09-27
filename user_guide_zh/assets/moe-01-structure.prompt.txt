@@ -1,0 +1,14 @@
+Generation mode: built-in imagegen
+Final image: moe-01-structure.png
+
+Use case: scientific-educational
+Asset type: a standalone Chinese educational infographic in a Markdown beginner guide about mixture of experts.
+Style: polished textbook illustration, white background, sharp flat shapes, consistent thin connectors, blue for hidden states and attention, violet for router, orange for expert MLP, green for selected paths, gray for unused experts. Wide landscape composition around 3:2, no tiny text. Large legible Simplified Chinese sans-serif labels with English technical terms only where provided. Use diagrams and concise labels, not walls of text. No invented specialist subject labels, no decorative characters, no logo or watermark.
+
+Title exactly: “MoE：把一份 MLP 换成可选择的多份 MLP”
+Two horizontal tiers. Top tier compares two Transformer layer diagrams.
+Upper row labelled “普通层”： “词元表示” → “注意力 Attention” → “前馈网络 MLP” → “更新后的表示”.
+Second row labelled “MoE 层”： “词元表示” → “注意力 Attention” → a larger MoE group → “更新后的表示”. Inside the group route one example hidden vector x through “路由器 Router” to exactly two expert boxes E2 and E7 from eight E1–E8, then a “加权合并” node. All expert boxes clearly present; show green paths only to E2 and E7, other expert boxes gray with NO outgoing active path. Caption “以单个词元、Top-2 为例”.
+Bottom tier labelled “放大一位专家：门控 MLP（SwiGLU）”. Draw x split into two branches: upper “上投影 W_up”; lower “门控投影 W_gate” followed by “SiLU 激活”; upper and lower meet at × labelled “逐元素相乘”, then “下投影 W_down”, finally “专家输出 E_i(x)”. Correct shape annotation “d → m → d” may appear underneath, with note “每位专家独立拥有这三组权重”.
+Footer exact text: “路由器参数与专家内部的门控参数是两回事。” and “为突出主线，省略归一化与残差连接；层输出仍是向量。”
+Technical invariants: experts belong only to FFN sublayer; each selected expert receives the entire x, no split of vector features; output is a hidden vector, NOT a sampled text token; SwiGLU MUST include SiLU activation on gate branch.

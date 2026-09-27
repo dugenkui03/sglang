@@ -1,0 +1,14 @@
+Generation mode: built-in imagegen
+Final image: moe-02-routing.png
+
+Use case: scientific-educational
+Asset type: a standalone Chinese educational infographic in a Markdown beginner guide about mixture of experts.
+Style: polished textbook illustration, white background, sharp flat shapes, consistent thin connectors, blue for hidden states and attention, violet for router, orange for expert MLP, green for selected paths, gray for unused experts. Wide landscape composition around 3:2, no tiny text. Large legible Simplified Chinese sans-serif labels with English technical terms only where provided. Use diagrams and concise labels, not walls of text. No invented specialist subject labels, no decorative characters, no logo or watermark.
+
+Title exactly: “先按分数选专家，再按权重合并输出”
+Three clear numbered panels, connected top to bottom or left to right in a broad page.
+Panel 1 titled “① 上下文影响隐藏状态”. Show two short text strips with shared highlighted illustrative token “苹果”: “水果摊上的 [苹果]” and “手机厂商 [苹果]”. Annotate “前文不同 → 隐藏状态可能不同 → 路由可能不同”. Small note “分词与路由均为教学示意”. No future-token information flows backwards: all context shown before 苹果.
+Panel 2 titled “② 选得分最高的两个”. Show one vector x entering “路由器 Router”, then a clean score table with EXACT rows “E1  0.10”, “E2  0.60”, “E3  0.20”, “E4  0.10”. Label scores “Softmax 后的示例分数”. Highlight E2 and E3 only. Show “Top-2 → E2、E3” and “选中后重新归一化：0.75、0.25”.
+Panel 3 titled “③ 两位专家分别计算，再合并”. Show the same x feeding E2 and E3 in PARALLEL. Branch E2(x) gets multiplier 0.75 and branch E3(x) gets multiplier 0.25, then meet at a + circle. Output exact formula “y = 0.75 × E2(x) + 0.25 × E3(x)”. The branches must enter a sum, not concatenate.
+Small footer callout “每个词元、每个 MoE 层都会重新计算路由。” and “这是常见 Top-2 示例；不同模型的路由规则可能不同。”
+Make explicit selection and combination as separate visible steps. No probabilities interpreted as correctness confidence. Do not show outputs as whole answers or text words.

@@ -1,0 +1,51 @@
+Use case: infographic-diagram
+Asset type: publication-ready Chinese educational comparison infographic for the end of a SGLang DCP article.
+Primary request: Compare attention data parallelism (DPA) with decode context parallelism (DCP) in a concrete two-GPU example. Emphasize DIFFERENT requests versus the HISTORY POSITIONS OF ONE request, and that both act in the attention component.
+Format: landscape 4:3, preferably 2048 x 1536. Match a clean Chinese technical textbook infographic: white background, navy Chinese sans-serif headings, flat cards and clear arrows, teal for DPA, blue/purple for DCP, orange for merge. No photo mockup, heavy shadows, tall layout, cartoon mascots or watermark.
+
+Title (verbatim): "DPA 与 DCP：并行分工的粒度有什么不同？"
+Subtitle: "只看注意力（Attention）：DPA 分请求，DCP 分同一请求的上下文"
+
+MAIN REGION — two side-by-side panels with balanced readable space.
+LEFT PANEL heading: "DPA：注意力数据并行"
+English subtitle: "Data Parallelism Attention"
+Two independent left-to-right rows with NO shared-result merge:
+"请求 A · 本轮 Q" → "GPU 0" with a local cache labeled "A 的完整 KV：0～7" → "A 的注意力结果"
+"请求 B · 本轮 Q" → "GPU 1" with a local cache labeled "B 的完整 KV：0～7" → "B 的注意力结果"
+A and B use clearly distinct colors and never exchange or combine their attention results in this illustration. The GPU boxes denote attention workers only, NOT complete model replicas with duplicated whole-model weights.
+Bold caption: "不同请求分别推进"
+Small note: "示例中每个 DPA 注意力组只有一张 GPU"
+
+RIGHT PANEL heading: "DCP：解码上下文并行"
+English subtitle: "Decode Context Parallelism"
+A SINGLE input "请求 A · 本轮 Q" forks to:
+"GPU 0" with "A 的 KV：0、2、4、6" and "局部注意力"
+"GPU 1" with "A 的 KV：1、3、5、7" and "局部注意力"
+Both feed a clear logical node "按 LSE 合并" → "A 的完整注意力结果".
+All KV tiles in this panel are for request A; each position 0 through 7 appears on exactly one GPU.
+Bold caption: "同一请求内部协作"
+Small note: "示例：MLA 解码中的一次注意力计算"
+
+LOWER COMPARISON STRIP — three short aligned rows:
+Column headings: "对比维度" | "DPA" | "DCP"
+Row 1: "分工对象" | "不同请求 / 批次" | "同一请求的历史 token"
+Row 2: "KV 存储" | "各组保存自己请求的 KV" | "组内各卡保存同一请求的一部分 KV"
+Row 3: "注意力结果" | "各组完成自己的请求" | "合并同一请求的局部结果"
+
+BOTTOM COMPOSITION BAND:
+Heading: "两者可以组合"
+Draw two distinct side-by-side group boxes:
+"注意力组 0：请求 A" containing two GPU icons and label "组内使用 DCP 分片"
+"注意力组 1：请求 B" containing two GPU icons and label "组内使用 DCP 分片"
+Caption: "DPA 按请求分组；每组内部再用 DCP 分担历史上下文"
+Small scope footer: "这里只比较注意力组件；模型其他部分可结合 TP、EP 等策略。"
+
+Constraints: Never depict DPA as splitting one request's history, DCP as handling unrelated requests on its shards, or DPA as ordinary full-model replication. Never suggest different DCP GPUs each generate a distinct next token for request A. Arrows show dependencies and data flow. Preserve every request label and KV index exactly. Avoid guaranteed speedup factors. Ensure all Chinese labels are crisp, short and legible.
+
+Final targeted edit prompt:
+Edit the provided DPA-versus-DCP infographic with only these two corrections. Preserve the landscape 4:3 composition, panels, all arrows, comparison table, technical meanings, and all other text.
+
+1. Make the ENTIRE canvas fully opaque with a solid WHITE (#FFFFFF) background. There must be no transparent or black background regions, no alpha cutouts around headings or borders. The title, subtitle, bottom-left combination caption and footer must be solid dark navy text on white, clearly legible. Preserve the tinted card interiors. This is a white-background textbook figure, not a transparent sticker.
+2. In the BOTTOM composition example ONLY, keep the left box "注意力组 0：请求 A" with GPU 0 and GPU 1. In the right box "注意力组 1：请求 B", change its two GPU labels from GPU 0 / GPU 1 to GPU 2 / GPU 3. This bottom example uses FOUR distinct physical GPUs split across two groups. Do not change GPU numbering in the upper two-GPU DPA and DCP examples.
+
+Keep all KV token position numbers unchanged: upper DPA A and B each 0～7; upper DCP GPU 0 has 0、2、4、6 and GPU 1 has 1、3、5、7. Preserve the upper DCP single-request merge, independent upper DPA outputs, all Chinese wording, and accurate English terms. Crisp Chinese typography. Return one finished fully opaque infographic, not a photo/mockup.
