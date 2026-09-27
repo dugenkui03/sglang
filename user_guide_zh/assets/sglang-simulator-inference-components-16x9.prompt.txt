@@ -1,0 +1,43 @@
+Use case: scientific-educational
+Asset type: Chinese SGLang learner-guide infographic, a wide landscape image to embed in Markdown.
+Primary request: Explain six components and WHERE they act in inference: SGLang Simulator, SGLang Scheduler, Latency Predictor, Model Forward Execution, Model Weights, KV Cache. Create an intuitive hardware-and-data educational illustration, not a plain software function flowchart.
+
+Canvas and style: Strictly 16:9 wide landscape, ideally 2560 x 1440 pixels. Fully opaque white background. Professional editorial infographic with crisp Simplified Chinese typography, smaller English terms, clear blue/teal/purple/orange accents, generous spacing. Attractive illustrative GPU board, colored matrix tiles, memory/cache blocks, incoming request cards, batch tray, and stopwatch. No decorative mascots, no giant overall title, no watermark. All labels fully in frame. Two broad horizontal comparison panels, aligned columns; primary reading direction left to right.
+
+UPPER PANEL occupying about 53% of image:
+Small section heading: "真实推理(Real Inference)"
+Left: multiple incoming request cards A, B, C with token tiles, labeled "请求进入与排队". Arrow into a scheduler's batch tray/control desk.
+Scheduler label: "SGLang 调度器" and smaller "SGLang Scheduler".
+Scheduler description exactly: "选请求、组批次、安排 Prefill / Decode".
+An arrow from selected batch tray to central large GPU illustration.
+The GPU center contains a short stack of Transformer layers with visibly traveling token vectors. Label prominently: "模型前向执行" and smaller "Model Forward Execution".
+Small caption: "逐层张量计算".
+Above the GPU, a purple trained-parameter matrix block labeled "模型权重(Model Weights)", with a directional arrow INTO GPU calculation labeled "参与计算".
+Below or beside GPU, a distinct orange cache-memory block with K and V tiles, labeled "键值缓存(KV Cache)" and caption "复用历史 K/V，写入新 K/V". Bidirectional clearly separated read/write arrows connect THIS cache directly with GPU attention calculation.
+To GPU right: arrow labeled "Logits" to small sampling selector labeled "采样(Sampling)", then actual output token tiles and label "输出 Token".
+A thin curved return arrow from generated token to the next iteration's scheduler/batch input, labeled "未结束：进入下一轮 Decode".
+Weights and KV cache must visually differ: weights are stable learned matrices, KV cache is per-context intermediate memory.
+
+LOWER PANEL occupying about 39%:
+A clearly enclosing teal/blue tinted rounded border around the entire lower panel labeled "SGLang 模拟器(SGLang Simulator)". This name describes the WHOLE lower environment, not one operator.
+Small subheading: "复用调度与缓存管理，用耗时预测替换前向计算".
+Align the lower request cards and scheduler with those in upper panel:
+"带时间戳或合成请求" -> "SGLang 调度器" with smaller "同样选请求、组批次".
+Adjacent small cache-management visual (allocation grid, matching prefix tiles, not real model-computed KV data) label "复用缓存管理逻辑" and caption "分配、前缀命中、淘汰". Connect to scheduler.
+Where the upper GPU forward calculation sits, show a distinct estimation instrument / stopwatch with a system configuration card, label "延迟预测器" and smaller "Latency Predictor". Caption: "估计本轮耗时".
+Then arrow toward a clock reading symbolic "t → t + Δt", labeled "推进模拟时间".
+Then a compact metrics display labeled "比较配置效果", with "TTFT · TPOT · 吞吐量 · 缓存命中率".
+No actual generated text / token sampling in this simulation row.
+A clear small caption inside the simulator: "不加载模型权重；用于性能模拟".
+Between upper GPU forward and lower predictor, add a dashed annotated connector in the gap, "在模拟器中替换", visually explicit that the predictor REPLACES forward computation in the lower path, not an extra real-inference stage.
+
+BOTTOM concise legend or two labels:
+"模型权重：训练得到的参数" and "KV Cache：请求执行中产生的中间结果".
+Technical invariants:
+1. Real inference forward uses trained weights and reads/writes KV during attention. Sampling is downstream from logits, outside forward.
+2. Scheduler exists in BOTH paths, and schedules Prefill and Decode.
+3. Latency predictor exists in simulator instead of the actual forward calculation; never put it sequentially before or after real GPU inference in a single normal inference pipeline.
+4. Simulator reuses request lifecycle and cache management. Do NOT suggest it computes real K/V values, loads weights, or evaluates answer accuracy.
+5. All six named components should be identifiable, with bilingual short labels. Keep readable text as specified and avoid adding long paragraphs or implementation code.
+6. No asserted numeric speedup or invented benchmark results. Clock Δt is symbolic.
+7. Overall educational picture should feel like physical GPU/data/cache components in two contrasting scenarios, not just rectangular text boxes.

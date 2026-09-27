@@ -1,0 +1,62 @@
+Use case: precise-object-edit
+Asset type: Chinese conceptual hardware illustration for the SGLang CUDA Graph guide.
+Input image 1: EDIT TARGET. Preserve the complete left Eager panel, overall 3:1 wide-low banner, 34% left / 66% right proportions, typography, white background, and shared footer. Redesign the right panel's internal layout to FIX ITS CAUSAL CONNECTIONS. Keep the whole comparison image, not just the right panel.
+
+The user identified three precise problems to fix:
+1. load_batch() and the data-write action were disconnected. Draw a visible connection from that CPU method to the write action.
+2. Buffer reading looked like an independent activity before replay. Put "read the current buffer" INSIDE the execution sequence that replay starts.
+3. CPU and SGLang software were scattered. Group them together in the FAR LEFT of the right panel, upstream of BOTH actions.
+
+RIGHT PANEL LAYOUT: follow this topology carefully, with clear breathing room and large readable text.
+A. Keep heading "CUDA 图 CUDA Graph". Keep a slim violet preparation strip near the top, OUTSIDE the GPU boundary:
+"提前捕获 Capture：记录操作、依赖与缓冲区地址"
+Do not add arrows from this strip that cross the main scene.
+
+B. FAR LEFT COLUMN of the right panel: one blue-outlined host/control area, containing a recognizable CPU chip and a software card.
+Header: "CPU：SGLang 每轮执行"
+Software name: "execute()"
+Two method rows arranged vertically:
+"① load_batch()"
+small subtitle "发起输入更新"
+then a downward ordering arrow labelled "随后"
+"② replay()"
+small subtitle "发起图回放"
+Both methods visibly belong to this SAME CPU-side software area. CPU and card must be the leftmost functional elements in this panel, not squeezed underneath the input tile or separated by it.
+There is only ONE step-1 badge, attached to load_batch(), and only ONE step-2 badge, attached to replay(). Avoid duplicate disconnected step numbers.
+
+C. UPPER MIDDLE: a small data-preparation action "写入数据", between the CPU and GPU memory.
+- Draw an ORANGE DASHED control arrow from the "① load_batch()" row, horizontally to this "写入数据" action, labelled "发起写入". This connection is essential.
+- Directly above that action show a blue tensor tile labelled "本轮新输入". A SOLID BLUE data arrow descends from the tensor tile INTO the "写入数据" action.
+- A SOLID BLUE data arrow exits "写入数据" to the right into the static input buffer.
+The CPU command and the input DATA meet at the write action with distinct arrow styles and clear labels. Keep the arrows orthogonal and noncrossing.
+
+D. GPU DEVICE on the RIGHT: a pale green outer boundary labelled "GPU：显存与计算". It contains BOTH the memory tray and the execution area.
+- TOP: one blue memory tray labelled "静态输入缓冲区" and "Static Input Buffer". Show a small tensor grid as its content. Caption "地址固定，内容每轮更新". Show a modest A → B content replacement inside ONE tray, not two independent memory allocations. The write-action blue data arrow terminates in this tray.
+- BOTTOM: a clear green GPU execution enclosure with a recognizable GPU chip/frame texture, explicitly headed "回放启动后，GPU 执行：".
+Within this enclosure show ONE continuous left-to-right chain:
+"读取本轮数据" → "乘法 1" → "激活" → "乘法 2"
+Use a memory-read icon for the first node, small blue/green matrix grids for the multiplications, and an activation curve. All FOUR nodes must be INSIDE this enclosure; reading the data is part of executing the graph's operations.
+- A SOLID BLUE data arrow from the memory tray descends to the "读取本轮数据" node inside the execution enclosure. This is the ONLY outgoing buffer-data arrow. Do not bypass the read node and connect the buffer directly to multiplication.
+- The control-start interface is a small orange tab on the LEFT boundary of the WHOLE green execution enclosure, labelled "启动执行". The tab is visibly attached to the enclosure (not floating independently).
+- Draw a clean ORANGE DASHED control arrow from the CPU row "② replay()" to this attached "启动执行" tab, labelled "发起回放". Place this route in a lower lane so it does not cross the data-preparation lane.
+- Connect the "启动执行" tab to the beginning of the contained execution sequence using a short clear arrow pointing to "读取本轮数据". Thus the full readable chain is CPU replay → start execution → read buffer → multiply → activate → multiply. It must be impossible to mistake start execution for something after the buffer read or after the multiplication.
+- Data arrow from the buffer and control arrow from the start tab remain differently styled up to the read operation. No conflation of tensor content and control command.
+
+E. Small legend under the right scene:
+SOLID BLUE line "数据流 Data Flow"
+DASHED ORANGE line "控制流 Control Flow"
+Keep the distinction in BOTH line pattern and color.
+Right bottom caption: "CPU 先安排写入，再启动回放；GPU 读取数据并计算".
+
+LEFT PANEL and shared footer:
+Preserve left "即时执行 Eager", its three separate CPU submissions and dependent GPU operations, and caption "每轮逐个提交，多次调用有开销".
+Shared footer: "减少 CPU 提交开销，GPU 仍执行本轮计算"
+Smaller footer: "提交通常异步 · 运算依赖保留 · 性能收益需实测"
+
+Technical and editorial constraints:
+- The GPU reading buffer data is part of execution initiated by replay, not a separate pre-replay job.
+- CPU arranges input updates and graph replay through CUDA; it is not required to wait synchronously after every submission.
+- A CPU scheduling arrow carries a COMMAND; the solid blue arrow carries DATA. Input data may already exist on GPU; do not label the tensor source as necessarily host memory.
+- The preparation strip represents CUDA graph preparation; do not claim all control Python code is moved onto the GPU.
+- Render precise Simplified Chinese and method names; no tiny dense notes, no duplicated numbers, no crossing arrows, no red annotations, no watermarks.
+- Prioritize correct visible connections and enclosure boundaries over decorative hardware size. The GPU hardware frame may be flatter to give the four execution steps space.

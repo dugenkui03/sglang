@@ -1,0 +1,7 @@
+Use case: precise-object-edit.
+Edit target: the attached nearly finished SGLang Eager / CUDA Graph infographic.
+Make exactly ONE typography-position correction. Preserve every object, arrow, color, number, panel, and other text in place.
+The white heading "回放启动后，GPU 执行：" on the dark green GPU execution enclosure is crossed by the vertical blue buffer-to-read arrow.
+Remove that heading from its current location and place the SAME heading along the dark green top strip TO THE RIGHT of that vertical blue arrow, above the multiplication/activation blocks. If necessary make ONLY that heading slightly smaller so it fits and does not touch the GPU logo.
+Keep the vertical blue arrow landing on "读取本轮数据" exactly as it is. Keep the neutral gray "随后" arrow, both CPU method control connections, data path, and all four GPU execution nodes unchanged.
+No other redesign, no new text. Retain the exact wide-low 3:1 comparison composition.

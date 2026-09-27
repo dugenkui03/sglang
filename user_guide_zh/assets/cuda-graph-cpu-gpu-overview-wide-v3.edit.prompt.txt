@@ -1,0 +1,49 @@
+Use case: precise-object-edit
+Asset type: Chinese educational infographic embedded in the SGLang CUDA Graph guide.
+Input image 1: EDIT TARGET, the existing wide Eager-versus-CUDA-Graph infographic.
+
+Primary request: improve the right-hand CUDA Graph panel so a beginner immediately understands how current input data and a CPU replay command relate. The right panel may be wider than the left. This is a polished conceptual hardware illustration, not a plain flowchart. Produce a complete new version of the two-panel infographic, not a cropped right panel.
+
+Composition and invariants:
+- Wide, low landscape banner, approximately 3:1 aspect ratio, high resolution and readable Chinese lettering. White background, navy typography, blue CPU chips, green GPU hardware, soft blue and violet section headings matching the original.
+- Allocate roughly 34% width to the left Eager panel and 66% to the improved CUDA Graph panel; right panel has real breathing room. Both panels aligned at top and bottom. No red screenshot annotation frame.
+- Preserve the left panel's meaning, three separate orange CPU submissions, and the GPU's dependent three-operation sequence. Retain title “即时执行 Eager”, operation labels “矩阵乘法”, “激活函数”, “矩阵乘法”, and caption “每轮逐个提交，多次调用有开销”. You may compact and reposition its elements to make the larger right panel fit, without distorting the hardware.
+- Preserve the central comparison: the GPU still executes the same mathematical operations in both panels.
+
+Right panel: rebuild its composition for clarity.
+Title: “CUDA 图 CUDA Graph”.
+Under the title, a slim violet PREPARATION strip, visually outside the GPU, with a small reusable-plan icon and exact text:
+“提前捕获 Capture：记录操作、依赖与缓冲区地址”
+Do not connect this preparation strip with confusing crossed arrows. It represents the prepared CUDA execution plan.
+
+Below this strip draw a clear hardware scene:
+1. On the LEFT of the right panel, blue CPU hardware plus a small software card labelled “SGLang 每轮执行” and “execute()”. The card visibly lists in order:
+“① load_batch()：更新输入”
+“② replay()：启动回放”
+This explains who orders the two actions. Keep these labels large and clear, not a screenshot of source code.
+2. The central and right area is one very pale green device boundary labelled “GPU：显存与计算”. Inside this boundary place a separate clearly visible memory compartment and a green GPU computation illustration. The memory is inside the GPU device boundary.
+3. The memory compartment has title “静态输入缓冲区” and small English “Static Input Buffer”. Illustrate just ONE physical memory tray containing tensor cells. Below it, the exact label “地址固定，内容每轮更新”. Show an unobtrusive “A → B” replacement example within this SAME tray, not two simultaneous buffers.
+4. Outside the GPU boundary, above or to the right of the CPU chip, show a tensor tile labelled “本轮新输入”. A thick SOLID BLUE arrow runs from this tile into the memory tray, labelled “① 写入数据”. This arrow carries real tensor data.
+5. Another SOLID BLUE arrow runs from the memory tray to the GPU's FIRST computation block, labelled “读取本轮数据”. Inside the GPU computation area, show the dependent operations “乘法 1” → “激活” → “乘法 2” using tiny matrix and activation-curve illustrations. These three operations happen on GPU and remain dependent.
+6. A SINGLE clearly DASHED ORANGE arrow runs from the CPU/software area BELOW the memory tray to a separate small control tab on the GPU computation boundary. The tab says “启动执行”. The dashed arrow label must say “② 回放指令：开始计算”.
+IMPORTANT: the orange control arrow must NOT point directly at the last multiplication, NOT enter the tensor buffer, NOT contain a tensor tile, NOT merge into the solid blue data arrow, and NOT cross the blue data path. It starts execution of the entire captured graph. Route it cleanly in a lower lane.
+7. Include a concise two-item legend directly underneath the right hardware scene, with matching visible line samples:
+solid blue line “数据流：用什么来算”
+dashed orange line “控制流：开始执行”
+The difference must be visible in BOTH line style and text, not color alone.
+8. Right panel bottom caption: “先更新缓冲区，再发出回放指令”.
+
+Shared footer, aligned across the full image:
+Main line: “减少 CPU 提交开销，GPU 仍执行本轮计算”
+Smaller line: “提交通常异步 · 运算依赖保留 · 性能收益需实测”
+
+Accuracy constraints:
+- This shows data plus a command, not two numerical inputs.
+- Replay reads the current contents at recorded stable buffer addresses.
+- The CPU still runs SGLang scheduling/control; draw no Python code or Scheduler moved into GPU.
+- Graph capture records an execution plan; it does not cache calculated answers.
+- The solid input-data arrow can represent data already prepared by the framework; do not label it as necessarily a CPU-to-GPU physical transfer.
+- The input buffer is only the current-input illustration; do not claim it is the only memory used by the model.
+- No false speedup numbers, no serial CPU wait after every kernel, no result-cache imagery.
+- Consistent bilingual labels as specified, clean Chinese glyphs, clear arrowheads, no duplicated text, no tiny dense paragraphs, no watermark.
+The primary success criterion is that a reader sees: SGLang execute() first updates the input buffer, then sends a replay command; the GPU reads the buffer's DATA and follows the recorded computation plan after receiving the COMMAND.
