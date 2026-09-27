@@ -17,6 +17,7 @@
 | 1.7 | [长上下文流水线并行(Pipeline Parallelism for Long Context)](<1.7 长上下文流水线并行(Pipeline Parallelism for Long Context).md>) | 异步 P2P 通信、动态分块、平滑因子调优与 NVIDIA H20 部署示例 |
 | 1.8 | [SGLang 模拟器(SGLang Simulator)](<1.8 SGLang 模拟器(SGLang Simulator).md>) | 延迟预测、逻辑时间模拟与实际时间回放、工作负载发送和指标输出 |
 | 1.9 | [模型加载(Model Loading)](<1.9 模型加载(Model Loading).md>) | 加载格式、加载器额外配置、多线程与预取、远程和流式权重加载 |
+| 1.10 | [可观测性(Observability)](<1.10 可观测性(Observability).md>) | Prometheus 指标、日志、请求转储与回放、崩溃诊断和 CUDA 设备核心转储 |
 
 ## 2. 注意力与缓存(Attention and Caching)
 
