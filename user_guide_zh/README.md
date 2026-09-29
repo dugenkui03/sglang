@@ -10,6 +10,7 @@
 | 1.2 | [超参数调优(Hyperparameter Tuning)](<1.2 超参数调优(Hyperparameter Tuning).md>) | 请求并发、显存分配、调度与批大小 |
 | 1.3 | [并行策略与模型网关(Parallelism and Model Gateway)](<1.3 并行策略与模型网关(Parallelism and Model Gateway).md>) | DP、DPA 与 SMG 完整译文，附从请求路由到模型内部的分层总览 |
 | 1.4 | [专家并行(Expert Parallelism)](<1.4 专家并行(Expert Parallelism).md>) | EP 通信与计算后端、可扩展框架、计算通信重叠与负载均衡 |
+| 1.4.1 | [弹性专家并行(Elastic Expert Parallelism)](<../python/sglang/srt/elastic_ep/1.4.1 弹性专家并行(Elastic Expert Parallelism).md>) | 成员故障与扩容、专家重新布局、CPU 权重备份及核心实现时序 |
 | 1.5 | [预填充与解码分离(PD Disaggregation)](<1.5 预填充与解码分离(PD Disaggregation).md>) | PD 分离原理、路由与 Responses API 限制、Mooncake/NIXL 部署、异构 TP 与 GPU 暂存缓冲区 |
 | 1.5 | [LoRA 服务(LoRA Serving)](<1.5 LoRA 服务(LoRA Serving).md>) | 共享基础模型、按请求选择适配器、动态加载、GPU 常驻、DPA 与重叠加载 |
 | 1.6 | [混合专家模型入门(Mixture of Experts)](<1.6 混合专家模型入门(Mixture of Experts).md>) | 专家 MLP、上下文路由、Top-k 与加权合并、词元批量计算及参数与计算量 |
@@ -18,6 +19,7 @@
 | 1.8 | [SGLang 模拟器(SGLang Simulator)](<1.8 SGLang 模拟器(SGLang Simulator).md>) | 延迟预测、逻辑时间模拟与实际时间回放、工作负载发送和指标输出 |
 | 1.9 | [模型加载(Model Loading)](<1.9 模型加载(Model Loading).md>) | 加载格式、加载器额外配置、多线程与预取、远程和流式权重加载 |
 | 1.10 | [可观测性(Observability)](<1.10 可观测性(Observability).md>) | Prometheus 指标、日志、请求转储与回放、崩溃诊断和 CUDA 设备核心转储 |
+| 1.11 | [远程权重加载(R-Fork)](<1.11 远程权重加载(R-Fork).md>) | 种子实例、GPU 间权重传输、启动加速及 NCCL、TransferEngine、ModelExpress 配置 |
 
 ## 2. 注意力与缓存(Attention and Caching)
 

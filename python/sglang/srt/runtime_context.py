@@ -1335,6 +1335,8 @@ def publish(server_args, *, role: str, hf_config: Any = None) -> RuntimeContext:
     engine running now. Re-publish is allowed and is **last-publish-wins**
     (bags re-projected, provenance reset, role overwritten), which is what
     lets one process rebuild an engine after shutting the previous one down.
+
+    方法阅读：[发布本进程配置](./runtime_context.py.publish.md)
     """
     if _ROLE_NS_MODE == "enforce" and role not in ROLE_NAMESPACE_SETS:
         # Fail closed at publish time, not at the first stray read.

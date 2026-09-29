@@ -3684,8 +3684,10 @@ class ServerArgs:
         arrived by pickle and brought its declarations along, so the child has
         nothing left to derive and projects what the parent decided.
         """
+        # 启动配置的一次性解析入口：避免重复执行处理器，导致已调整的参数再次被修改。
         if getattr(self, "_resolution_finished", False):
             return
+        # 上次解析失败后可能留下部分处理结果，不能把同一对象当作原始输入重试。
         if getattr(self, "_resolution_failed", False):
             raise RuntimeError(
                 "resolution already failed on this ServerArgs; the handlers that "
@@ -3800,6 +3802,8 @@ class ServerArgs:
            may mutate, and whether it validates only. Long ordering comments
            belong in the helper or signal that the helper should be split.
         """
+
+        # 按依赖顺序补全、调整并校验启动参数；这里只处理配置，不加载模型权重。
 
         # What the caller asked for, before any handler runs; this plus the
         # stash is the resolution result the projection reads.
@@ -11152,34 +11156,41 @@ DP_ATTENTION_HANDSHAKE_PORT_DELTA = 13
 
 @dataclasses.dataclass
 class PortArgs:
-    # The ipc filename for tokenizer to receive inputs from detokenizer (zmq)
+    """保存服务内部各组件的通信地址、分布式初始化端口和实例标识。
+
+    *_ipc_name(Inter-Process Communication) 通常是 ipc://文件路径形式的进程间通信（IPC）端点；
+    部分配置会使用 tcp://主机:端口形式，实际消息收发由对应组件完成。
+    """
+
+    # Detokenizer → Tokenizer：通过 ZeroMQ 接收解码后的文本等结果。
     tokenizer_ipc_name: str
-    # The ipc filename for scheduler (rank 0) to receive inputs from tokenizer (zmq)
+    # Tokenizer → Scheduler（rank 0）：通过 ZeroMQ 接收待调度的请求。
     scheduler_input_ipc_name: str
-    # The ipc filename for detokenizer to receive inputs from scheduler (zmq)
+    # Scheduler → Detokenizer：通过 ZeroMQ 接收生成的 token 等结果，供反分词处理。
     detokenizer_ipc_name: str
 
-    # The port for nccl initialization (torch.dist)
+    # torch.distributed 初始化分布式通信（如 NCCL）所用的端口。
     nccl_port: int
 
-    # The ipc filename for rpc call between Engine and Scheduler
+    # Engine 与 Scheduler 进行远程过程调用（Remote Procedure Call，RPC）的通信地址。
     rpc_ipc_name: str
 
-    # The ipc filename for Scheduler to send metrics
+    # Scheduler 发送监控指标（Metrics）的通信地址。
     metrics_ipc_name: str
 
-    # The ipc filename for MultiTokenizerRouter to receive inputs from TokenizerWorker processes (zmq)
+    # TokenizerWorker → MultiTokenizerRouter：多分词进程通过 ZeroMQ 发送消息的入口。
+    # 只有一个 Tokenizer Worker 时不需要此通道，值为 None。
     tokenizer_worker_ipc_name: Optional[str]
 
-    # The ipc endpoints between verifier scheduler and drafter scheduler
+    # 解耦推测解码（Decoupled Speculative Decoding）中，验证端与草稿端 Scheduler 的通信配置。
+    # 包含绑定地址、对端连接地址和 rank；未启用时为 None。
     decoupled_spec_ipc_config: Optional[DecoupledSpecIpcConfig]
 
-    # zmq address for load snapshot PUSH/PULL (dp-attention TCP mode only;
-    # empty when IPC mode derives the address from instance_id).
+    # 负载快照（Load Snapshot）的 ZeroMQ PUSH/PULL 地址，仅用于 DP Attention 的 TCP 模式。
+    # IPC 模式下此值为空，通信地址由 instance_id 派生。
     load_collector_ipc_name: str = ""
 
-    # Stable token shared by all processes in one server instance, used to
-    # derive the /dev/shm path for load snapshots.
+    # 同一服务实例的所有进程共享的稳定标识，用于派生负载快照的 /dev/shm 共享内存路径。
     instance_id: str = ""
 
     @staticmethod
