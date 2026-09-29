@@ -15,10 +15,13 @@ suppress_noisy_warnings()
 
 
 def run_server(server_args):
-    """Run the server based on the gRPC flags and server_args.encoder_only."""
+    """【重要】
+    调用示例：python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000
+    Run the server based on the gRPC flags and server_args.encoder_only.
+    """
     # The flags dispatched on below are decided by resolution (`--grpc-mode`
     # folds into `smg_grpc_mode`), and `prepare_server_args` returns raw input.
-    server_args.resolve_once()
+    server_args.resolve_once() #
     cfg = resolving_view(server_args)
 
     if cfg.encoder_only:
@@ -34,7 +37,7 @@ def run_server(server_args):
 
             launch_server(server_args)
     elif cfg.smg_grpc_mode:
-        # Legacy SMG gRPC server (--smg-grpc-mode, or the deprecated --grpc-mode
+        # Legacy SMG(SGLang Model Gateway) gRPC server (--smg-grpc-mode, or the deprecated --grpc-mode
         # which __post_init__ folds into smg_grpc_mode). The native Rust gRPC
         # server is a separate path, enabled by --grpc-port, that starts
         # alongside the default HTTP server below.
@@ -53,7 +56,7 @@ def run_server(server_args):
 
         launch_server(server_args)
     else:
-        # Default mode: HTTP mode.
+        # 【重点】Default mode: HTTP mode.
         from sglang.srt.entrypoints.http_server import launch_server
 
         launch_server(server_args)

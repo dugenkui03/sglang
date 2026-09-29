@@ -165,6 +165,7 @@ class WatchdogRaw:
 
 class SubprocessWatchdog:
     """Monitors subprocess liveness and triggers SIGQUIT when a crash is detected.
+    监视器
 
     When a subprocess crashes (e.g., NCCL timeout causing C++ std::terminate()),
     Python exception handlers never run, leaving the main process as a zombie

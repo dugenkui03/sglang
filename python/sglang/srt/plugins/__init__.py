@@ -102,19 +102,29 @@ def _get_excluded_dists() -> set[str]:
 
 def load_plugins():
     """
+    加载并执行所有通用插件(General Plugin)，然后应用已注册的钩子(Hook)。
     Load and execute all general plugins, then apply registered hooks.
 
+    本函数具有幂等性(Idempotency)，可以安全地多次调用。通用插件以函数形式实现，
+    其副作用(Side Effect)，如注册钩子、替换类等，正是预期的行为；返回值会被忽略。
     Idempotent - safe to call multiple times. General plugins are functions
     whose side effects (registering hooks, replacing classes, etc.) are the
     desired behavior. Return values are ignored.
 
+    设置 ``SGLANG_PLATFORM`` 后，会自动跳过未选中平台包提供的通用插件，
+    避免引入这些平台包的依赖。
     When ``SGLANG_PLATFORM`` is set, general plugins from unselected platform
     packages are automatically skipped (avoids pulling their dependencies).
 
+    所有插件执行完毕后，会自动调用 ``HookRegistry.apply_hooks()``，
+    因此调用方只需调用本函数。
     After all plugins execute, ``HookRegistry.apply_hooks()`` is called
     automatically so callers only need this single function call.
 
+    应在每个进程（主进程、引擎核心进程和工作进程）的启动早期调用本函数。
     This should be called early in every process (main, engine core, workers).
+
+    方法阅读：[插件加载与生效位置](./__init__.py.load_plugins.md)
     """
     global _plugins_loaded
     if _plugins_loaded:

@@ -2523,7 +2523,9 @@ def _setup_and_run_http_server(
     execute_warmup_func: Callable = _execute_server_warmup,
     launch_callback: Optional[Callable[[], None]] = None,
 ):
-    """Set up global state, configure middleware, and run uvicorn.
+    """
+    把已经准备好的推理组件接入 HTTP 应用，并启动对外服务
+    Set up global state, configure middleware, and run uvicorn.
 
     Called by launch_server after subprocesses have been launched.
     """
@@ -2772,11 +2774,17 @@ def _shutdown_native_grpc_server(grpc_handle) -> None:
 
 
 def launch_server(
+    # python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000 中的参数
     server_args: ServerArgs,
+    # 创建分词管理器（TokenizerManager）的函数，默认使用标准初始化逻辑。
     init_tokenizer_manager_func: Callable = init_tokenizer_manager,
+    # 调度器（Scheduler）子进程的入口函数，负责初始化调度器并运行调度循环 【重要】设置了默认值
     run_scheduler_process_func: Callable = run_scheduler_process,
+    # 反分词管理器（DetokenizerManager）子进程的入口函数，负责将输出 token 解码为文本。
     run_detokenizer_process_func: Callable = run_detokenizer_process,
+    # HTTP 服务路径的预热函数，默认通过预热请求检查服务是否可用。
     execute_warmup_func: Callable = _execute_server_warmup,
+    # 服务完成初始化和预热后的回调；未提供时不执行。
     launch_callback: Optional[Callable[[], None]] = None,
 ):
     """
@@ -2785,14 +2793,14 @@ def launch_server(
     The SRT server consists of an HTTP server and an SRT engine.
 
     - HTTP server: A FastAPI server that routes requests to the engine.
-    - The engine consists of three components:
+    - The engine consists of three components:【重要】执行引擎的核心组件
         1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
         2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
         3. DetokenizerManager (subprocess): Detokenizes the output tokens and sends the result back to the Tokenizer Manager.
 
     Note:
     1. The HTTP server, Engine, and TokenizerManager all run in the main process.
-    2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library.
+    2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library. 【重要】
     """
     # Launch subprocesses
     (
@@ -2802,7 +2810,7 @@ def launch_server(
         scheduler_init_result,
         subprocess_watchdog,
         _weight_cache_daemon_procs,
-    ) = Engine._launch_subprocesses(
+    ) = Engine._launch_subprocesses( # 调用一个函数返回变量列表
         server_args=server_args,
         init_tokenizer_manager_func=init_tokenizer_manager_func,
         run_scheduler_process_func=run_scheduler_process_func,

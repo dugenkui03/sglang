@@ -280,28 +280,28 @@ def get_num_indexer_layers(config) -> int:
 class ModelConfig:
     def __init__(
         self,
-        model_path: str,
-        trust_remote_code: bool = True,
-        revision: Optional[str] = None,
-        context_length: Optional[int] = None,
-        model_override_args: str = "{}",
-        is_embedding: Optional[bool] = None,
-        enable_multimodal: Optional[bool] = None,
-        dtype: str = "auto",
-        quantization: Optional[str] = None,
-        override_config_file: Optional[str] = None,
-        is_draft_model: bool = False,
-        model_impl: Union[str, ModelImpl] = ModelImpl.AUTO,
-        sampling_defaults: str = "openai",
-        quantize_and_serve: bool = False,
-        is_multi_layer_eagle: bool = False,
-        encoder_only: bool = False,
-        language_only: bool = False,
-        language_model_only: bool = False,
-        disable_hybrid_swa_memory: bool = False,
-        model_config_parser: str = "auto",
-        speculative_algorithm: Optional[str] = None,
-        is_draft_quantization_explicit: bool = False,
+        model_path: str,  # 模型的本地路径或仓库 ID
+        trust_remote_code: bool = True,  # 是否允许执行模型仓库的自定义代码
+        revision: Optional[str] = None,  # 模型仓库的分支、标签或提交版本
+        context_length: Optional[int] = None,  # 覆盖从模型配置推导出的上下文长度
+        model_override_args: str = "{}",  # 覆盖模型配置字段的 JSON 字符串
+        is_embedding: Optional[bool] = None,  # 是否按嵌入模型处理；None 时自动识别
+        enable_multimodal: Optional[bool] = None,  # 是否启用多模态；None 时自动判断
+        dtype: str = "auto",  # 模型使用的数据类型；auto 时按配置推断
+        quantization: Optional[str] = None,  # 量化方法；None 时从检查点配置推断
+        override_config_file: Optional[str] = None,  # 指定替代的模型配置文件
+        is_draft_model: bool = False,  # 是否为推测解码中的草稿模型
+        model_impl: Union[str, ModelImpl] = ModelImpl.AUTO,  # 模型实现后端
+        sampling_defaults: str = "openai",  # 采样参数默认值来源
+        quantize_and_serve: bool = False,  # 加载时量化并服务；当前实现尚未启用
+        is_multi_layer_eagle: bool = False,  # 是否启用多层 EAGLE 模式
+        encoder_only: bool = False,  # 编码器与语言侧分离部署时的编码器模式
+        language_only: bool = False,  # 编码器与语言侧分离部署时的语言侧模式
+        language_model_only: bool = False,  # 只构建语言模型，跳过多模态编码器
+        disable_hybrid_swa_memory: bool = False,  # 禁用混合 SWA 模型的专用内存优化
+        model_config_parser: str = "auto",  # 模型配置文件的解析器
+        speculative_algorithm: Optional[str] = None,  # 推测解码算法，用于选择草稿模型结构
+        is_draft_quantization_explicit: bool = False,  # 草稿模型量化方法是否由用户显式指定
     ) -> None:
         # Parse args
         self.model_path = model_path
