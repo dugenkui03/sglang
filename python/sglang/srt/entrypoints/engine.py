@@ -169,7 +169,11 @@ def init_tokenizer_manager(
     TokenizerManagerClass = TokenizerManagerClass or TokenizerManager
     # TokenizerManagerClass 不是一个具体的类，而是可以指向某个类、比如这里默认其实初始化的是 TokenizerManager
     # 这种参数定义和 a or b 是为了让用户可以穿入 自定义的子类
-    tokenizer_manager = TokenizerManagerClass(server_args, port_args) 
+    # 【重点】
+    #   1）加载 tokenizer对象；
+    #   2）建立与 Scheduler、Detokenizer 通信的 zmq 管道： send_to_scheduler 提交任务，recv_from_detokenizer 接收结果；
+    #   3）创建请求状态表 rid_to_state，用来按请求 ID 对号入座、唤醒等待结果的请求
+    tokenizer_manager = TokenizerManagerClass(server_args, port_args)
 
     # Initialize templates
     template_manager = TemplateManager()

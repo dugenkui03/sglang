@@ -221,12 +221,15 @@ _INCREMENTAL_STREAMING_META_INFO_KEYS = (
 
 @dataclasses.dataclass
 class ReqState:
-    """Store the state a request."""
+    """Store the state a request.
+    一个请求的状态，存在 TokenizerManager.rid_to_state[rid] 里
+    【重点字段】out_list、finished、event、obj、text / text_chunks；其余是性能指标和流式输出的偏移
+    """
 
-    out_list: List[Dict[Any, Any]]
-    finished: bool
-    event: asyncio.Event
-    obj: Union[GenerateReqInput, EmbeddingReqInput]
+    out_list: List[Dict[Any, Any]]  # 【重点】收到的输出结果，流式时会分多次追加进来
+    finished: bool  # 是否已经生成完毕
+    event: asyncio.Event  # 结果到达时 set()，唤醒正在等待的 _wait_one_response
+    obj: Union[GenerateReqInput, EmbeddingReqInput]  # 原始请求对象，比如 GenerateReqInput
 
     # For performance metrics
     time_stats: APIServerReqTimeStats
@@ -238,8 +241,8 @@ class ReqState:
 
     # Accumulate text lazily so incremental streaming can emit the incoming
     # delta directly without rebuilding the full output prefix.
-    text: str = ""
-    text_chunks: List[str] = dataclasses.field(default_factory=list)
+    text: str = ""  # 累积的生成文本，给流式输出用
+    text_chunks: List[str] = dataclasses.field(default_factory=list)  # 还没合并进 text 的文本片段
 
     def append_text(self, chunk: str):
         if chunk:
@@ -441,15 +444,18 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         self._validate_cuda_vmm_feature_transport_support()
 
         # Initialize tokenizer and multimodalprocessor
-        # 【核心【重点】加载分词器 self.tokenizer；多模态模型还会加载图像等输入的预处理器
+        # 【核心加载分词器 self.tokenizer；多模态模型还会加载图像等输入的预处理器
+        # 【重点】分词靠这里
         self.init_tokenizer_and_processor()
 
         # Init inter-process communication
         # 【核心】创建 zmq socket：send_to_scheduler 发请求给 Scheduler，recv_from_detokenizer 收 Detokenizer 回的结果
+        # 【重点】发送任务、接收结果
         self.init_ipc_channels(port_args)
 
         # Init running status
         # 【核心】运行状态：请求状态表 rid_to_state（请求 ID → ReqState，等结果时靠它），以及事件循环、服务健康状态
+        # 【重点】协同 ipc 发送任务和接收结果
         self.init_running_status()
 
         # Init logging and dumping
@@ -541,7 +547,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             if get_serving().skip_tokenizer_init:
                 self.tokenizer = None
             else:
-                # 【重点】
+                # 【重点】初始化 tokenizer
                 self.tokenizer = get_tokenizer(
                     # 这里的路径仍然是 Qwen/Qwen2.5-0.5B-Instruct 整个仓库
                     # 后续 AutoTokenizer.from_pretrained 自动获取分词起相关配置
@@ -585,9 +591,15 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         """
          IPC：Inter-Process Communication 进程间通信
         """
-        context = zmq.asyncio.Context(2)
+        context = zmq.asyncio.Context(2)  # 异步版 Context，创建出的 socket 可以 await 收发
+        # 【重点】接收结果的管道：单 worker、多 worker 两种模式都会创建
+        # Detokenizer 进程                                                              TokenizerManager 进程
+        #      PUSH socket  ---- 生成结果(共用通信地址 tokenizer_ipc_name) ---->  PULL socket（后台 handle_loop 一直在收）
         self.recv_from_detokenizer = get_zmq_socket(
-            context, zmq.PULL, port_args.tokenizer_ipc_name, True
+            context,  # ZeroMQ 上下文，用于创建通信 socket。
+            zmq.PULL,  # 这个是通信的 PULL 端，只收
+            port_args.tokenizer_ipc_name,  # 接收结果所使用的通信地址，Detokenizer 往这里发
+            True,  # 当前接收端绑定该地址（bind），由 Detokenizer 连接。
         )
         if get_serving().tokenizer_worker_num == 1:
             # 【note】get_zmq_socket：创建并配置当前进程的 socket 对象。
@@ -637,6 +649,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def init_running_status(self):
         # Request states
+        # 【重点】rid_to_state 保存请求 ID 及其对应的请求状态（包括结果）
+        #   str：请求 ID（rid，字符串），每个请求唯一
+        #   ReqState（输出结果、是否完成、唤醒等待方的 event 等）
         self.rid_to_state: Dict[str, ReqState] = {}
         self.event_loop = None
         self.asyncio_tasks = set()
