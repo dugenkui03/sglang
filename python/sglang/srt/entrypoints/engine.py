@@ -156,11 +156,20 @@ class SchedulerInitResult:
 def init_tokenizer_manager(
     server_args: ServerArgs,
     port_args: PortArgs,
-    TokenizerManagerClass: Optional[TokenizerManager] = None,
+    TokenizerManagerClass: Optional[TokenizerManager] = None, # 这个参数值是 类、但TokenizerManagerClass不是具体的类名称，而是可以指向一个类名
 ) -> Tuple[TokenizerManager, TemplateManager]:
+    """TokenizerManager 它负责
+        1. 将文本转换为令牌序列
+        2. 提交任务到 Scheduler
+        3. 接收 Scheduler 完成的任务
+    """
+
     # Launch tokenizer process
+    # a = a1 or a2：如果 a1 不为 none 则使用 a1 给 a赋值，否则使用 a2
     TokenizerManagerClass = TokenizerManagerClass or TokenizerManager
-    tokenizer_manager = TokenizerManagerClass(server_args, port_args)
+    # TokenizerManagerClass 不是一个具体的类，而是可以指向某个类、比如这里默认其实初始化的是 TokenizerManager
+    # 这种参数定义和 a or b 是为了让用户可以穿入 自定义的子类
+    tokenizer_manager = TokenizerManagerClass(server_args, port_args) 
 
     # Initialize templates
     template_manager = TemplateManager()
@@ -296,13 +305,16 @@ class Engine(EngineScoreMixin, EngineBase):
             tokenizer_manager._subprocess_watchdog = subprocess_watchdog
         self.port_args = port_args
 
-        # Initialize ZMQ sockets
+        # Initialize ZMQ sockets， Engine ↔ Scheduler 
         context = zmq.Context(2)
         if self.server_args.node_rank == 0:
             self.send_to_rpc = get_zmq_socket(
                 context,  # ZeroMQ 上下文，所有 socket 都从它创建
                 zmq.DEALER,  # socket 类型：可连续收发消息，不必一问一答
-                self.port_args.rpc_ipc_name,  # 本机 IPC 地址，专用于 Engine 与 Scheduler 之间的 RPC 调用
+                # 【重点】
+                # 本机 IPC 地址，专用于 Engine 与 Scheduler 之间的 RPC 调用
+                # scheduler_components/ipc_channels.py 第 48-49 行 scheduler 也连接了这个地址
+                self.port_args.rpc_ipc_name,
                 True  # bind=True：Engine 这端监听，Scheduler 在 ipc_channels.py 里用 bind=False 连接过来
             )
         else:
@@ -828,7 +840,6 @@ class Engine(EngineScoreMixin, EngineBase):
         placement_group=None,
     ) -> Tuple[SchedulerInitResult, Optional[List]]:
         """
-        【TODO】
         Launch scheduler processes using multiprocessing.
         Override in subclasses for different backends (e.g. Ray).
 
@@ -1232,7 +1243,7 @@ class Engine(EngineScoreMixin, EngineBase):
 
         startup_complete = False
         try:
-            # 【Step 3】
+            # 【Step 3】【重点】
             # Wait for the model to finish loading
             # 等待相关 Scheduler 子进程完成初始化，包括模型加载，并向主进程报告就绪
             scheduler_init_result.wait_for_ready()
