@@ -23,24 +23,27 @@ engine = None
 
 # Use FastAPI's lifespan manager to initialize/shutdown the engine
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def sglang_engine_lifespan(app: FastAPI):
     """Manages SGLang engine initialization during server startup."""
     global engine
     # Initialize the SGLang engine when the server starts
     # Adjust model_path and other engine arguments as needed
     print("Loading SGLang engine...")
+    # 【重点】初始化 sglang 的 Engine
     engine = sgl.Engine(
         model_path=os.getenv("MODEL_PATH"), tp_size=int(os.getenv("TP_SIZE"))
     )
     print("SGLang engine loaded.")
-    yield
+    yield # fast api 关闭的时候执行
     # Clean up engine resources when the server stops (optional, depends on engine needs)
     print("Shutting down SGLang engine...")
     # engine.shutdown() # Or other cleanup if available/necessary
     print("SGLang engine shutdown.")
 
-
-app = FastAPI(lifespan=lifespan)
+# lifespan：FastAPI 的生命周期钩子
+#   1. yield 之前的代码在服务启动时执行一次（这里创建 SGLang Engine）
+#   2. yield 之后的代码在服务关闭时执行一次（这里关闭 SGLang Engine）
+app = FastAPI(lifespan=sglang_engine_lifespan)
 
 
 @app.post("/generate")
@@ -82,7 +85,7 @@ def start_server(args, timeout=60):
         "python",
         "-m",
         "uvicorn",
-        "fastapi_engine_inference:app",
+        "fastapi_engine_inference:app", # app = FastAPI(lifespan=sglang_engine_lifespan)
         f"--host={args.host}",
         f"--port={args.port}",
     ]
@@ -167,10 +170,13 @@ if __name__ == "__main__":
         help="Time in seconds to wait for the server to be ready (default: %(default)s)",
     )
     args = parser.parse_args()
+    print(f"args: {vars(args)}")
 
     # Pass the model to the child uvicorn process via an env var
+    # 设置环境bian liang
     os.environ["MODEL_PATH"] = args.model_path
-    os.environ["TP_SIZE"] = str(args.tp_size)
+    # The tensor parallelism size，几张GPU卡则一般并行度是几
+    os.environ["TP_SIZE"] = str(args.tp_size) 
 
     # Start the server
     process = start_server(args, timeout=args.startup_timeout)

@@ -234,8 +234,8 @@ class Engine(EngineScoreMixin, EngineBase):
 
     def __init__(self, **kwargs):
         """
-        The arguments of this function is the same as `sglang/srt/server_args.py::ServerArgs`.
-        Please refer to `ServerArgs` for the documentation.
+            The arguments of this function is the same as `sglang/srt/server_args.py::ServerArgs`.
+            Please refer to `ServerArgs` for the documentation.
         """
 
         # Ensure plugins are loaded before ServerArgs construction,
@@ -270,7 +270,7 @@ class Engine(EngineScoreMixin, EngineBase):
         # Shutdown the subprocesses automatically when the program exits
         atexit.register(self.shutdown)
 
-        # Launch subprocesses
+        # Launch subprocesses 【重要】加载各种模型组件，启动服务
         (
             tokenizer_manager,
             template_manager,
@@ -300,7 +300,10 @@ class Engine(EngineScoreMixin, EngineBase):
         context = zmq.Context(2)
         if self.server_args.node_rank == 0:
             self.send_to_rpc = get_zmq_socket(
-                context, zmq.DEALER, self.port_args.rpc_ipc_name, True
+                context,  # ZeroMQ 上下文，所有 socket 都从它创建
+                zmq.DEALER,  # socket 类型：可连续收发消息，不必一问一答
+                self.port_args.rpc_ipc_name,  # 本机 IPC 地址，专用于 Engine 与 Scheduler 之间的 RPC 调用
+                True  # bind=True：Engine 这端监听，Scheduler 在 ipc_channels.py 里用 bind=False 连接过来
             )
         else:
             self.send_to_rpc = None
