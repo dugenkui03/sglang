@@ -206,8 +206,8 @@ _global_state: Optional[_GlobalState] = None
 
 
 def set_global_state(global_state: _GlobalState):
-    global _global_state
-    _global_state = global_state
+    global _global_state # global 表示修改的是模块级别的变量，只在"赋值"时需要
+    _global_state = global_state # 将入参赋值给模块变量
 
 
 def get_global_state() -> _GlobalState:
@@ -2518,18 +2518,24 @@ def _setup_and_run_http_server(
     tokenizer_manager,
     template_manager,
     port_args: PortArgs,
-    scheduler_infos: List[Dict],
+    scheduler_infos: List[Dict], #
     subprocess_watchdog: Optional[SubprocessWatchdog],
     execute_warmup_func: Callable = _execute_server_warmup,
     launch_callback: Optional[Callable[[], None]] = None,
 ):
     """
-    把已经准备好的推理组件接入 HTTP 应用，并启动对外服务
+    把已经准备好的推理组件接入 HTTP 应用，并启动对外服务。
+    Step 1 设置全局状态；Step 2 配置中间件与启动参数；
+    Step 3 运行 HTTP 服务，阻塞到服务退出，期间由 FastAPI 触发 lifespan。
+    方法阅读：[启动流程与时序图](./http_server.py._setup_and_run_http_server.md)
+
     Set up global state, configure middleware, and run uvicorn.
 
     Called by launch_server after subprocesses have been launched.
     """
+    # 【Step 1】设置全局状态，供路由函数和 lifespan 读取推理组件。
     # Set global states
+    # tokenizer manager 等组件放到 GlobalState 中
     set_global_state(
         _GlobalState(
             tokenizer_manager=tokenizer_manager,
@@ -2542,6 +2548,7 @@ def _setup_and_run_http_server(
     if tokenizer_manager is not None:
         tokenizer_manager._subprocess_watchdog = subprocess_watchdog
 
+    # 【Step 2】配置中间件与启动参数；单分词器模式挂在 app 属性上，多分词器模式写入共享内存。
     if get_observability().enable_metrics:
         add_prometheus_track_response_middleware(app)
 
@@ -2589,6 +2596,7 @@ def _setup_and_run_http_server(
             },
         )
 
+    # 【Step 3】按配置选择 HTTP 服务器并阻塞运行；退出时清理多分词器模式的共享内存。
     try:
         # Update logging configs
         set_uvicorn_logging_configs(server_args)

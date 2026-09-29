@@ -209,6 +209,8 @@ class Engine(EngineScoreMixin, EngineBase):
     """
     【重要】The entry point to the inference engine.
 
+    组件阅读：[核心组件一：Engine](../../../../user_guide_zh/核心组件一：Engine.md)
+
     - 【重要】The engine consists of three components:
         1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
         2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
