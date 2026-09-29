@@ -147,9 +147,10 @@ def _install_tokenizer_warnings_filter(tokenizer):
 
 
 def _resolve_tokenizer_name(tokenizer_name, kwargs):
-    """Resolve special name formats (GGUF, remote URLs, etc.) to a local path.
+    """
+        Resolve special name formats (GGUF, remote URLs, etc.) to a local path.
 
-    May mutate *kwargs* (e.g. to add ``gguf_file``).
+        May mutate *kwargs* (e.g. to add ``gguf_file``).
     """
     tokenizer_name = _MISTRAL_TOKENIZER_REDIRECTS.get(tokenizer_name, tokenizer_name)
 
@@ -175,6 +176,11 @@ def _resolve_tokenizer_name(tokenizer_name, kwargs):
 def _auto_tokenizer_from_pretrained(tokenizer_name, *args, **common_kwargs):
     """Call ``AutoTokenizer.from_pretrained`` with error handling."""
     try:
+        # 这里的路径仍然是 Qwen/Qwen2.5-0.5B-Instruct 整个仓库
+        # 后续 AutoTokenizer.from_pretrained 自动获取分词起相关配置
+        #   1）tokenizer.json 最主要的一个，里面有词表、合并规则和预处理规则
+        #   2）tokenizer_config.json：中的 "tokenizer_class": "Qwen2Tokenizer" 是 transformer 原生支持的
+        # https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/tree/main
         tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_name, *args, **common_kwargs
         )
@@ -476,7 +482,11 @@ def get_tokenizer(
     tokenizer_backend: str = "huggingface",
     **kwargs,
 ) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
-    """Gets a tokenizer for the given model name via Huggingface."""
+    """
+        Gets a tokenizer for the given model name via Huggingface.
+        从 huggingface 下载 tokenizer
+        加载 tokenizer
+    """
     # Tiktoken format has its own backend — no fastokens patching needed.
     if tokenizer_name.endswith(".json"):
         from sglang.srt.tokenizer.tiktoken_tokenizer import TiktokenTokenizer
@@ -508,6 +518,7 @@ def get_tokenizer(
         attach_additional_stop_token_ids(tokenizer)
         return patch_tokenizer(tokenizer)
 
+    #  _resolve_tokenizer_name：Resolve special name formats (GGUF, remote URLs, etc.) to a local path.
     tokenizer_name = _resolve_tokenizer_name(tokenizer_name, kwargs)
 
     common_kwargs = dict(
@@ -535,6 +546,7 @@ def get_tokenizer(
                 tokenizer_name, revision=tokenizer_revision
             )
         else:
+            # 【重点】
             tokenizer = _auto_tokenizer_from_pretrained(
                 tokenizer_name, *args, **common_kwargs
             )

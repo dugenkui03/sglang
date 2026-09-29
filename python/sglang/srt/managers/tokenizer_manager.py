@@ -393,7 +393,10 @@ _MANAGER_OWNED_FIELDS = ("model_path", "served_model_name")
 
 class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
     """TokenizerManager is a process that tokenizes the text.
-       它负责将文本转换为令牌序列。
+       它负责
+        1. 将文本转换为令牌序列
+        2. 提交任务到 Scheduler
+        3. 接收 Scheduler 完成的任务
     """
 
     @property
@@ -414,6 +417,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         start_pd_bootstrap_service: bool = True,
     ):
         # Parse args
+        # 读取配置：把后面常用的开关缓存成属性（指标、LoRA、流式输出、是否跳过分词器等）
         self.server_args = server_args
         assert_published(server_args, role="tokenizer")
         self.startup_time: Optional[Dict[str, Any]] = None
@@ -431,38 +435,50 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         self.crash_dump_folder = get_observability().crash_dump_folder
 
         # Init model config
+        # 【核心】模型配置：上下文长度 context_len、是否生成模型等；max_req_input_len 之后由 engine.py 用 Scheduler 回报的值填上
         self.init_model_config()
+        # 非核心：检查当前模型是否支持多模态特征的 CUDA VMM 传输
         self._validate_cuda_vmm_feature_transport_support()
 
         # Initialize tokenizer and multimodalprocessor
+        # 【核心【重点】加载分词器 self.tokenizer；多模态模型还会加载图像等输入的预处理器
         self.init_tokenizer_and_processor()
 
         # Init inter-process communication
+        # 【核心】创建 zmq socket：send_to_scheduler 发请求给 Scheduler，recv_from_detokenizer 收 Detokenizer 回的结果
         self.init_ipc_channels(port_args)
 
         # Init running status
+        # 【核心】运行状态：请求状态表 rid_to_state（请求 ID → ReqState，等结果时靠它），以及事件循环、服务健康状态
         self.init_running_status()
 
         # Init logging and dumping
+        # 非核心：请求日志与请求转储
         self.init_request_logging_and_dumping()
 
         # Init weight update
+        # 非核心：在线更新模型权重
         self.init_weight_update()
 
         # Init LoRA status
+        # 非核心：LoRA 适配器
         self.init_lora()
 
         # Init PD disaggregation and encoder disaggregation
+        # 非核心：预填充/解码分离、编码器分离
         self.init_disaggregation(start_pd_bootstrap_service=start_pd_bootstrap_service)
 
         # Init metric collector and watchdog
+        # 非核心：指标采集与看门狗
         self.init_metric_collector_watchdog()
 
         # Init request dispatcher
+        # 次要：按消息类型分发的处理表。handle_loop 收到生成结果走 _handle_batch_output，收到其他消息（abort、会话、权重更新等）才查这张表
         self.init_request_dispatcher()
 
         # Construct this last so later initialization failures cannot orphan
         # the transport's recycler thread.
+        # 非核心：多模态特征的 CUDA VMM 传输组件，放在最后构造，避免前面初始化失败时留下它的回收线程
         self.cuda_vmm_feature_transport = CudaVmmFeatureTransport(
             self.server_args, self.mm_processor
         )
@@ -485,10 +501,13 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         self.validate_total_tokens = True
 
     def init_tokenizer_and_processor(self):
+        """
+            从模型目录加载 tokenizer
+        """
         server_args = self.server_args
 
         # Initialize tokenizer and processor
-        if self.model_config.is_multimodal and not get_disagg().language_model_only:
+        if self.model_config.is_multimodal and not get_disagg().language_model_only: # 忽略多模态链路
             import_processors("sglang.srt.multimodal.processors")
             if mm_process_pkg := envs.SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE.get():
                 import_processors(mm_process_pkg, overwrite=True)
@@ -518,11 +537,18 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         else:
             self.mm_processor = self.processor = None
 
+            # get_serving() 读取“服务相关”的启动配置
             if get_serving().skip_tokenizer_init:
                 self.tokenizer = None
             else:
+                # 【重点】
                 self.tokenizer = get_tokenizer(
-                    get_serving().tokenizer_path,
+                    # 这里的路径仍然是 Qwen/Qwen2.5-0.5B-Instruct 整个仓库
+                    # 后续 AutoTokenizer.from_pretrained 自动获取分词起相关配置
+                    #   1）tokenizer.json 最主要的一个，里面有词表、合并规则和预处理规则
+                    #   2）tokenizer_config.json：中的 "tokenizer_class": "Qwen2Tokenizer" 是 transformer 原生支持的
+                    # https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/tree/main
+                    get_serving().tokenizer_path, 
                     tokenizer_mode=get_serving().tokenizer_mode,
                     trust_remote_code=get_model().trust_remote_code,
                     revision=get_model().revision,
