@@ -7,7 +7,7 @@ description: "沿着一次请求的处理链路，理解 HTTP 请求适配、输
 
 主题：**用户发来一段文本，SGLang 怎样把它交给推理引擎，又怎样把结果返回给用户**
 
-![HTTP 服务与 TokenizerManager 科普图：展示请求适配、输入分词、ZeroMQ 提交、结果返回及多 worker 路由](/Users/bytedance/github/sglang/docs/learn/http-tokenizer-manager-16x9.png)
+![HTTP 服务与 TokenizerManager 科普图：展示请求适配、输入分词、ZeroMQ 提交、结果返回及多 worker 路由](http-tokenizer-manager-16x9.png)
 
 ## 1. 系统角色与整体链路
 
@@ -27,7 +27,7 @@ description: "沿着一次请求的处理链路，理解 HTTP 请求适配、输
                        回到 TokenizerManager → HTTP 响应
 ```
 
-源码依据：[Engine 类说明](./sglang/python/sglang/srt/entrypoints/engine.py:208)。注意，是Engine 负责把整个流程启动、组装起来，并配置组件间的通信。
+源码依据：[Engine 类说明](../../python/sglang/srt/entrypoints/engine.py#L221)。注意，是Engine 负责把整个流程启动、组装起来，并配置组件间的通信。
 
 这里需要先分清两个概念：
 
@@ -64,7 +64,7 @@ async def openai_v1_chat_completions(
     )
 ```
 
-入口位置：[openai_v1_chat_completions](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/http_server.py:1726)。
+入口位置：[openai_v1_chat_completions](../../python/sglang/srt/entrypoints/http_server.py#L1726)。
 
 `OpenAIServingChat` 继承 `OpenAIServingBase`。父类提供处理顺序，子类实现 Chat 场景的具体操作：
 
@@ -80,10 +80,10 @@ OpenAIServingBase.handle_request()
 
 | 方法 | 应该看哪里 |
 |---|---|
-| 统一入口、异常转响应 | [OpenAIServingBase.handle_request](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/openai/serving_base.py:73) |
-| Chat 参数校验 | [OpenAIServingChat._validate_request](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:867) |
-| 协议转换 | [OpenAIServingChat._convert_to_internal_request](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:968) |
-| 非流式具体实现 | [OpenAIServingChat._handle_non_streaming_request](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:1811) |
+| 统一入口、异常转响应 | [OpenAIServingBase.handle_request](../../python/sglang/srt/entrypoints/openai/serving_base.py#L73) |
+| Chat 参数校验 | [OpenAIServingChat._validate_request](../../python/sglang/srt/entrypoints/openai/serving_chat.py#L867) |
+| 协议转换 | [OpenAIServingChat._convert_to_internal_request](../../python/sglang/srt/entrypoints/openai/serving_chat.py#L968) |
+| 非流式具体实现 | [OpenAIServingChat._handle_non_streaming_request](../../python/sglang/srt/entrypoints/openai/serving_chat.py#L1811) |
 
 `OpenAIServingChat` 代码多，是因为它还需要处理对话模板、工具调用格式、reasoning 字段、流式响应及各种协议选项。它属于对话协议适配层；Qwen、DeepSeek 等模型的前向计算实现在下游模型层。
 
@@ -125,7 +125,7 @@ response = self._build_chat_response(request, ret, int(time.time()))
 
 ## 3. TokenizerManager.generate_request：协调一次请求
 
-先把 [generate_request](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:798) 看成请求的总协调方法：
+先把 [generate_request](../../python/sglang/srt/managers/tokenizer_manager.py#L840) 看成请求的总协调方法：
 
 | 顺序 | 操作 | 一句话说明 |
 |---|---|---|
@@ -159,7 +159,7 @@ async for response in self._wait_one_response(obj, request):
 
 发送与回包不在同一条直接调用栈中。下游返回结果时，需要通过请求 ID 找回“谁在等待”。
 
-[_init_req_state](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:3507) 会检查重复请求 ID，为每条请求创建 `ReqState`，存到：
+[_init_req_state](../../python/sglang/srt/managers/tokenizer_manager.py#L3549) 会检查重复请求 ID，为每条请求创建 `ReqState`，存到：
 
 ```python
 self.rid_to_state[rid] = state
@@ -202,7 +202,7 @@ self.rid_to_state[rid] = state
 
 ### 4.2 获取或复用 token IDs
 
-[_tokenize_one_request](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1030) 在普通文本场景下，可以简化为：
+[_tokenize_one_request](../../python/sglang/srt/managers/tokenizer_manager.py#L1072) 在普通文本场景下，可以简化为：
 
 ```python
 input_text = obj.text
@@ -219,11 +219,11 @@ self._validate_one_request(obj, input_ids)
 
 需要补充我们沿着 Chat 接口阅读时容易忽略的一点：**Chat 适配层应用对话模板时，可能已经调用 tokenizer 生成了 token IDs。** 当前常规 Jinja 模板路径就是先渲染文本，再 `encode()`；转换后的 `GenerateReqInput` 会携带这些 IDs，TokenizerManager 复用它们。
 
-对应代码：[Chat 模板渲染与编码](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:1377)。所以“文本转 token IDs”发生在输入准备阶段，但不保证所有接口都在 `_tokenize_texts()` 里完成这一步。
+对应代码：[Chat 模板渲染与编码](../../python/sglang/srt/entrypoints/openai/serving_chat.py#L1377)。所以“文本转 token IDs”发生在输入准备阶段，但不保证所有接口都在 `_tokenize_texts()` 里完成这一步。
 
 ### 4.3 调用 tokenizer 编码文本
 
-当输入还需要编码时，看 [_tokenize_texts](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:957)。我们重点看过的分支是：
+当输入还需要编码时，看 [_tokenize_texts](../../python/sglang/srt/managers/tokenizer_manager.py#L999)。我们重点看过的分支是：
 
 ```python
 if not is_cross_encoder and (not getattr(self.tokenizer, "is_fast", False)):
@@ -244,7 +244,7 @@ else:
 
 ### 5.1 上下文长度：输入与输出上限一起算
 
-[_validate_one_request](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1243) 会检查输入长度，并按配置检查总 token 预算：
+[_validate_one_request](../../python/sglang/srt/managers/tokenizer_manager.py#L1285) 会检查输入长度，并按配置检查总 token 预算：
 
 ```text
 总预算 = 输入 token 数 + max_new_tokens（最多生成多少 token）
@@ -263,7 +263,7 @@ else:
 
 ### 5.2 _create_tokenized_object 主要是封装请求
 
-[_create_tokenized_object](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1422) 收到的 `input_ids` 已经准备好。它主要完成：
+[_create_tokenized_object](../../python/sglang/srt/managers/tokenizer_manager.py#L1464) 收到的 `input_ids` 已经准备好。它主要完成：
 
 ```text
 整理 token ID 的存储形式
@@ -308,7 +308,7 @@ sampling_params.verify(self.model_config.vocab_size)
 
 `vocab_size` 来自模型配置。它可以因对齐或预留行大于 tokenizer 的有效词表规模；必须保证 token ID 的映射匹配、模型能接受这些 IDs，不能仅凭两个大小接近就互换 tokenizer。`verify(vocab_size)` 中用它检查的是 `logit_bias` 键的范围，不是校验整个 tokenizer 与模型是否匹配。
 
-位置：[SamplingParams](/Users/bytedance/github/sglang/python/sglang/srt/sampling/sampling_params.py:45)。
+位置：[SamplingParams](../../python/sglang/srt/sampling/sampling_params.py#L45)。
 
 ## 6. ZeroMQ：连接各进程的请求与结果通道
 
@@ -364,11 +364,11 @@ TokenizerManager 进程                                                         
 
 这段代码中，TokenizerManager 绑定请求地址，Scheduler 连接该地址并持续接收请求。
 
-位置：[TokenizerManager.init_ipc_channels](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:558)、[get_zmq_socket](/Users/bytedance/github/sglang/python/sglang/srt/utils/network.py:377)、[Scheduler 接收端](/Users/bytedance/github/sglang/python/sglang/srt/managers/scheduler_components/ipc_channels.py:37)。
+位置：[TokenizerManager.init_ipc_channels](../../python/sglang/srt/managers/tokenizer_manager.py#L591)、[get_zmq_socket](../../python/sglang/srt/utils/network.py#L377)、[Scheduler 接收端](../../python/sglang/srt/managers/scheduler_components/ipc_channels.py#L37)。
 
 ### 6.2 提交已组装的请求
 
-走到 [_send_one_request](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1658) 时，输入已经准备成 `TokenizedGenerateReqInput`。发送流程是：
+走到 [_send_one_request](../../python/sglang/srt/managers/tokenizer_manager.py#L1700) 时，输入已经准备成 `TokenizedGenerateReqInput`。发送流程是：
 
 ```text
 _send_one_request(tokenized_obj)
@@ -391,7 +391,7 @@ def sock_send(socket: zmq.Socket, obj: Any, flags: int = 0) -> None:
     socket.send(msgpack_encode(obj), flags=flags)
 ```
 
-位置：[io_struct.sock_send](/Users/bytedance/github/sglang/python/sglang/srt/managers/io_struct.py:2472)。Scheduler 收到请求后进入调度和模型执行；推理结果通过结果通道返回，由 TokenizerManager 的 `handle_loop` 接收。
+位置：[io_struct.sock_send](../../python/sglang/srt/managers/io_struct.py#L2478)。Scheduler 收到请求后进入调度和模型执行；推理结果通过结果通道返回，由 TokenizerManager 的 `handle_loop` 接收。
 
 ## 7. 多 Tokenizer worker：分担请求并路由结果
 
@@ -429,7 +429,7 @@ flowchart TB
 
 路由器自身也有接收 Detokenizer 输出的地址。这里说“每个 worker 独立”，指 worker 初始化时重新生成的 `port_args.tokenizer_ipc_name`，不要把不同进程中这个字段的值当成始终相同。
 
-源码：[每个 HTTP/Tokenizer worker 创建回包地址](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/http_server.py:239)、[MultiTokenizerRouter](/Users/bytedance/github/sglang/python/sglang/srt/managers/multi_tokenizer_mixin.py:440)。
+源码：[每个 HTTP/Tokenizer worker 创建回包地址](../../python/sglang/srt/entrypoints/http_server.py#L239)、[MultiTokenizerRouter](../../python/sglang/srt/managers/multi_tokenizer_mixin.py#L440)。
 
 ### 7.2 给请求标记回包地址
 
@@ -449,7 +449,7 @@ def _dispatch_to_scheduler(self, obj: Any) -> None:
 
 `rid` 和 `http_worker_ipc` 分别解决两层定位：先按地址把结果送回正确进程，再按请求 ID 找到进程内的 `ReqState`。
 
-位置：[_dispatch_to_scheduler](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:595)、[stamp_http_worker_ipc](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:3778)。
+位置：[_dispatch_to_scheduler](../../python/sglang/srt/managers/tokenizer_manager.py#L634)、[stamp_http_worker_ipc](../../python/sglang/srt/managers/tokenizer_manager.py#L3820)。
 
 ## 8. 接收结果、唤醒请求并返回响应
 
@@ -483,7 +483,7 @@ sequenceDiagram
 
 ### 8.1 启动共用的后台接收任务
 
-[auto_create_handle_loop](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:2241) 在处理请求时检查是否已经初始化；没有则创建后台接收任务：
+[auto_create_handle_loop](../../python/sglang/srt/managers/tokenizer_manager.py#L2283) 在处理请求时检查是否已经初始化；没有则创建后台接收任务：
 
 ```python
 loop = get_or_create_event_loop()
@@ -498,13 +498,13 @@ self.asyncio_tasks.add(
 2. `loop.create_task(...)`：把接收任务交给这个事件循环调度。
 3. `self.asyncio_tasks.add(...)`：保存接收任务的 Task 引用。
 
-`asyncio.get_running_loop()` 是 Python 标准库函数；[get_or_create_event_loop](/Users/bytedance/github/sglang/python/sglang/srt/utils/common.py:4714) 是项目封装。
+`asyncio.get_running_loop()` 是 Python 标准库函数；[get_or_create_event_loop](../../python/sglang/srt/utils/common.py#L4714) 是项目封装。
 
 一个 TokenizerManager 的多个请求共用这个接收任务，按照 `rid` 分别处理各自的输出。
 
 ### 8.2 handle_loop：持续从通信通道收包
 
-[handle_loop](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:2281) 的核心动作是：
+[handle_loop](../../python/sglang/srt/managers/tokenizer_manager.py#L2323) 的核心动作是：
 
 ```python
 # 持续从下游结果通道接收消息。
@@ -514,7 +514,7 @@ recv_obj = await async_sock_recv(self.recv_from_detokenizer)
 await self._handle_batch_output(recv_obj)
 ```
 
-[_handle_batch_output](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:2296) 会：
+[_handle_batch_output](../../python/sglang/srt/managers/tokenizer_manager.py#L2338) 会：
 
 ```text
 遍历结果中的请求 ID
@@ -529,7 +529,7 @@ await self._handle_batch_output(recv_obj)
 
 ### 8.3 _wait_one_response：只等待自己的请求
 
-[_wait_one_response](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1793) 开始时拿到自己的 `state`：
+[_wait_one_response](../../python/sglang/srt/managers/tokenizer_manager.py#L1835) 开始时拿到自己的 `state`：
 
 ```python
 state = self.rid_to_state[obj.rid]
@@ -568,11 +568,11 @@ self.process_input_requests(recv_reqs)
 
 | 顺序 | 核心入口 | 下一步要弄清楚的问题 |
 |---|---|---|
-| 1 | [Scheduler.event_loop_normal](/Users/bytedance/github/sglang/python/sglang/srt/managers/scheduler.py:1782) | 接收、组 batch、执行、处理结果如何在循环中配合？ |
-| 2 | [SchedulerRequestReceiver.recv_requests](/Users/bytedance/github/sglang/python/sglang/srt/managers/scheduler_components/request_receiver.py:76) | 从 Socket 收到的对象如何进入 Scheduler？ |
-| 3 | [Scheduler.process_input_requests](/Users/bytedance/github/sglang/python/sglang/srt/managers/scheduler.py:1940) | 生成请求被交给哪个具体处理方法？ |
+| 1 | [Scheduler.event_loop_normal](../../python/sglang/srt/managers/scheduler.py#L1789) | 接收、组 batch、执行、处理结果如何在循环中配合？ |
+| 2 | [SchedulerRequestReceiver.recv_requests](../../python/sglang/srt/managers/scheduler_components/request_receiver.py#L76) | 从 Socket 收到的对象如何进入 Scheduler？ |
+| 3 | [Scheduler.process_input_requests](../../python/sglang/srt/managers/scheduler.py#L1963) | 生成请求被交给哪个具体处理方法？ |
 
-对应整体路线：[LEARN.md](/Users/bytedance/github/sglang/LEARN.md)。回到主进程这部分时，优先复看 `generate_request → _tokenize_one_request → _send_one_request → _wait_one_response`，以及后台的 `handle_loop → _handle_batch_output`。
+对应整体路线：[LEARN.md](../../LEARN.md)。回到主进程这部分时，优先复看 `generate_request → _tokenize_one_request → _send_one_request → _wait_one_response`，以及后台的 `handle_loop → _handle_batch_output`。
 
 ## 10. FAQ：阅读源码时的补充说明
 
@@ -585,7 +585,7 @@ self.process_input_requests(recv_reqs)
 /generate → http_server.generate_request → TokenizerManager.generate_request
 ```
 
-对应源码：[原生 HTTP 入口](/Users/bytedance/github/sglang/python/sglang/srt/entrypoints/http_server.py:899)、[TokenizerManager 生成入口](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:798)。
+对应源码：[原生 HTTP 入口](../../python/sglang/srt/entrypoints/http_server.py#L899)、[TokenizerManager 生成入口](../../python/sglang/srt/managers/tokenizer_manager.py#L840)。
 
 ### tokenizer 在 CPU 还是 GPU 上执行？
 
@@ -595,19 +595,19 @@ self.process_input_requests(recv_reqs)
 
 启动配置中的 `tokenizer_path` 指定加载路径；未指定时，默认使用 `model_path`。`tokenizer_mode`、`tokenizer_backend` 控制实现方式。代码通过 `get_serving()` 读取当前进程内已经准备好的 serving 配置组，再加载 tokenizer。
 
-对应源码：[tokenizer_path 默认值](/Users/bytedance/github/sglang/python/sglang/srt/server_args.py:4569)、[get_serving](/Users/bytedance/github/sglang/python/sglang/srt/runtime_context.py:1174)、[初始化 tokenizer](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:487)。
+对应源码：[tokenizer_path 默认值](../../python/sglang/srt/server_args.py#L4575)、[get_serving](../../python/sglang/srt/runtime_context.py#L1174)、[初始化 tokenizer](../../python/sglang/srt/managers/tokenizer_manager.py#L510)。
 
 ### Processor 是什么？
 
 Processor 是模型配套的输入预处理器，多模态模型可以通过它组合文本 tokenizer、图像预处理器和音频特征提取器。`get_processor_wrapper()` 按配置加载 Processor，`get_tokenizer_from_processor()` 取出负责文本的 tokenizer。普通文本模型直接走 `get_tokenizer()` 分支。
 
-对应源码：[get_processor_wrapper](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:3729)、[get_tokenizer_from_processor](/Users/bytedance/github/sglang/python/sglang/srt/utils/hf_transformers/common.py:648)。
+对应源码：[get_processor_wrapper](../../python/sglang/srt/managers/tokenizer_manager.py#L3771)、[get_tokenizer_from_processor](../../python/sglang/srt/utils/hf_transformers/common.py#L648)。
 
 ### 提交前的 wrap_shm_features、wrap_pickle_fields 做什么？
 
 它们负责整理跨进程传输的字段。`wrap_shm_features()` 将多模态 CPU 张量包装为共享内存引用，减少大张量随消息序列化传输的开销；普通纯文本请求可直接继续。`wrap_pickle_fields()` 将相关字段包装成适合传输的形式。随后由 `sock_send()` 序列化并发送整个请求。
 
-模型输入准备集中在 `_tokenize_one_request()` 和 `_create_tokenized_object()`；这些包装操作属于发送前的传输准备。对应入口：[_send_one_request](/Users/bytedance/github/sglang/python/sglang/srt/managers/tokenizer_manager.py:1658)。
+模型输入准备集中在 `_tokenize_one_request()` 和 `_create_tokenized_object()`；这些包装操作属于发送前的传输准备。对应入口：[_send_one_request](../../python/sglang/srt/managers/tokenizer_manager.py#L1700)。
 
 ### generate_request 和 __anext__ 怎样配合执行？
 
@@ -656,7 +656,7 @@ async with self.model_update_lock.reader_lock:
 
 我们看到的 `os.environ["TOKENIZERS_PARALLELISM"] = "false"` 出现在 Processor 初始化分支，关闭的是该库内部的并行能力，不会关闭所有 Tokenizer worker，也不会让 Python 的列表推导式自动改变执行方式。[Tokenizers 并行控制实现](https://github.com/huggingface/tokenizers/blob/main/tokenizers/src/utils/parallelism.rs)
 
-当前动态批处理实现在后台使用单线程执行器，主要用于让事件循环保持响应、减少批处理调用开销，不能把它直接等同于启动多个分词进程。位置：[async_dynamic_batch_tokenizer.py](/Users/bytedance/github/sglang/python/sglang/srt/managers/async_dynamic_batch_tokenizer.py)。
+当前动态批处理实现在后台使用单线程执行器，主要用于让事件循环保持响应、减少批处理调用开销，不能把它直接等同于启动多个分词进程。位置：[async_dynamic_batch_tokenizer.py](../../python/sglang/srt/managers/async_dynamic_batch_tokenizer.py)。
 
 ### 其他请求字段和分支
 
