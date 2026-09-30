@@ -1,6 +1,6 @@
 Use case: precise-object-edit
 Asset type: A wide, low scientific educational infographic for a Chinese SGLang article.
-Edit target: /Users/bytedance/.codex/worktrees/c33e/sglang/user_guide_zh/assets/cuda-graph-cpu-gpu-overview-wide.png
+Edit target: cuda-graph-cpu-gpu-overview-wide.png
 Primary request: Make the STATIC INPUT BUFFER concept explicit in the CUDA Graph half of this existing infographic. Preserve the existing teaching style and comparison.
 
 Invariants: Keep the 3:1 wide landscape aspect ratio, opaque white background, two comparison panels, legible Chinese typography, overall hardware illustration style and restrained colors. Keep the left Eager panel intact. Keep the existing two footer lines intact. Preserve both GPUs' three-operation dependency chain, "乘法 1" then "激活" then "乘法 2". GPU computation still happens with every replay. Keep the "CUDA 图 CUDA Graph" right heading and a compact capture card labelled "提前捕获 Capture" / "记录操作与依赖". No large new overall title.

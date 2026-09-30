@@ -7,7 +7,7 @@ description: "以 Qwen3.8-27B 和配套 DFlash2 草稿模型为例，理解模�
 
 DFlash 的核心流程：**小模型快速生成多个候选 token → 目标模型并行校验 → 接受连续通过的部分 → 修正失败位置 → 继续生成。**
 
-![DFlash 科普图：配套模型、并行草稿、目标校验与修正、训练和加速原理](/Users/bytedance/github/sglang/docs/learn/dflash-4x3.png)
+![DFlash 科普图：配套模型、并行草稿、目标校验与修正、训练和加速原理](dflash-4x3.png)
 
 ## 1. 两个模型怎样配套
 
@@ -59,12 +59,12 @@ C′ 根据本次校验已算出的分布，按生成规则确定，通常无需
 | `--speculative-num-draft-tokens` | `8` |
 
 这里的 8 是窗口长度，实际每轮推进多少 token 取决于接受结果；客户端仍使用普通生成接口。
-[Qwen3.8-27B 配置依据](/Users/bytedance/github/sglang/docs/cookbook/autoregressive/Qwen/Qwen3.8-27B.mdx:246)。
+[Qwen3.8-27B 配置依据](../cookbook/autoregressive/Qwen/Qwen3.8-27B.mdx#L246)。
 
 ## 5. 对应哪些核心代码
 
-- [Scheduler 请求检查](/Users/bytedance/github/sglang/python/sglang/srt/managers/scheduler.py:2662)：检查 DFlash 模式是否支持当前请求参数；失败则安排错误响应。
-- [DFlashWorkerV2.forward_batch_generation](/Users/bytedance/github/sglang/python/sglang/srt/speculative/dflash_worker_v2.py:1660)：组织目标模型 Prefill、草稿生成、目标校验和结果提交。
-- [DFlashDraftModel](/Users/bytedance/github/sglang/python/sglang/srt/models/dflash.py:545)：草稿模型实现；[启动参数检查](/Users/bytedance/github/sglang/python/sglang/srt/arg_groups/speculative_hook.py:185)：检查设备、并行配置和草稿路径。
+- [Scheduler 请求检查](../../python/sglang/srt/managers/scheduler.py#L2674)：检查 DFlash 模式是否支持当前请求参数；失败则安排错误响应。
+- [DFlashWorkerV2.forward_batch_generation](../../python/sglang/srt/speculative/dflash_worker_v2.py#L1660)：组织目标模型 Prefill、草稿生成、目标校验和结果提交。
+- [DFlashDraftModel](../../python/sglang/srt/models/dflash.py#L545)：草稿模型实现；[启动参数检查](../../python/sglang/srt/arg_groups/speculative_hook.py#L185)：检查设备、并行配置和草稿路径。
 
 参考：[DFlash 原论文](https://arxiv.org/html/2602.06036v1)、[项目与配套权重](https://github.com/z-lab/dflash)、[随机采样原理](https://arxiv.org/abs/2211.17192)。
