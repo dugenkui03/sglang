@@ -400,6 +400,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         1. 将文本转换为令牌序列
         2. 提交任务到 Scheduler
         3. 接收 Scheduler 完成的任务
+       详见 ../../../../user_guide_zh/核心组件二：TokenizerManager.md
     """
 
     @property

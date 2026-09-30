@@ -1,0 +1,32 @@
+Generation mode: built-in image_gen
+Reference image (style only): python/sglang/srt/managers/tokenizer_manager_科普图.png
+
+Use case: infographic-diagram
+Asset type: Chinese educational infographic for an SGLang learning article (core component series).
+Primary request: Explain SGLang's DetokenizerManager with accurate, intuitive visuals. Landscape, exact 4:3 aspect ratio, high resolution, crisp readable Simplified Chinese, clean fully opaque solid white background (#FFFFFF), light-blue rounded cards, blue arrows, generous spacing, simple flat line icons. Match the visual style of the reference image: same blue palette, card shapes, round numbered section badges, icon style and typography. Use the reference ONLY for visual style; do NOT copy its text or content. No watermark, no mascot other than one simple user avatar.
+
+Title (top center, bold dark navy): "DetokenizerManager：把 token ID 变回文字"
+
+Top-left panel, badge "① 它的结构":
+- Small card at top: "MultiHttpWorkerDetokenizerMixin" with caption "多 worker 回传"; arrow down labeled "继承".
+- Main card with teal highlight: title "DetokenizerManager", three rows each with a small icon: "接收：从 Scheduler 收 token ID" ; "解码：按请求增量解码成文本" ; "回传：把文本发给 TokenizerManager".
+- Arrow to the right labeled "管理" pointing to a card "decode_status" with caption "rid → DecodeStatus" and smaller caption "每个请求的解码进度".
+
+Top-right panel, badge "② 增量解码：带上下文解码，再相减":
+- Two small chips side by side: "上一轮已输出：Hello" and "新 token：空格 + world".
+- A gray row with a red cross: "只解码新 token → world" and small caption "空格丢了 ✗".
+- A green row with a check mark, shown as a simple subtraction: "解码 Hello + 新 token → Hello world", then "减去 解码 Hello → Hello", result "得到 空格 + world" with caption "空格保住了 ✓".
+- Small note at the bottom of this panel: "半个字（�）先不输出，等下一个 token 到了再解码".
+
+Bottom full-width panel, badge "③ 它在一次推理中的位置":
+- Top row left to right with arrows: "用户" (avatar icon, caption "输入问题") → "HTTP / OpenAI 接口" (caption "接收请求") → "TokenizerManager" (caption "分词、发送请求") → "Scheduler" (caption "排队与组 batch") ⇄ "GPU 执行" (chip icon, caption "TpModelWorker / ModelRunner"), with a two-way arrow between Scheduler and GPU 执行.
+- From the Scheduler box, one arrow goes straight DOWN to the bottom row, labeled "token ID".
+- Bottom row right to left with arrows: "DetokenizerManager" (teal highlight, directly under Scheduler, caption "token ID → 文本") → arrow labeled "文本" → "TokenizerManager" (caption "接收结果、交回上游") → "HTTP / OpenAI 接口" (caption "返回结果") → a curved arrow up back to "用户", labeled "返回结果".
+- Thin notes bar at the very bottom with two items: "1. 独立进程：解码不占 Scheduler 和 TokenizerManager 的时间" and "2. 一个实例一个，所有请求共用，按 rid 区分".
+
+Important constraints: use the exact Chinese/English text given; every label readable and fully inside the canvas; DetokenizerManager is the only highlighted component in panels ① and ③; DetokenizerManager does NOT touch the GPU; arrows must go Scheduler → DetokenizerManager → TokenizerManager; fully opaque white background, no transparency.
+
+Post-processing (Pillow, DejaVu Sans; image-model edits kept breaking other labels):
+- Redrew misspelled words in place, scaled to the original ink box: "MultihttpWorkerDetokenizerMixin" → "MultiHttpWorkerDetokenizerMixin" (bold); "TokenzierManager" → "TokenizerManager" in four places (bold in the two panel ③ cards, medium weight in the panel ① row and the notes bar).
+- Replaced the garbled "â" in the panel ② note with "�" (U+FFFD).
+- Added a left arrowhead so the Scheduler ↔ GPU 执行 arrow is two-way.
