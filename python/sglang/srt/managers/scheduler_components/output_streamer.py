@@ -121,7 +121,9 @@ class SchedulerOutputStreamer:
         return_logprob: bool,
         skip_req: Optional[Req] = None,
     ):
-        """Stream the output to detokenizer."""
+        """Stream the output to detokenizer.
+        按 stream_interval 决定要不要发，组装 BatchTokenIDOutput 发给 DetokenizerManager
+        """
         if self.is_generation:
             self._stream_output_generation(reqs, return_logprob, skip_req)
         else:  # embedding or reward model

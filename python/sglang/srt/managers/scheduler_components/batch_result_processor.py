@@ -242,6 +242,7 @@ class SchedulerBatchResultProcessor:
         batch: ScheduleBatch,
         result: Union[GenerationBatchResult, EmbeddingBatchResult],
     ):
+        """prefill 结果：追加第一个 token，结束则释放 KV，未结束则缓存已算的前缀，最后 stream_output"""
         skip_stream_req = None
         self.token_to_kv_pool_allocator.free_group_begin()
 
@@ -871,6 +872,7 @@ class SchedulerBatchResultProcessor:
         batch: ScheduleBatch,
         result: GenerationBatchResult,
     ):
+        """decode 结果：每个请求追加新 token、update_finish_state 判断结束，结束则释放 KV，最后 stream_output"""
         if result.copy_done is not None:
             result.copy_done.synchronize()
         auxiliary_output_starts = self.snapshot_auxiliary_output_starts(batch, result)

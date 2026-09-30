@@ -1,0 +1,25 @@
+Generation mode: built-in image_gen
+Reference image (style only): user_guide_zh/assets/detokenizer-manager-overview-4x3.png
+
+Use case: infographic-diagram. Chinese educational infographic about SGLang's Scheduler. Landscape exact 4:3, high resolution, crisp readable text, fully opaque white background, light-blue rounded cards, blue arrows, simple flat icons, round numbered section badges, same visual style as the reference image. Use the reference ONLY for style. Render ONLY the exact text strings given in quotes below; never render instruction words such as 'code text', 'caption', 'line'.
+
+Title (top center, bold dark navy): "Scheduler：每一轮决定谁上 GPU"
+
+Top-left panel with badge "① 主循环四步": four cards in a clockwise square loop connected by arrows (top card, right card, bottom card, left card). Each card has exactly two text lines: the first line in Chinese bold, the second line in a smaller monospace font.
+- Top card (teal highlight): "组批" / "get_next_batch_to_run"
+- Right card: "执行" / "run_batch"
+- Bottom card: "处理结果" / "process_batch_result"
+- Left card: "收请求" / "recv_requests"
+Arrows go left card → top card → right card → bottom card → left card. Under the loop one gray line: "默认 overlap：处理上一批结果时，GPU 已在算这一批".
+
+Top-right panel with badge "② 组批怎么选": on the left two stacked cards, each with two lines: upper card "waiting_queue" / "新请求"; lower card "running_batch" / "正在生成". Both have arrows into a diamond in the middle: "有新请求能放进来？". From the diamond: a blue arrow labeled "是" to an upper-right card "prefill 批" with three small lines "匹配前缀缓存" "按预算加入" "分配 KV"; a blue arrow labeled "否" to a lower-right card "decode 批" with one small line "每个请求 +1 个 KV 槽位". Separately, one thin red dashed arrow from the "running_batch" card straight up to the "waiting_queue" card, with small red label "显存不够：退回" beside it.
+
+Bottom full-width panel with badge "③ 一个请求的一生": five cards left to right joined by arrows, texts exactly: "进入 waiting_queue" → "prefill：算出第 1 个 token" → "decode：每轮 1 个 token" (with a small circular repeat icon) → "结束：释放 KV，写入前缀缓存" → "新 token 发给 DetokenizerManager". Below them one gray line: "每一轮的新 token 都会发出去，不用等请求结束".
+
+Thin notes bar at the very bottom with two items: "1. 一张 GPU 一个 Scheduler 进程" and "2. GPU 计算交给 TpModelWorker 完成".
+
+Spelling must be exact: Scheduler, get_next_batch_to_run, process_batch_result, recv_requests, run_batch, waiting_queue, running_batch, DetokenizerManager, TpModelWorker. All text fully inside the canvas.
+
+Post-processing (Pillow, DejaVu Sans; the second generation was used as the base):
+- Redrew identifiers rendered with hyphens or spaces: get_next_batch_to_run, recv_requests, run_batch, process_batch_result, waiting_queue (twice), running_batch.
+- Erased an extra "是" on the waiting_queue arrow and a stray glyph next to the running_batch arrow.
