@@ -325,6 +325,9 @@ class ModelRunner:
         draft_model_idx: Optional[int] = None,
         draft_attention_backend: Optional[str] = None,
     ):
+        """加载模型、多卡通信、设置kv参数
+        """
+
         # Parse args
         self.mem_fraction_static = mem_fraction_static
         # Set on target by `_resolve_memory_pool_config`; passed in for draft
@@ -641,6 +644,8 @@ class ModelRunner:
             )
 
     def initialize(self):
+        """fff
+        """
         self.init_memory_saver_adapter()
         self.maybe_init_remote_instance_transfer_engine()
         self.maybe_init_expert_location_metadata()
@@ -649,7 +654,9 @@ class ModelRunner:
         self.expert_location_updater = ExpertLocationUpdater()
         self.maybe_init_elastic_ep()
         self.init_token_oracle()
+        # 创建采样器，根据入参的温度值、topK等对结果进行采样
         self.sampler = create_sampler()
+        # 【重要】加载模型，包括下载
         self.load_model()
         prepare_moe_topk(
             model=self.model,
@@ -666,6 +673,8 @@ class ModelRunner:
             disable_routed_experts_capture_for_draft(self.model)
         self.maybe_init_expert_backup_client()
         self.remote_instance_weight_transporter.maybe_register_and_publish_weight_info()
+        # 确定这张卡负责模型的哪几层，结果存在 self.layer_info。开了流水线并行时，每张卡只负责一部分层
+        # 这是 长上下文流水线并发 实现的支持链路之一：https://lmsysorg.mintlify.app/docs/advanced_features/pipeline_parallelism
         self.layer_info: ModelLayerInfo = resolve_layer_indices(
             model=self.model,
             model_config=self.model_config,

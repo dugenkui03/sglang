@@ -401,7 +401,7 @@ class Scheduler(
     SchedulerDllmMixin,
     SchedulerMlxOverlapMixin,
 ):
-    """A scheduler that manages a tensor parallel GPU worker.
+    """A scheduler that manages a tensor parallel GPU worker(TpModelWorker).
         - Tensor Parallel，TP/张量并行：把同一个模型中的计算拆分到多张 GPU 上，由它们协作完成推理
     """
 
@@ -538,6 +538,7 @@ class Scheduler(
         maybe_revert_pr_fix()
 
         # Launch a model worker and draft model worker if using speculative decoding
+        # 【重点】初始化 TpModelWorker
         self.init_model_worker()
 
         if (t := envs.SGLANG_TEST_STUCK_SCHEDULER_INIT.get()) > 0:
@@ -949,7 +950,7 @@ class Scheduler(
             self.tp_worker = MlxTpModelWorker(**worker_kwargs)
         else:
             from sglang.srt.managers.tp_worker import TpModelWorker
-
+            # 【重点】 初始化 TpModelWorker
             self.tp_worker = TpModelWorker(**worker_kwargs)
 
     def maybe_init_draft_worker(self):
@@ -1027,6 +1028,8 @@ class Scheduler(
             self.draft_worker.init_cuda_graphs()
 
     def init_model_worker(self):
+        """ 初始化 TpModelWorker
+        """
         # Load model weights.
         self.init_tp_model_worker()
         if self.server_args.is_startup_weight_load_overlap:
