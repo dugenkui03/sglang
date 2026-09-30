@@ -403,6 +403,7 @@ class Scheduler(
 ):
     """A scheduler that manages a tensor parallel GPU worker(TpModelWorker).
         - Tensor Parallel，TP/张量并行：把同一个模型中的计算拆分到多张 GPU 上，由它们协作完成推理
+        详见 ../../../../user_guide_zh/核心组件四：Scheduler.md
     """
 
     # Class-level default so on_idle's stall gate works even if a fork
@@ -1845,6 +1846,7 @@ class Scheduler(
             if self.gracefully_exit:
                 break
 
+            # 【Step 1】收请求
             # Receive requests
             # 【重要】recv_requests 接收的是 TokenizerManager 刚才发送的请求参数：token、采样参数等。
             #     recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
@@ -1853,6 +1855,7 @@ class Scheduler(
             if self._engine_paused:
                 continue
 
+            # 【Step 2】组批
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
                 running_batch=self.running_batch, last_batch=self.last_batch
@@ -1877,6 +1880,7 @@ class Scheduler(
                     except Exception:
                         pass
 
+            # 【Step 3】执行本批，结果先放进 result_queue
             # Launch the current batch
             if batch:
                 batch_result = self.run_batch(batch)
@@ -1887,6 +1891,7 @@ class Scheduler(
                 batch_result = None
                 self._sched_idled = True
 
+            # 【Step 4】处理上一批的结果：overlap 模式下比执行晚一轮
             # Process the last batch
             if self.last_batch:
                 if not disable_overlap_for_batch:
@@ -1958,6 +1963,7 @@ class Scheduler(
     def process_input_requests(self, recv_reqs: List):
         """
             遍历收到的请求，按类型交给对应处理器
+            详见 scheduler.py.process_input_requests.md
 
             recv_reqs 类型为 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
         """
@@ -2536,6 +2542,7 @@ class Scheduler(
 
             # beam 指 Beam Search，中文叫“束搜索”
             is_beam = BeamCoordinator.request_beam_width(recv_req) > 1
+            # 【重点】把 TokenizerManager 发来的请求转成 Scheduler 内部的 Req 对象
             req = Req(
                 recv_req.rid,
                 recv_req.input_text,
@@ -2899,6 +2906,7 @@ class Scheduler(
             if self._abort_on_queued_limit(req):
                 return
             self._prefetch_kvcache(req)
+            # 【重点】新请求进入等待队列，下一轮组批时从这里挑
             self.waiting_queue.append(req)
             req.time_stats.set_wait_queue_entry_time()
         # PD 分离由 P/D 实例接力完成请求，流程说明见 docs/learn/03-pd-disaggregation.md。
@@ -3193,6 +3201,7 @@ class Scheduler(
     def get_next_batch_to_run(
         self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
     ) -> NextBatchPlan:
+        """组批：优先组新的 prefill 批次，没有就让 running_batch 继续 decode；详见 scheduler.py.get_next_batch_to_run.md"""
         self.process_pending_chunked_abort()
 
         if self.enable_fpm:
@@ -3556,6 +3565,7 @@ class Scheduler(
                     req.swa_host_hit_length = (
                         self.tree_cache.staged_prefetch_swa_tokens(req.rid)
                     )
+            # 【重点】逐个尝试把请求加进本批，预算不够就停
             res = adder.add_one_req(
                 req,
                 has_chunked_req=(self.chunked_req is not None),
@@ -3712,7 +3722,9 @@ class Scheduler(
             )
 
     def update_running_batch(self, batch: ScheduleBatch) -> Optional[ScheduleBatch]:
-        """Update the current running decoding batch."""
+        """Update the current running decoding batch.
+        每步给每个请求分配 1 个 KV 槽位；显存不够时把部分请求退回等待队列（retract）
+        """
         initial_bs = batch.batch_size()
 
         batch.filter_batch()
@@ -3860,7 +3872,9 @@ class Scheduler(
         batch: ScheduleBatch,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[GenerationBatchResult, EmbeddingBatchResult]:
-        """Run a batch."""
+        """Run a batch.
+        调用 TpModelWorker 完成前向和采样；详见 scheduler.py.run_batch.md
+        """
         self.forward_ct += 1
         batch.forward_iter = self.forward_ct
         batch.launch_ts = time.monotonic()
@@ -4200,6 +4214,7 @@ class Scheduler(
         batch: ScheduleBatch,
         result: Union[GenerationBatchResult, EmbeddingBatchResult],
     ):
+        """处理一批的结果：追加 token、判断是否结束、释放 KV、发给 Detokenizer"""
         # Flush async trace ops here: in overlap mode this CPU work runs while
         # the next batch's GPU forward is in flight, giving free overlap.
         flush_trace_batch(batch.reqs)
@@ -5279,6 +5294,7 @@ def dispatch_event_loop(scheduler: Scheduler):
             scheduler.event_loop_pp()
         elif scheduler.enable_overlap_mlx:
             scheduler.event_loop_overlap_mlx()
+        # 默认走这里：overlap 调度默认开启（disable_overlap_schedule=False）
         elif scheduler.enable_overlap:
             scheduler.event_loop_overlap()
         else:
