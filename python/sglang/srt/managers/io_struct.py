@@ -94,6 +94,9 @@ class BaseReq(msgspec.Struct, tag=True, kw_only=True, array_like=True):
 class BaseBatchReq(msgspec.Struct, tag=True, kw_only=True, array_like=True):
     """Base for batched IPC payloads."""
 
+    # 【重要】
+    #   rid 是request id、请求唯一标识
+    #   list 是因为兼容批处理
     rids: Optional[List[str]] = None
     # Used by batch messages whose items are parallel arrays, such as scheduler
     # outputs. Tokenized input batches store routing on batch[i].http_worker_ipc
@@ -1427,6 +1430,9 @@ def build_flat_input_top_logprobs_arrays(
 
 
 class BatchTokenIDOutput(BaseBatchReq, kw_only=True):
+    """BatchTokenIDOutput 是 Scheduler 每次发给 Detokenizer 的消息，装的是一批请求的最新输出
+    """
+
     # The finish reason
     finished_reasons: List[Optional[FinishReasonDict]]
     # For incremental decoding

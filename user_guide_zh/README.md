@@ -5,6 +5,8 @@
 ## 核心组件(Core Components)
 
 - [核心组件一：Engine](核心组件一：Engine.md)：推理接口、组件启动时序与资源关闭。
+- [核心组件二：TokenizerManager](核心组件二：TokenizerManager.md)：分词、提交请求与接收结果，控制操作转发给 Scheduler。
+- [核心组件三：DetokenizerManager](核心组件三：DetokenizerManager.md)：增量解码 token ID、维护解码状态并回传文本。
 
 ## 1. 服务与调优(Serving and Tuning)
 
