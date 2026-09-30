@@ -107,6 +107,31 @@ recv_requests → process_input_requests → get_next_batch_to_run → run_batch
 
 IPC 消息类型全部在 [`io_struct.py`](python/sglang/srt/managers/io_struct.py)。改协议、加字段，先看它。
 
+### 学习进度（持续更新，最近更新 2026-09-30）
+
+链路两头已学完，中间的调度 → 前向 → KV 缓存 → 采样还没开始；按步数约完成三分之一，按工作量约四分之一。
+
+| 步 | 状态 | 已有产出 |
+|---|---|---|
+| 1 启动 | 完成 | [核心组件一：Engine](user_guide_zh/核心组件一：Engine.md)、[`_launch_subprocesses`](python/sglang/srt/entrypoints/engine.py._launch_subprocesses.md)、[`_setup_and_run_http_server`](python/sglang/srt/entrypoints/http_server.py._setup_and_run_http_server.md) |
+| 2 配置 | 部分 | [`publish`](python/sglang/srt/runtime_context.py.publish.md)、[`PortArgs`](python/sglang/srt/server_args.py.PortArgs.md) |
+| 3 API | 概念 | [docs/learn/01](docs/learn/01-http-tokenizer-manager.md)；`serving_chat.py` 未精读 |
+| 4 分词 | 完成 | [核心组件二：TokenizerManager](user_guide_zh/核心组件二：TokenizerManager.md) |
+| 5 调度 | 刚起步 | `event_loop_overlap` 开头有少量注释，`process_batch_result` 待分析 |
+| 6 桥接 | 未开始 | — |
+| 7 前向 | 概念 | [docs/learn/04](docs/learn/04-model-forward-execution.md)；代码未读 |
+| 8 计算+缓存 | 未开始 | 只有特性文章（2.1 注意力后端、2.3 会话感知基数缓存） |
+| 9 采样回包 | 一半 | [核心组件三：DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md)；`sampler.py` 未读 |
+
+待办（按顺序）：
+
+1. 第 5 步 Scheduler：先看它和 TokenizerManager 的交互（收请求 → `Req` → 等待队列），再看主循环的组批、执行、处理结果；顺手做「在 Scheduler 里打日志」练习。
+2. 第 6 步 [`tp_worker.py`](python/sglang/srt/managers/tp_worker.py)：`ScheduleBatch` → `ForwardBatch` 的桥。
+3. 第 7 步 `ModelRunner` / `ForwardBatch`。
+4. 第 8 步 KV 缓存：`mem_cache/README.md` → `memory_pool.py` → `radix_cache.py`，再加一个 attention backend。
+5. 第 9 步 [`sampler.py`](python/sglang/srt/layers/sampler.py)。
+6. 回头补第 2、3 步：RuntimeContext bags、`serving_chat` → `GenerateReqInput`。
+
 ---
 
 ## 核心文件（按这个顺序读）

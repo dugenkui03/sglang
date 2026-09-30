@@ -178,6 +178,6 @@ classDiagram
 | Replacement Character（U+FFFD，“�”） | 替换字符：字节不完整、无法解码时的占位符 | Placeholder shown when bytes cannot be decoded. |
 | Evict /ɪˈvɪkt/ | 淘汰：容量满时移除旧条目 | Remove an old entry when capacity is full. |
 
-## 总览图
+## 科普图
 
-![DetokenizerManager：组件边界、增量解码与请求状态管理](assets/detokenizer-manager-technical-4x3.png)
+![DetokenizerManager 科普图：结构、增量解码原理，以及它在一次推理中的位置](assets/detokenizer-manager-overview-4x3.png)
