@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "detail": {
+      "format": "[%(asctime)s] %(filename)s:%(lineno)d %(funcName)s | %(message)s",
+      "datefmt": "%Y-%m-%d %H:%M:%S"
+    }
+  },
+  "handlers": {
+    "console": {
+      "class": "logging.StreamHandler",
+      "formatter": "detail",
+      "stream": "ext://sys.stderr"
+    }
+  },
+  "loggers": {
+    "httpx": {"level": "WARNING"},
+    "httpcore": {"level": "WARNING"}
+  },
+  "root": {
+    "level": "INFO",
+    "handlers": ["console"]
+  }
+}
