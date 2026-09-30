@@ -129,6 +129,9 @@ def resolve_layer_indices(
     )
     _nnpl = model_config.num_nextn_predict_layers
     model_has_mtp_layers = _nnpl is not None and _nnpl > 0
+    # 【重要】
+    # 这是 长上下文流水线并发 实现的支持链路之一
+    #   参考文档：https://lmsysorg.mintlify.app/docs/advanced_features/pipeline_parallelism
     pp_range = _resolve_pp_layer_range(model=model, model_num_layers=model_num_layers)
     num_effective_layers = pp_range.end_layer - pp_range.start_layer
 

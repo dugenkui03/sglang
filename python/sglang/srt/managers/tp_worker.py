@@ -343,11 +343,12 @@ class TpModelWorker(BaseTpWorker):
         # Draft worker: the attention backend the algorithm resolved for it.
         self.draft_attention_backend = draft_attention_backend
 
-        # MTP model runners
+        # MTP(Multi-Token Prediction) model runners
         self.model_runner_list: List[ModelRunner] = []
 
-        self._init_model_config()
-        self._init_model_runner()
+        # 【重要】
+        self._init_model_config() # 初始化模型配置
+        self._init_model_runner() # 初始化 model runner：加载模型、多卡通信、设置kv参数
 
         if is_multi_layer_eagle:
             self._init_multi_layer_eagle_model_runners()
@@ -455,6 +456,8 @@ class TpModelWorker(BaseTpWorker):
             mr.finalize_startup_weight_load()
 
     def _init_model_config(self):
+        """ 模型配置在创建 ModelRunner 之前加载赋值
+        """
         from sglang.srt.configs.model_config import ModelConfig
 
         self.model_config = ModelConfig.from_server_args(
@@ -474,6 +477,9 @@ class TpModelWorker(BaseTpWorker):
         )
 
     def _init_model_runner(self):
+        """ 【重点】初始化 ModelRunner
+            加载模型、多卡通信、设置kv参数
+        """
         from sglang.srt.model_executor.model_runner import ModelRunner
 
         self._model_runner = ModelRunner(

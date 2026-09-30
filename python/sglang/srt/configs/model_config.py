@@ -280,29 +280,67 @@ def get_num_indexer_layers(config) -> int:
 class ModelConfig:
     def __init__(
         self,
-        model_path: str,  # 模型的本地路径或仓库 ID
-        trust_remote_code: bool = True,  # 是否允许执行模型仓库的自定义代码
-        revision: Optional[str] = None,  # 模型仓库的分支、标签或提交版本
-        context_length: Optional[int] = None,  # 覆盖从模型配置推导出的上下文长度
-        model_override_args: str = "{}",  # 覆盖模型配置字段的 JSON 字符串
-        is_embedding: Optional[bool] = None,  # 是否按嵌入模型处理；None 时自动识别
-        enable_multimodal: Optional[bool] = None,  # 是否启用多模态；None 时自动判断
-        dtype: str = "auto",  # 模型使用的数据类型；auto 时按配置推断
-        quantization: Optional[str] = None,  # 量化方法；None 时从检查点配置推断
-        override_config_file: Optional[str] = None,  # 指定替代的模型配置文件
-        is_draft_model: bool = False,  # 是否为推测解码中的草稿模型
-        model_impl: Union[str, ModelImpl] = ModelImpl.AUTO,  # 模型实现后端
-        sampling_defaults: str = "openai",  # 采样参数默认值来源
-        quantize_and_serve: bool = False,  # 加载时量化并服务；当前实现尚未启用
-        is_multi_layer_eagle: bool = False,  # 是否启用多层 EAGLE 模式
-        encoder_only: bool = False,  # 编码器与语言侧分离部署时的编码器模式
-        language_only: bool = False,  # 编码器与语言侧分离部署时的语言侧模式
-        language_model_only: bool = False,  # 只构建语言模型，跳过多模态编码器
-        disable_hybrid_swa_memory: bool = False,  # 禁用混合 SWA 模型的专用内存优化
-        model_config_parser: str = "auto",  # 模型配置文件的解析器
-        speculative_algorithm: Optional[str] = None,  # 推测解码算法，用于选择草稿模型结构
-        is_draft_quantization_explicit: bool = False,  # 草稿模型量化方法是否由用户显式指定
+        model_path: str,
+        trust_remote_code: bool = True,
+        revision: Optional[str] = None,
+        context_length: Optional[int] = None,
+        model_override_args: str = "{}",
+        is_embedding: Optional[bool] = None,
+        enable_multimodal: Optional[bool] = None,
+        dtype: str = "auto",
+        quantization: Optional[str] = None,
+        override_config_file: Optional[str] = None,
+        is_draft_model: bool = False,
+        model_impl: Union[str, ModelImpl] = ModelImpl.AUTO,
+        sampling_defaults: str = "openai",
+        quantize_and_serve: bool = False,
+        is_multi_layer_eagle: bool = False,
+        encoder_only: bool = False,
+        language_only: bool = False,
+        language_model_only: bool = False,
+        disable_hybrid_swa_memory: bool = False,
+        model_config_parser: str = "auto",
+        speculative_algorithm: Optional[str] = None,
+        is_draft_quantization_explicit: bool = False,
     ) -> None:
+        """读取模型仓库的配置文件（config.json、generation_config.json），结合启动参数，得出模型结构、数据类型、上下文长度、是否多模态等运行时配置。
+
+        Args:
+            model_path: 模型位置 Qwen/Qwen3.8-27B，即 https://huggingface.co/Qwen/Qwen3.8-27B/tree/main，
+            trust_remote_code: 是否允许执行模型仓库自带的 Python 代码（configuration_*.py、modeling_*.py 等自定义实现）
+            revision: 用仓库的哪个版本：分支、标签或提交哈希；None 表示默认分支
+            context_length: 手动指定上下文长度、包括输入和输出；
+                None 时从 config.json 查找：max_sequence_length -> seq_length -> max_seq_len -> model_max_length -> max_position_embeddings
+            model_override_args: 用 JSON 覆盖 config.json 里的字段
+            is_embedding: 是否当作嵌入模型（输出向量，不生成文本）；
+                None 时按 config.json 的 architectures 判断
+            enable_multimodal: 是否启用图像、视频等多模态输入；None 时默认启用，只有少数架构默认关闭
+                例：Qwen3.8-27B 不在默认关闭的名单里，会启用
+            dtype: 权重和计算用的数据类型；auto 时读 config.json 的 dtype（旧字段名 torch_dtype）
+            quantization: 量化方法（如 fp8、awq、gptq）；None 时读 config.json 的 quantization_config（或 compression_config）
+                例：按大小看 Qwen3.8-27B 是未量化权重 没有这个，可以参考 https://huggingface.co/EschaLabs/Qwen3.8-27B-Escha-W2/blob/main/quantize_config.json
+            override_config_file: 用另一份配置文件代替仓库里的 config.json，一般是检查点加密时解密出来的配置文件路径
+                对应启动参数 --decrypted-config-file（草稿模型用 --decrypted-draft-config-file）
+            is_draft_model: 当前模型是否是作为草稿模型加载的
+                mtp 是一种更加主流的 推测加速 方案 // Multi-Token Prediction
+            model_impl: 用哪套模型实现：auto（默认，优先 SGLang 自己的实现，没有再用 transformers）、sglang、transformers、mindspore
+                按 config.json 的 architectures 查找实现；例：页面标签 qwen3_5 就是 config.json 里的 model_type
+            sampling_defaults: 请求没写采样参数时默认值从哪来：openai 用固定值（temperature=1.0、top_p=1.0 等）
+            quantize_and_serve: 加载时先用 ModelOpt 量化再提供服务；目前因兼容性问题被禁用，打开会直接报错
+            is_multi_layer_eagle: 推测解码是否使用多层 EAGLE 草稿模型，影响草稿模型的配置方式；模型卡里没有对应字段
+            encoder_only: EPD 分离部署（编码、预填充、解码分到不同进程）时，本进程只跑视觉编码器
+                例：Qwen3.8-27B 的视觉编码器权重也在那 18 个 *.safetensors 分片里，这个模式只用这部分
+            language_only: EPD 分离部署时，本进程只跑语言模型，图像特征由编码器进程算好传过来
+            language_model_only: 只构建语言模型、不加载视觉编码器，把多模态模型当纯文本模型用，省显存
+                例：只用 Qwen3.8-27B 处理纯文本请求时可以打开；有的检查点会在自己的配置里声明这一项
+            disable_hybrid_swa_memory: 关闭混合滑动窗口注意力（SWA）模型的专用显存优化（这类模型有些层只看最近一段 token）
+                是否属于这类模型，由 config.json 的 architectures 和滑动窗口相关字段判断
+            model_config_parser: 用哪个解析器读模型配置：auto（默认，按模型名判断是否用 mistral，否则用 hf）、hf（用 AutoConfig 读 config.json）、mistral
+                例：Qwen3.8-27B 走 hf，读的就是仓库里的 config.json
+            speculative_algorithm: 推测解码算法（如 EAGLE、EAGLE3、NEXTN），草稿模型据此确定结构；由启动参数传入，模型卡里没有
+            is_draft_quantization_explicit: 用户是否显式指定了草稿模型的量化方式（--speculative-draft-model-quantization）；只影响草稿模型加载权重时的量化处理
+        """
+
         # Parse args
         self.model_path = model_path
         self.revision = revision
@@ -1780,6 +1818,7 @@ def _get_and_verify_dtype(
     config: PretrainedConfig,
     dtype: Union[str, torch.dtype],
 ) -> torch.dtype:
+    """按 dtype 参数和模型配置确定权重精度；精度科普见 model_config.py._get_and_verify_dtype.md"""
     # NOTE: getattr(config, "torch_dtype", torch.float32) is not correct
     # because config.torch_dtype can be None.
     if isinstance(config, dict):
