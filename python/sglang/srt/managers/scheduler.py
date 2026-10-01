@@ -3218,7 +3218,7 @@ class Scheduler(
     def get_next_batch_to_run(
         self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
     ) -> NextBatchPlan:
-        """组批：优先组新的 prefill 批次，没有就让 running_batch 继续 decode；详见 scheduler.py.get_next_batch_to_run.md"""
+        """【重要】决定本轮执行哪个批次，模型执行在 run_batch；详见 [组批](scheduler.py.get_next_batch_to_run.md)。"""
         self.process_pending_chunked_abort()
 
         if self.enable_fpm:
@@ -3228,7 +3228,7 @@ class Scheduler(
         if self.dllm_config is not None:
             self.dllm_manager.filter_finished_reqs()
 
-        # Merge the prefill batch into the running batch
+        # 【Step 1】合并上一轮预填充完成、仍需继续生成的请求；未完成的分块请求暂不并入。
         chunked_req_to_exclude = set()
 
         if self.dllm_config is not None and self.dllm_manager.any_staging_reqs():
@@ -3243,8 +3243,8 @@ class Scheduler(
                     self.stash_chunked_request(req)
 
         if self.chunked_req is not None:
-            # Move the chunked request out of the batch so that we can merge
-            # only finished requests to running_batch.
+            # 当前请求还没完成所有分块的预填充，先从待合并请求中排除。
+            # 这里的“完成”指预填充完成，不是整个生成请求结束。
             chunked_req_to_exclude.add(self.chunked_req)
 
             # Stash (cache) the previous chunk only when it produced new KV
@@ -3281,18 +3281,18 @@ class Scheduler(
             if self.dllm_config is not None and last_batch.reqs:
                 chunked_req_to_exclude.update(last_batch.reqs)
 
-            # Filter batch
+            # 去掉已结束的请求，以及上面明确排除的请求。
             last_bs = last_batch.batch_size()
             last_batch.filter_batch(chunked_req_to_exclude=list(chunked_req_to_exclude))
             if last_batch.batch_size() < last_bs:
                 running_batch.batch_is_full = False
 
-            # Merge the new batch into the running batch.
+            # 剩下的请求可以继续生成：运行批为空就接管，否则合并到已有运行批。
             if not last_batch.is_empty():
                 if running_batch.is_empty():
                     running_batch = last_batch
                 else:
-                    # Merge running_batch with prefill batch
+                    # 将上一轮预填充完成的请求加入已有运行批。
                     running_batch.merge_batch(last_batch)
 
         # For prefill-only batch, filter out finished requests since they
@@ -3304,7 +3304,7 @@ class Scheduler(
             running_batch.filter_batch()
             if running_batch.is_empty():
                 running_batch.batch_is_full = False
-
+        # 【Step 2】尝试组预填充批：续算未完成的分块，或从等待队列按预算选请求；也可能推迟。
         if self.dllm_config is not None:
             new_batch = self.get_new_batch_dllm(running_batch)
         elif self._should_defer_prefill():
@@ -3326,12 +3326,12 @@ class Scheduler(
             # 2. All new batches are some (prefill / idle) -> we do not need prepare mlp sync one more time.
             new_batch = self.dp_attn_adapter.maybe_prepare_mlp_sync_batch(new_batch)
             need_mlp_sync = new_batch is None
-
+        # 【Step 3】有可执行的新批次就优先执行；否则准备运行批的下一步解码。
         if new_batch is not None:
-            # Run prefill first if possible
+            # 常规路径下优先执行预填充；等待队列非空并不保证本轮能组出批次。
             ret = new_batch
         else:
-            # Run decode (skip for prefill-only batches)
+            # 仅预填充的请求不走解码；运行批清理后为空时，本轮也可能没有任务。
             if not running_batch.is_empty() and not running_batch.is_prefill_only:
                 running_batch = self.update_running_batch(running_batch)
                 ret = running_batch if not running_batch.is_empty() else None
@@ -3362,7 +3362,7 @@ class Scheduler(
             set_schedule_time_batch(ret)
             if self.enable_fpm:
                 ret.fpm_start_time = self._fpm_batch_t0
-
+        # 返回两个状态：本轮交给 run_batch 的批次，以及主循环需要保存的运行批。
         return NextBatchPlan(batch_to_run=ret, running_batch=running_batch)
 
     def get_num_allocatable_reqs(

@@ -281,9 +281,9 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 ---
 
-## 8. 学习进度（持续更新，最近更新 2026-10-01）
+## 8. 学习进度（持续更新，最近更新 2026-10-02）
 
-核心链路的整体框架已经走通：三类进程和管道、请求从 HTTP 到 GPU 再回来的每一跳，都有对应文档或注释。剩下的是第 7–9 步的代码细读，以及各类加速特性。
+核心链路的整体框架已有对应文档或注释。当前细读到第 5 步：启动、收请求、分发与入队已讲完，本次接着梳理 `get_next_batch_to_run` 的三步主干；随后下钻预填充组批、解码批次更新、执行与结果处理，再继续第 6–9 步。
 
 | 步 | 状态 | 已有产出 |
 |---|---|---|
@@ -291,8 +291,8 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 | 2 配置 | 部分 | [publish](python/sglang/srt/runtime_context.py.publish.md)、[PortArgs](python/sglang/srt/server_args.py.PortArgs.md)、ModelConfig 参数注释、[精度科普](python/sglang/srt/configs/model_config.py._get_and_verify_dtype.md) |
 | 3 API | 概念 | [docs/learn/01](docs/learn/01-http-tokenizer-manager.md)；`serving_chat.py` 未精读 |
 | 4 分词 | 完成 | [TokenizerManager](user_guide_zh/核心组件二：TokenizerManager.md) |
-| 5 调度 | 完成（主路径） | [Scheduler](user_guide_zh/核心组件四：Scheduler.md) 与三篇分阶段文档、科普图 |
-| 6 桥接 | 完成 | [TpModelWorker 与 ModelRunner](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)：启动顺序、`forward_batch_generation` 三步、多个 runner 的情况 |
+| 5 调度 | 进行中（组批主干） | 启动、收请求、分发与入队已讲完；`get_next_batch_to_run` 已标注三步主干。下一步：`get_new_batch_prefill` → `_get_new_batch_prefill_raw` → `PrefillAdder.add_one_req`，之后读 `update_running_batch`、`run_batch`、`process_batch_result`。已有 [Scheduler](user_guide_zh/核心组件四：Scheduler.md)、[组批](python/sglang/srt/managers/scheduler.py.get_next_batch_to_run.md)等文档与科普图 |
+| 6 桥接 | 已有文档，待继续细读 | [TpModelWorker 与 ModelRunner](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)：启动顺序、`forward_batch_generation` 三步、多个 runner 的情况 |
 | 7 前向 | 部分 | [核心组件五](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)讲了 `ForwardBatch` 主要字段和 CUDA Graph / eager 分派；[docs/learn/04](docs/learn/04-model-forward-execution.md)；各模型的 `forward` 未读 |
 | 8 计算+缓存 | 部分 | 组批文档讲了 KV 分配和前缀缓存；`memory_pool.py`、`radix_cache.py`、attention backend 未读 |
 | 9 采样回包 | 部分 | [DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md) 完成；`Sampler` 主路径写进[核心组件五](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)，采样 kernel 未细读 |
