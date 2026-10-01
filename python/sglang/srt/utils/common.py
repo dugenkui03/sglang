@@ -2393,8 +2393,11 @@ def broadcast_pyobj(
     force_cpu_device: bool = True,
 ):
     """Broadcast inputs from src rank to all other ranks with torch.dist backend.
-    The `rank` here refer to the source rank on global process group (regardless
-    of dist_group argument).
+    The `rank` here refer to the source rank on global process group 
+    (regardless of dist_group argument).
+
+    用 torch.distributed 后端，把输入从 src rank 广播给其他所有 rank。
+    这里的 `rank` 是全局进程组里的编号（不管 dist_group 传的是哪个组）。
     """
     device = torch.device(
         "cuda"
