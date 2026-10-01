@@ -146,10 +146,10 @@ sglang serve
 | 3 API | HTTP 协议变成 `GenerateReqInput` | [`serving_chat.py`](python/sglang/srt/entrypoints/openai/serving_chat.py) | [docs/learn/01](docs/learn/01-http-tokenizer-manager.md)、[serving_chat 说明](python/sglang/srt/entrypoints/openai/serving_chat_说明.md) |
 | 4 分词 | chat template、tokenize，经 ZMQ 发给 Scheduler | [`tokenizer_manager.py`](python/sglang/srt/managers/tokenizer_manager.py) | [TokenizerManager](user_guide_zh/核心组件二：TokenizerManager.md) |
 | 5 调度 | 等待 / 运行队列、Radix 匹配、组成 `ScheduleBatch` | [`scheduler.py`](python/sglang/srt/managers/scheduler.py)、[`schedule_batch.py`](python/sglang/srt/managers/schedule_batch.py)、[`schedule_policy.py`](python/sglang/srt/managers/schedule_policy.py) | [Scheduler](user_guide_zh/核心组件四：Scheduler.md)、[收请求](python/sglang/srt/managers/scheduler.py.process_input_requests.md)、[组批](python/sglang/srt/managers/scheduler.py.get_next_batch_to_run.md) |
-| 6 桥接 | `ScheduleBatch` → `ForwardBatch` | **[`tp_worker.py`](python/sglang/srt/managers/tp_worker.py)** | [执行与处理结果](python/sglang/srt/managers/scheduler.py.run_batch.md) |
-| 7 前向 | eager / CUDA Graph，`model.forward` | [`model_runner.py`](python/sglang/srt/model_executor/model_runner.py)、[`forward_batch_info.py`](python/sglang/srt/model_executor/forward_batch_info.py) | [docs/learn/04](docs/learn/04-model-forward-execution.md) |
+| 6 桥接 | `ScheduleBatch` → `ForwardBatch` | **[`tp_worker.py`](python/sglang/srt/managers/tp_worker.py)** | [TpModelWorker 与 ModelRunner](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)、[执行与处理结果](python/sglang/srt/managers/scheduler.py.run_batch.md) |
+| 7 前向 | eager / CUDA Graph，`model.forward` | [`model_runner.py`](python/sglang/srt/model_executor/model_runner.py)、[`forward_batch_info.py`](python/sglang/srt/model_executor/forward_batch_info.py) | [核心组件五（执行分派）](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)、[docs/learn/04](docs/learn/04-model-forward-execution.md) |
 | 8 计算+缓存 | Attention 读写 KV；allocator 分槽位；radix 决定复用 | [`layers/attention/`](python/sglang/srt/layers/attention/)、[`memory_pool.py`](python/sglang/srt/mem_cache/memory_pool.py)、[`radix_cache.py`](python/sglang/srt/mem_cache/radix_cache.py) | [组批（KV 分配、前缀缓存）](python/sglang/srt/managers/scheduler.py.get_next_batch_to_run.md) |
-| 9 采样回包 | 采下一个 token，增量解码，流式回 HTTP | [`sampler.py`](python/sglang/srt/layers/sampler.py)、[`detokenizer_manager.py`](python/sglang/srt/managers/detokenizer_manager.py) | [DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md)、[增量解码](python/sglang/srt/managers/detokenizer_manager.py._decode_batch_token_id_output.md) |
+| 9 采样回包 | 采下一个 token，增量解码，流式回 HTTP | [`sampler.py`](python/sglang/srt/layers/sampler.py)、[`detokenizer_manager.py`](python/sglang/srt/managers/detokenizer_manager.py) | [核心组件五（采样）](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)、[DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md)、[增量解码](python/sglang/srt/managers/detokenizer_manager.py._decode_batch_token_id_output.md) |
 
 Scheduler 主循环的骨架（先读 `event_loop_normal`，默认跑的是 `event_loop_overlap`）：
 
@@ -168,7 +168,7 @@ overlap 版本把 `process_batch_result` 推迟一轮：先下发本批，再处
 | Engine | 推理接口，负责拉起三类进程、关闭资源 | `_launch_subprocesses` | [核心组件一](user_guide_zh/核心组件一：Engine.md) |
 | TokenizerManager | 主进程里的请求入口：分词、提交请求、按 rid 收结果 | `generate_request` / `handle_loop` | [核心组件二](user_guide_zh/核心组件二：TokenizerManager.md) · [科普图](python/sglang/srt/managers/tokenizer_manager_科普图.png) |
 | Scheduler | 每张卡一个进程：收请求、组批、执行、处理结果 | `event_loop_overlap` / `get_next_batch_to_run` | [核心组件四](user_guide_zh/核心组件四：Scheduler.md) · [科普图](user_guide_zh/assets/scheduler-overview-4x3.png) |
-| TpModelWorker / ModelRunner | 桥接与执行：`ForwardBatch.init_new` → `forward` → `sample`；启动时加载权重 | `forward_batch_generation` / `initialize` | 代码注释；[docs/learn/04](docs/learn/04-model-forward-execution.md)（专篇待写） |
+| TpModelWorker / ModelRunner | 桥接与执行：`ForwardBatch.init_new` → `forward` → `sample`；启动时加载权重 | `forward_batch_generation` / `initialize` | [核心组件五](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md) · [docs/learn/04](docs/learn/04-model-forward-execution.md) |
 | DetokenizerManager | 独立进程：把 token ID 增量解码成文本 | `event_loop` / `_decode_batch_token_id_output` | [核心组件三](user_guide_zh/核心组件三：DetokenizerManager.md) · [科普图](user_guide_zh/assets/detokenizer-manager-overview-4x3.png) |
 
 ![Scheduler 科普图：主循环四步、组批怎么选、一个请求的一生](user_guide_zh/assets/scheduler-overview-4x3.png)
@@ -281,9 +281,9 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 ---
 
-## 8. 学习进度（持续更新，最近更新 2026-09-30）
+## 8. 学习进度（持续更新，最近更新 2026-10-01）
 
-核心链路的整体框架已经走通：三类进程和管道、请求从 HTTP 到 GPU 再回来的每一跳，都有对应文档或注释。剩下的是第 6–9 步的代码细读，以及各类加速特性。
+核心链路的整体框架已经走通：三类进程和管道、请求从 HTTP 到 GPU 再回来的每一跳，都有对应文档或注释。剩下的是第 7–9 步的代码细读，以及各类加速特性。
 
 | 步 | 状态 | 已有产出 |
 |---|---|---|
@@ -292,10 +292,10 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 | 3 API | 概念 | [docs/learn/01](docs/learn/01-http-tokenizer-manager.md)；`serving_chat.py` 未精读 |
 | 4 分词 | 完成 | [TokenizerManager](user_guide_zh/核心组件二：TokenizerManager.md) |
 | 5 调度 | 完成（主路径） | [Scheduler](user_guide_zh/核心组件四：Scheduler.md) 与三篇分阶段文档、科普图 |
-| 6 桥接 | 部分 | TpModelWorker 三步、ModelRunner 启动加载写在代码注释里；专篇待写 |
-| 7 前向 | 概念 | [docs/learn/04](docs/learn/04-model-forward-execution.md)；`forward_batch_info.py` 未读 |
+| 6 桥接 | 完成 | [TpModelWorker 与 ModelRunner](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)：启动顺序、`forward_batch_generation` 三步、多个 runner 的情况 |
+| 7 前向 | 部分 | [核心组件五](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)讲了 `ForwardBatch` 主要字段和 CUDA Graph / eager 分派；[docs/learn/04](docs/learn/04-model-forward-execution.md)；各模型的 `forward` 未读 |
 | 8 计算+缓存 | 部分 | 组批文档讲了 KV 分配和前缀缓存；`memory_pool.py`、`radix_cache.py`、attention backend 未读 |
-| 9 采样回包 | 部分 | [DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md) 完成；采样参数的生效位置已梳理，`sampler.py` 未精读 |
+| 9 采样回包 | 部分 | [DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md) 完成；`Sampler` 主路径写进[核心组件五](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)，采样 kernel 未细读 |
 
 ---
 
@@ -303,10 +303,9 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 ### 9.1 核心链路补全
 
-1. 写《核心组件五：TpModelWorker 与 ModelRunner》：启动时加载权重、`forward_batch_generation` 三步、采样器、多个 runner 的情况。
-2. 第 7–8 步细读：`ForwardBatch` 字段、`ModelRunner.forward` 的 eager / CUDA Graph 分支、一个 attention backend、`memory_pool.py` 和 `radix_cache.py`。
-3. 第 2、3 步补全：RuntimeContext 配置分组；`serving_chat` 如何把 HTTP 请求转成 `GenerateReqInput`。
-4. 动手练习：在 Scheduler 四步各打一条日志，跑一个请求验证主循环；对照 `test/registered/core/` 跑最小测试。
+1. 第 7–8 步细读：`ForwardBatch` 全部字段、各模型的 `forward`、一个 attention backend、`memory_pool.py` 和 `radix_cache.py`。
+2. 第 2、3 步补全：RuntimeContext 配置分组；`serving_chat` 如何把 HTTP 请求转成 `GenerateReqInput`。
+3. 动手练习：在 Scheduler 四步各打一条日志，跑一个请求验证主循环；对照 `test/registered/core/` 跑最小测试。
 
 ### 9.2 加速策略
 

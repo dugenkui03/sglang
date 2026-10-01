@@ -133,8 +133,8 @@ sequenceDiagram
   - prefill 优先：等待队列里有能放进来的请求，就先组 prefill 批；上一轮做完 prefill 的请求并入 `running_batch`。
   - 挑请求：[`PrefillAdder`](../python/sglang/srt/managers/schedule_policy.py#L511) 按显存和 token 预算逐个加入；命中前缀缓存的部分不用重算，太长的输入分块处理。
   - decode：[`update_running_batch`](../python/sglang/srt/managers/scheduler.py#L3724) 每步给每个请求加 1 个 KV 槽位；显存不够时退回部分请求。
-- **Step 3 执行**：[`run_batch`](../python/sglang/srt/managers/scheduler.py#L3870)，详见[执行与处理结果](../python/sglang/srt/managers/scheduler.py.run_batch.md)。
-  - [`forward_batch_generation`](../python/sglang/srt/managers/tp_worker.py#L595) 做三步：`ForwardBatch.init_new` → `model_runner.forward` → `model_runner.sample`。
+- **Step 3 执行**：[`run_batch`](../python/sglang/srt/managers/scheduler.py#L3870)，详见[执行与处理结果](../python/sglang/srt/managers/scheduler.py.run_batch.md)；TpModelWorker 和 ModelRunner 内部见[核心组件五](核心组件五：TpModelWorker与ModelRunner.md)。
+  - [`forward_batch_generation`](../python/sglang/srt/managers/tp_worker.py#L598) 做三步：`ForwardBatch.init_new` → `model_runner.forward` → `model_runner.sample`。
   - overlap 模式下，下一轮的输入 token 先用占位值（FutureMap），结果异步拷回 CPU。
 - **Step 4 处理结果**：[`process_batch_result`](../python/sglang/srt/managers/scheduler.py#L4212) 按 prefill / decode 交给 [`SchedulerBatchResultProcessor`](../python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L79)。
   - 追加 token，用 [`update_finish_state`](../python/sglang/srt/managers/schedule_batch.py#L1654) 判断是否结束（停止词、结束符、最大长度）；结束就释放 KV，并把算过的内容写入前缀缓存。

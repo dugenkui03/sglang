@@ -291,6 +291,7 @@ def resolve_draft_attention_backend(
 class ModelRunner:
     """ModelRunner runs the forward passes of the models.
     【重要】执行 forward
+    详见 ../../../../user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md
     """
 
     @property
@@ -644,8 +645,7 @@ class ModelRunner:
             )
 
     def initialize(self):
-        """fff
-        """
+        """加载权重并做模型相关设置：采样器、load_model、本卡负责哪几层；KV 池、注意力后端、CUDA Graph 之后单独初始化"""
         self.init_memory_saver_adapter()
         self.maybe_init_remote_instance_transfer_engine()
         self.maybe_init_expert_location_metadata()

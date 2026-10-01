@@ -61,14 +61,14 @@ sequenceDiagram
 
 - **Step 1 执行本批**：主循环的 [Step 3](scheduler.py#L1883) 调 [`run_batch`](scheduler.py#L3870)，把 `batch.copy()` 和结果放进 `result_queue` 就往下走，不等 GPU 算完。
   - 取输入：[`resolve_forward_inputs`](overlap_utils.py#L87) 准备 `input_ids`。预填充(Prefill)批把 CPU 上暂存的输入 token 拷到 GPU；解码(Decode)批从[未来映射表(FutureMap)](overlap_utils.py#L248)按请求槽位取上一轮采样出的 token，CPU 不用等它拷回来。
-  - 前向和采样：[`forward_batch_generation`](tp_worker.py#L595) 依次调用 [`ForwardBatch.init_new`](tp_worker.py#L610)、[`model_runner.forward`](tp_worker.py#L630)（得到对数几率(Logits)）、[`model_runner.sample`](tp_worker.py#L674)（得到 `next_token_ids`）。没有推测解码时，`model_worker` 就是 `tp_worker`。
+  - 前向和采样：[`forward_batch_generation`](tp_worker.py#L598) 依次调用 [`ForwardBatch.init_new`](tp_worker.py#L615)、[`model_runner.forward`](tp_worker.py#L636)（得到对数几率(Logits)）、[`model_runner.sample`](tp_worker.py#L681)（得到 `next_token_ids`）。没有推测解码时，`model_worker` 就是 `tp_worker`。
   - 接力给下一轮：[`_relay_forward_payload`](scheduler.py#L4121) 把 `next_token_ids` 写进 FutureMap；`future_map.publish` 记下新长度 `seq_lens + 1`。
   - 拷回 CPU：[`copy_to_cpu`](scheduler.py#L3985) 在单独的 CUDA 流(CUDA Stream) `copy_stream` 上做设备到主机拷贝(Device to Host，D2H)，和下一轮前向并行；随后记录 `copy_done` 事件，等它完成才能读 `next_token_ids`。
   - 入队：先 [`_apply_war_barrier`](scheduler.py#L1888)，让调度流上之后的写操作等本次前向读完；`batch.copy()` 只留处理结果要用的字段，因为原 batch 下一轮组批时还会被改。
   - 核对 [`GenerationBatchResult`](utils.py#L45)：`logits_output`、`next_token_ids`、`copy_done`、`delay_sample_func`。
   - 例：第 1 轮 prefill 一次算完「你数三个数字」，采样出 `1`；之后每轮 decode 以上一个 token 为输入，依次得到 `，`、`2`、`，`、`3` 和序列结束符(End of Sequence，EOS)。
   - 省略：非 overlap 路径在 [L4036](scheduler.py#L4036) 调用同一个方法，结果不异步拷回；推测解码、PD 分离、pdmux 拆分 prefill、嵌入和奖励模型、弹性 EP、scripted hook 等分支。
-  - 省略：带 grammar（结构化输出）或开启 `SGLANG_ENABLE_DELAY_SAMPLE` 时延迟采样：[前向完先返回](tp_worker.py#L651)，等上一批处理完，再由 [`launch_batch_sample_if_needed`](scheduler.py#L4174) 采样。
+  - 省略：带 grammar（结构化输出）或开启 `SGLANG_ENABLE_DELAY_SAMPLE` 时延迟采样：[前向完先返回](tp_worker.py#L658)，等上一批处理完，再由 [`launch_batch_sample_if_needed`](scheduler.py#L4174) 采样。
 - **Step 2 处理上一批的结果（overlap 晚一轮）**：主循环的 [Step 4](scheduler.py#L1894) 用 [`pop_and_process`](scheduler.py#L1838) 从 `result_queue` 取出上一批，交给 [`process_batch_result`](scheduler.py#L4212)，再按批次类型分给 [`SchedulerBatchResultProcessor`](scheduler_components/batch_result_processor.py#L79)。
   - prefill：[`process_batch_result_prefill`](scheduler_components/batch_result_processor.py#L240) 先 `copy_done.synchronize()` 等拷贝完成；每个请求 [`output_ids.append`](scheduler_components/batch_result_processor.py#L327) 第一个生成的 token，再 [`update_finish_state`](scheduler_components/batch_result_processor.py#L331)。
   - prefill 收尾：结束的请求 [`release_kv_cache`](scheduler_components/batch_result_processor.py#L335)；没结束的由 [`maybe_cache_unfinished_req`](scheduler_components/batch_result_processor.py#L338) 把已算好的前缀放进前缀缓存(Prefix Cache) `tree_cache`，供别的请求复用。

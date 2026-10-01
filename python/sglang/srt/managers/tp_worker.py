@@ -310,7 +310,10 @@ class BaseTpWorker(ABC):
 
 
 class TpModelWorker(BaseTpWorker):
-    """A tensor parallel model worker."""
+    """A tensor parallel model worker.
+
+    详见 ../../../../user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md
+    """
 
     def __init__(
         self,
@@ -602,11 +605,13 @@ class TpModelWorker(BaseTpWorker):
         *,
         capture_hidden_mode: Optional[CaptureHiddenMode] = None,
     ) -> GenerationBatchResult:
+        """三步：构造 ForwardBatch、前向、采样，结果装进 GenerationBatchResult 交回 Scheduler"""
         # Get forward batch from schedule batch
         if batch is not None:
             # update the consumer index of hicache to the running batch
             self.set_hicache_consumer(batch.hicache_consumer_index)
 
+            # 【Step 1】把 ScheduleBatch 转成模型要用的 GPU 张量
             forward_batch = ForwardBatch.init_new(
                 batch,
                 self.model_runner,
@@ -627,6 +632,7 @@ class TpModelWorker(BaseTpWorker):
             return self._forward_batch_generation_dllm(forward_batch, batch)
 
         if self.pp_group.is_last_rank:
+            # 【Step 2】前向：ModelRunner 选 CUDA Graph 或 eager 执行，得到 logits
             out = self.model_runner.forward(
                 forward_batch,
                 pp_proxy_tensors=pp_proxy_tensors,
@@ -646,6 +652,7 @@ class TpModelWorker(BaseTpWorker):
                 # Skip sampling; spec_v2 worker fires its own publish post-verify.
                 return batch_result
 
+            # 【Step 3】采样：按温度、top-k、top-p 选出下一个 token；部分情况推迟到 Scheduler 下一轮再采
             # Delay sampling only for normal generation requests.
             # Keep the existing grammar behavior unchanged.
             if (

@@ -8,6 +8,7 @@
 - [核心组件二：TokenizerManager](核心组件二：TokenizerManager.md)：分词、提交请求与接收结果，控制操作转发给 Scheduler。
 - [核心组件三：DetokenizerManager](核心组件三：DetokenizerManager.md)：增量解码 token ID、维护解码状态并回传文本。
 - [核心组件四：Scheduler](核心组件四：Scheduler.md)：主循环四步（收请求、组批、执行、处理结果）、prefill 与 decode 的选择、overlap 调度。
+- [核心组件五：TpModelWorker 与 ModelRunner](核心组件五：TpModelWorker与ModelRunner.md)：启动时加载权重、分配 KV 池、捕获 CUDA Graph；每轮构造 ForwardBatch、前向、采样。
 
 ## 1. 服务与调优(Serving and Tuning)
 
