@@ -35,13 +35,13 @@ flowchart LR
   - ① [`init_tp_model_worker`](../python/sglang/srt/managers/scheduler.py#L939) 创建 [`TpModelWorker`](../python/sglang/srt/managers/tp_worker.py#L312)：先由 [`_init_model_config`](../python/sglang/srt/managers/tp_worker.py#L461) 读模型配置，再由 [`_init_model_runner`](../python/sglang/srt/managers/tp_worker.py#L482) 创建 [`ModelRunner`](../python/sglang/srt/model_executor/model_runner.py#L291)。
   - ② `ModelRunner.__init__` 先 [`init_torch_distributed`](../python/sglang/srt/model_executor/model_runner.py#L1103) 建好多卡通信，再进 [`initialize`](../python/sglang/srt/model_executor/model_runner.py#L647)：创建采样器，[`load_model`](../python/sglang/srt/model_executor/model_runner.py#L1121) 加载权重，确定这张卡负责哪几层（流水线并行时只负责一部分，见 [1.7](<1.7 长上下文流水线并行(Pipeline Parallelism for Long Context).md>)）。
   - ③ [`init_memory_pools`](../python/sglang/srt/managers/scheduler.py#L1004) → [`ModelRunner.alloc_memory_pool`](../python/sglang/srt/model_executor/model_runner.py#L873)：按 `mem_fraction_static` 和加载权重后剩下的显存，算出 KV 池能放多少 token。
-  - ④ [`init_attention_backends`](../python/sglang/srt/model_executor/model_runner.py#L993)、[`init_cuda_graphs`](../python/sglang/srt/model_executor/model_runner.py#L1058)：初始化注意力后端，再按一组批大小把 decode 的前向录成 CUDA Graph。
+  - ④ [`init_attention_backends`](../python/sglang/srt/model_executor/model_runner.py#L993)、[`init_cuda_graphs`](../python/sglang/srt/model_executor/model_runner.py#L1058)：初始化注意力后端，再按一组批大小把 decode 的前向录成 CUDA Graph（分段 CUDA Graph 可用时也录 prefill 的）。
   - 最后 [`get_worker_info`](../python/sglang/srt/managers/tp_worker.py#L547) 把 `max_total_num_tokens`、`max_running_requests` 等交回 Scheduler，组批时的预算就来自这里。
 - **要点**：
   - Scheduler 调用它们是普通的函数调用，不走进程间通信。
   - TpModelWorker 是薄的一层：把批次交给 ModelRunner，再把结果装进 `GenerationBatchResult`；模型、KV 池、注意力后端和 CUDA Graph 都挂在 ModelRunner 上。
   - 张量并行时，同一个 TP 组的每张卡各有一对，拿到相同的批次一起计算，每张卡只持有 1/N 的权重。
-  - 开了推测解码时，同一进程里还有草稿模型的 worker，它和目标模型共用 KV 池；这时 `run_batch` 调用的是草稿 worker（[L1067](../python/sglang/srt/managers/scheduler.py#L1067)），由它再调用目标模型做验证。
+  - 开了推测解码时，`run_batch` 调用的是推测解码 worker（[L1067](../python/sglang/srt/managers/scheduler.py#L1067)），由它包住目标模型的 TpModelWorker；EAGLE、DFlash 等还会再建一个草稿模型的 TpModelWorker 和 ModelRunner，与目标模型共用 `req_to_token_pool` 和槽位分配器（NGRAM 没有草稿模型）。
   - 一个 TpModelWorker 通常只有一个 ModelRunner；只有多层 EAGLE 草稿模型会在 `model_runner_list` 里为每一步建一个（[`_init_multi_layer_eagle_model_runners`](../python/sglang/srt/managers/tp_worker.py#L503)）。
 
 ### TpModelWorker 与 ModelRunner 内部
@@ -130,7 +130,7 @@ sequenceDiagram
 
 - **启动**：见第 1 节。
   - 顺序不能换：KV 池的大小取决于权重加载完还剩多少显存，CUDA Graph 要在模型和注意力后端都就绪后才能录。
-  - 投机解码时，草稿 worker 也走一遍同样的流程，但直接复用目标模型的 KV 池（[`init_memory_pools`](../python/sglang/srt/managers/scheduler.py#L1004)）。
+  - 推测解码时，草稿模型的 worker 也走一遍同样的流程，但复用目标模型的 `req_to_token_pool` 和槽位分配器（[`init_memory_pools`](../python/sglang/srt/managers/scheduler.py#L1004)）。
 - **Step 1 构造 ForwardBatch**：[`ForwardBatch.init_new`](../python/sglang/srt/model_executor/forward_batch_info.py#L723)，对应代码里的 [【Step 1】](../python/sglang/srt/managers/tp_worker.py#L614)。
   - `ScheduleBatch` 是调度视角的批次（请求列表、前缀长度等，大多在 CPU 上）；`ForwardBatch` 是模型视角：`input_ids`、`positions`、`seq_lens`、`req_pool_indices`、`out_cache_loc`（本轮新 KV 写到哪些槽位）、`sampling_info`。
   - `forward_mode` 决定后面怎么跑：[`ForwardMode`](../python/sglang/srt/model_executor/forward_batch_info.py#L104) 里 `EXTEND` 就是 prefill，`DECODE` 每个请求算 1 个 token，`IDLE` 是 DP 模式下没分到请求的卡空跑一轮。
@@ -139,8 +139,8 @@ sequenceDiagram
   - 否则先看 prefill 的[分段 CUDA Graph](../python/sglang/srt/model_executor/model_runner.py#L1800) 能不能用（见 [5.1](<5.1 分段 CUDA 图(Piecewise CUDA Graph).md>)），都不行就交给 [`EagerRunner.execute`](../python/sglang/srt/model_executor/runner/eager_runner.py#L212)：按 decode / idle / extend 分派，注意力后端准备好元数据后调用 `model.forward(input_ids, positions, forward_batch)`。
   - 返回 [`ModelRunnerOutput`](../python/sglang/srt/model_executor/model_runner.py#L266)：`logits_output` 和这次是否用了 CUDA Graph。两种执行路径的对比见 [docs/learn/04](../docs/learn/04-model-forward-execution.md)。
 - **Step 3 采样**：[`ModelRunner.sample`](../python/sglang/srt/model_executor/model_runner.py#L1846) 调用 [`Sampler`](../python/sglang/srt/layers/sampler.py#L71)，对应 [【Step 3】](../python/sglang/srt/managers/tp_worker.py#L655)。
-  - 先由 [`_preprocess_logits`](../python/sglang/srt/model_executor/model_runner.py#L1818) 加上结构化输出的词表掩码和 logit 偏置。
-  - 全部请求都是贪心（temperature 为 0）时[直接取分数最高的 token](../python/sglang/srt/layers/sampler.py#L130)；否则 logits 除以温度、softmax，再按 top-k / top-p / min-p 采样。请求里的 temperature、top_k 等参数就在这里生效。
+  - 先由 [`_preprocess_logits`](../python/sglang/srt/model_executor/model_runner.py#L1818) 依次加上惩罚项（重复、频率等）、结构化输出的词表掩码和 logit 偏置。
+  - 全部请求都是贪心（`top_k` 为 1；temperature 为 0 的请求会被改成 `top_k = 1`）时[直接取分数最高的 token](../python/sglang/srt/layers/sampler.py#L130)；否则 logits 除以温度、softmax，再按 top-k / top-p / min-p 采样。请求里的 temperature、top_k 等参数就在这里生效。
   - TpModelWorker 把 `next_token_ids` 和 `logits_output` 一起装进 [`GenerationBatchResult`](../python/sglang/srt/managers/utils.py#L45) 交回 Scheduler，接上[核心组件四](核心组件四：Scheduler.md)的「处理结果」。
 - **图中省略的分支**：
   - 推迟采样：overlap 模式下带语法约束（或开了 `SGLANG_ENABLE_DELAY_SAMPLE`）时，[先返回](../python/sglang/srt/managers/tp_worker.py#L658)带 `delay_sample_func` 的结果，Scheduler 在 [`launch_batch_sample_if_needed`](../python/sglang/srt/managers/scheduler.py#L4174) 里更新完语法状态再采样。
@@ -184,6 +184,9 @@ classDiagram
     class EagerRunner {
         +execute(forward_batch)
     }
+    class BaseCudaGraphRunner {
+        <<abstract>>
+    }
     class DecodeCudaGraphRunner {
         +can_run_graph(forward_batch)
         +execute(forward_batch)
@@ -201,8 +204,9 @@ classDiagram
     ModelRunner *-- PrefillCudaGraphRunner : prefill_cuda_graph_runner
     ModelRunner *-- Sampler : sampler
     BaseRunner <|-- EagerRunner
-    BaseRunner <|-- DecodeCudaGraphRunner
-    BaseRunner <|-- PrefillCudaGraphRunner
+    BaseRunner <|-- BaseCudaGraphRunner
+    BaseCudaGraphRunner <|-- DecodeCudaGraphRunner
+    BaseCudaGraphRunner <|-- PrefillCudaGraphRunner
     style TpModelWorker fill:#fff0c2,stroke:#b7791f,stroke-width:3px
     style ModelRunner fill:#fff0c2,stroke:#b7791f,stroke-width:3px
 ```
