@@ -663,6 +663,7 @@ class Scheduler(
 
         self.maybe_init_scripted_scheduler_hook()
 
+        # 【重要】初始化 SchedulerRequestReceiver，用来接收 TokenizerManager 的请求
         self.init_request_receiver()
 
         self.init_dp_attn_adapter()
@@ -1178,7 +1179,11 @@ class Scheduler(
     def init_running_status(self):
         # Set by the ShutdownReq handler to break the event loop for graceful shutdown.
         self.gracefully_exit = False
+
+        #【重点】
+        # Scheduler 接收到任务后就会放到这个队列，这个队列的任务的存取是核心链路
         self.waiting_queue: List[Req] = []
+
         # The running decoding batch for continuous batching
         self.running_batch: ScheduleBatch = ScheduleBatch(reqs=[], batch_is_full=False)
         # The current forward batch
@@ -1746,6 +1751,7 @@ class Scheduler(
         triton_load_watch.mark_serving_started()
 
         if use_mlx():
+            # Apple 芯片 链路
             # MLX overlap uses mx.async_eval for CPU/GPU overlap,
             # not PyTorch MPS streams.
             dispatch_event_loop(self)
@@ -1770,7 +1776,8 @@ class Scheduler(
         # on the previous forward's read of the unified memory pool.
         self._war_barrier_enabled = is_cuda() or envs.SGLANG_ENABLE_WAR_BARRIER.get()
         with self.device_module.StreamContext(self.schedule_stream):
-            dispatch_event_loop(self)
+            #【重要】，走到核心方法 event_loop_overlap，实现 收请求 → 组批 → 执行 → 回包
+            dispatch_event_loop(self) 
 
     def _apply_war_barrier(self):
         # WAR: keep later schedule_stream writes behind this forward's shared reads.
@@ -1792,12 +1799,16 @@ class Scheduler(
             if self.gracefully_exit:
                 break
 
+            #【重要】
+            # 从 TokenizerManager 接收推理消息并发到任务队列
             # Receive requests
             recv_reqs = self.request_receiver.recv_requests()
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
                 continue
 
+            #【重要】
+            # 从任务队列获取消息进行处理
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
                 running_batch=self.running_batch, last_batch=self.last_batch
@@ -1820,7 +1831,7 @@ class Scheduler(
             if envs.SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_BUSY.get():
                 self.invariant_checker.self_check_during_busy()
 
-    @DynamicGradMode()
+    @DynamicGradMode()  # 作用是让整个主循环运行时关闭梯度计算
     def event_loop_overlap(self):
         """A scheduler loop that overlaps the CPU processing and GPU computation.
             - overlaps a and b：让 a 和 b 同时进行
@@ -1974,7 +1985,8 @@ class Scheduler(
             for recv_req in recv_reqs:
                 self._materialize_cuda_vmm_inputs(recv_req)
 
-        for recv_req in recv_reqs: # 【重要】遍历收到的请求
+        #【重要】遍历收到的请求
+        for recv_req in recv_reqs: 
             # Skip health check when server is busy — ongoing requests already carry health info.
             if is_health_check_generate_req(recv_req) and not self.is_fully_idle(
                 for_health_check=True
@@ -1984,7 +1996,9 @@ class Scheduler(
                 )
                 continue
 
-            # 调用到了 TypeBasedDispatcher#__call__() 方法
+            #【重要】
+            # 将消息给到对应的处理方法，主要是将任务入队
+            # 任务队列中的消息被消费后会进行 prefill、decode、KV Cache 相关的逻辑
             output = self._request_dispatcher(recv_req)
             if output is not None:
                 if self.rust_server is not None:
@@ -2840,6 +2854,7 @@ class Scheduler(
 
         added_to_grammar_queue = self.grammar_manager.process_req_with_grammar(req)
         if not added_to_grammar_queue:
+            # 【重要】推理任务入对
             self._add_request_to_queue(req)
 
     def handle_batch_generate_request(
@@ -2900,6 +2915,8 @@ class Scheduler(
                 )
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
+        """推理任务入队逻辑
+        """
         if not self._set_or_validate_priority(req):
             return
         if self.disaggregation_mode == DisaggregationMode.NULL:
@@ -5288,18 +5305,29 @@ def dispatch_event_loop(scheduler: Scheduler):
     # The live PP property asserts before torch.distributed init (MLX stub).
     disaggregation_mode: DisaggregationMode = scheduler.disaggregation_mode
     if disaggregation_mode == DisaggregationMode.NULL:
+        # 不做 PD 分离走的路径
         if scheduler.enable_pdmux:
             scheduler.event_loop_pdmux()
-        elif get_parallel().pp_size > 1:
+        elif get_parallel().pp_size > 1: 
+            # 流水线并行走这里，将模型切到多张卡上
             scheduler.event_loop_pp()
-        elif scheduler.enable_overlap_mlx:
+        elif scheduler.enable_overlap_mlx: 
+            # 兼容 Apple 芯片
             scheduler.event_loop_overlap_mlx()
-        # 默认走这里：overlap 调度默认开启（disable_overlap_schedule=False）
         elif scheduler.enable_overlap:
+            # CPU 调度和 GPU 计算重叠执行
+            #  含义解读：GPU 算这一批的时候，CPU 同时去处理上一批的结果、准备下一批，两边都不空等
+            # CPU: [组批1][组批2][处理结果1][组批3][处理结果2]
+            # GPU:        [计算1]     [计算2]     [计算3]
             scheduler.event_loop_overlap()
         else:
+            # 串行执行
+            #CPU: [组批1]          [处理结果1][组批2]          [处理结果2]
+            #GPU:        [计算1]                     [计算2]
+            #                   ↑ GPU 空闲 ↑
             scheduler.event_loop_normal()
     elif disaggregation_mode == DisaggregationMode.PREFILL:
+        # PD 分离模式下的 Prefill 实例
         if get_parallel().pp_size > 1:
             scheduler.event_loop_pp_disagg_prefill()
         elif scheduler.enable_overlap:
@@ -5307,6 +5335,7 @@ def dispatch_event_loop(scheduler: Scheduler):
         else:
             scheduler.event_loop_normal_disagg_prefill()
     elif disaggregation_mode == DisaggregationMode.DECODE:
+        # PD 分离模式下的 Decode 模式
         if get_parallel().pp_size > 1:
             scheduler.event_loop_pp_disagg_decode()
         elif scheduler.enable_overlap:
@@ -5434,6 +5463,8 @@ def run_scheduler_process(
     # Create a scheduler and run the event loop
     scheduler = None
     try:
+        #【重要】Engine 创建 Scheduler 对象路径：
+        # Engine._launch_subprocesses -> Engine._launch_subprocesses()-> Scheduler.run_scheduler_process
         scheduler = Scheduler(
             server_args,
             port_args,

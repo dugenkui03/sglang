@@ -10,6 +10,10 @@
 - [核心组件四：Scheduler](核心组件四：Scheduler.md)：主循环四步（收请求、组批、执行、处理结果）、prefill 与 decode 的选择、overlap 调度。
 - [核心组件五：TpModelWorker 与 ModelRunner](核心组件五：TpModelWorker与ModelRunner.md)：启动时加载权重、分配 KV 池、捕获 CUDA Graph；每轮构造 ForwardBatch、前向、采样。
 
+## 核心概念(Core Concepts)
+
+- [核心概念一：SGLang中的并行策略](核心概念一：SGLang中的并行策略.md)：TP、PP、DP、EP、CP 五种基础策略及细分变体，卡怎么分，rank 坐标与请求分发。
+
 ## 1. 服务与调优(Serving and Tuning)
 
 | 编号 | 文章 | 主要内容 |
@@ -37,6 +41,7 @@
 | 2.2 | [分层稀疏注意力(Hierarchical Sparse Attention)](<2.2 分层稀疏注意力(Hierarchical Sparse Attention).md>) | 稀疏选择、锁页内存与 CPU/GPU 缓存搬运 |
 | 2.3 | [会话感知基数缓存(Session-Aware Radix Cache)](<2.3 会话感知基数缓存(Session-Aware Radix Cache).md>) | 会话引用、软保护与缓存淘汰 |
 | 2.4 | [解码上下文并行(Decode Context Parallelism)](<2.4 解码上下文并行(Decode Context Parallelism).md>) | MLA KV Cache 分片、局部注意力合并与组合配置 |
+| 2.5 | [预填充上下文并行(Prefill Context Parallelism)](<2.5 预填充上下文并行(Prefill Context Parallelism).md>) | Zigzag 与 Interleave 词元分配、注意力后端集成、组合限制与启动示例 |
 
 ## 3. 推测解码(Speculative Decoding)
 
@@ -61,10 +66,10 @@
 
 ## 阅读与命名约定
 
-- 特性文章的文件名与一级标题统一采用“章节.文章 中文标题(English Title)”，同一主题共用章节编号；核心组件系列采用“核心组件一：Engine”等命名。
+- 特性文章的文件名与一级标题统一采用“章节.文章 中文标题(English Title)”，同一主题共用章节编号；核心组件系列采用“核心组件一：Engine”等命名，核心概念系列采用“核心概念一：SGLang中的并行策略”等命名。
 - 各篇核心术语首次出现时给出“中文术语(English Term，缩写)”，后文可以使用已定义的中文或缩写；代码标识和配置参数保留原名。
 - 翻译及基于原文撰写文章时，完整保留原文的内容、条件、示例、数据与链接；只有明确要求删减时才删减，补充内容单独标注。
 - 翻译请求默认将完整译文直接保存到本目录，并更新目录索引；随后在项目中的文档上共同修改。
 - 新增文章末尾附术语与生词表：缩写列英文全称、中文释义和简明英文释义；需要解释的英文单词另附音标，音标紧邻单词；不标字母缩写的音标，不附音频。
-- 文档一般不超过 120 行，示意图按一行计；按已确认的完整翻译要求，1.3、1.4、1.5、1.6、1.7、5.1 可以超过此限制，内容仅按明确要求删减。插图与生成提示词统一保存在本目录的 [`assets`](assets/) 子目录中。
+- 文档一般不超过 120 行，示意图按一行计；按已确认的完整翻译要求，1.3、1.4、1.5、1.6、1.7、2.5、5.1 可以超过此限制，内容仅按明确要求删减。插图与生成提示词统一保存在本目录的 [`assets`](assets/) 子目录中。
 - 核心请求处理链路另见 [`docs/learn`](../docs/learn/)，从 HTTP 接入、输入分词到调度和模型执行。
