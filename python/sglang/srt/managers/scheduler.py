@@ -4001,6 +4001,7 @@ class Scheduler(
                         #       run_batch() 
                         #       -> TpWorker#forward_batch_generation() 
                         #       -> ModelRunner#forward() -> _forward_raw()
+                        #   结果类型 GenerationBatchResult，logits_output 保存了每个 token 的分数
                         batch_result = self.model_worker.forward_batch_generation(
                             batch, 
                             **fwd_kwargs

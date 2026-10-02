@@ -609,9 +609,10 @@ class TpModelWorker(BaseTpWorker):
     ) -> GenerationBatchResult:
         """ 
         NOTE 推理的核心方法
-            step 1: 构造 ForwardBatch
-            step 2: 前向、采样
-            step 3: 结果装进 GenerationBatchResult 交回 Scheduler
+        step 1: 构造输入参数 ForwardBatch
+        step 2: forward 获取下一个结果中、每个token的分数
+        step 3: sample
+        step 4: 结果装进 GenerationBatchResult 交回 Scheduler
         """
         # Get forward batch from schedule batch
         if batch is not None:
@@ -684,9 +685,11 @@ class TpModelWorker(BaseTpWorker):
                 return batch_result
 
             if not forward_batch.is_prefill_only:
+                # NOTE 已经有了每个token的分数，这里 sample 出下一个 token
                 # For normal requests, sample the next token ids.
                 batch_result.next_token_ids = self.model_runner.sample(
-                    logits_output, forward_batch
+                    logits_output, # 保存了每个 token 出现可能的分数
+                    forward_batch
                 )
             else:
                 # For prefill-only requests, create dummy token IDs on CPU
