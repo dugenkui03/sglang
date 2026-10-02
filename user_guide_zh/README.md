@@ -19,6 +19,7 @@
 ## 基础知识(Fundamentals)
 
 - [基础知识：ZeroMQ 进程间通信](<基础知识：ZeroMQ 进程间通信.md>)：PUSH/PULL socket、bind 与 connect，以及进程之间如何收发消息。
+- [基础知识二：一次推理的全过程（启动、组批、前向与采样）](<基础知识二：一次推理的全过程（启动、组批、前向与采样）.md>)：启动时加载模型、建 KV 池；每轮组批、`run_batch` 前向、`lm_head` 打分、采样出下一个 token，以及 CUDA Graph 与 eager 路径和数据形状的变化。
 
 ## 1. 服务与调优(Serving and Tuning)
 
