@@ -1448,6 +1448,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
         """Run forward pass for Qwen3-VL.
+        NOTE 重点 qwen3.8-27B 的 forward实现
 
         Args:
             input_ids: Flattened (concatenated) input_ids corresponding to a
@@ -1463,6 +1464,19 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             positions = forward_batch.mrope_positions
 
         if self.language_model_only:
+            # NOTE 使用模型权重进行计算
+            #   当前 Scheduler 加载了哪些模型层、这里就用哪哪些模型层计算 // 重点
+            #   hidden_states 形状是 [num_tokens, hidden_size]
+            #       num_tokens：prefill 的时候等于输入token之和；decode的时候等于请求数量
+            #       hidden_size：每个 token 用的向量长度
+            #       【重点】hidden_states 和 lm_head.weight（[vocab_size, hidden_size]）的转置矩阵相乘
+            #            先每个请求只取最后一个 token：[num_tokens, hidden_size] -> [请求数, hidden_size]
+            #            [请求数, hidden_size] * [hidden_size, vocab_size] = [请求数, vocab_size] 获取每个请求对词表里所有 token 的分数
+            #            调用链路 self.logits_processor() 
+            #               -> LogitsProcessor.forward()
+            #               -> _get_pruned_states()
+            #               -> _get_logits() 
+            #               -> _compute_lm_head()：代码是 torch.matmul(hidden_states, lm_head.weight.T)
             hidden_states = self.model(
                 input_ids=input_ids,
                 forward_batch=forward_batch,
@@ -1495,6 +1509,15 @@ class Qwen3VLForConditionalGeneration(nn.Module):
 
         if self.pp_group.is_last_rank:
             if not get_embedding:
+                # NOTE hidden_states -> LogitsProcessorOutput
+                # 调用链：LogitsProcessor 继承了 nn.Module，所以调用的是forward()
+                #   PyTorch 里，参与前向计算的组件习惯都继承 nn.Module
+                # 
+                # 调用链路 self.logits_processor() 
+                #         -> LogitsProcessor.forward()
+                #         -> _get_pruned_states()
+                #         -> _get_logits() 
+                #         -> _compute_lm_head()：代码是 torch.matmul(hidden_states, lm_head.weight.T)
                 return self.logits_processor(
                     input_ids,
                     hidden_states,

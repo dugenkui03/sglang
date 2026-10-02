@@ -1602,6 +1602,9 @@ class ModelRunner:
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
+        """
+        NOTE 使用权重执行 forward
+        """
         # Deprecated kwarg: pre-planners mark the batch themselves now.
         forward_batch.apply_deprecated_skip_attn_backend_init(skip_attn_backend_init)
 
@@ -1639,8 +1642,8 @@ class ModelRunner:
                 forward_batch,
             ) as recorder_outputs,
         ):
-            # 执行路径说明：[CUDA Graph 与 Eager](../../../../docs/learn/04-model-forward-execution.md)
-            output = self._forward_raw( # NOTE 真正执行推理的地方
+            # NOTE 真正执行推理的地方
+            output = self._forward_raw( 
                 forward_batch,
                 pp_proxy_tensors,
                 reinit_attn_backend,
@@ -1741,11 +1744,14 @@ class ModelRunner:
 
     def _forward_raw(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch, # 推理任务
         pp_proxy_tensors: Optional[PPProxyTensors],
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
+        """ 
+            NOTE 执行模型推理的地方
+        """
         if has_forward_context():
             ctx_mgr = contextlib.nullcontext()
         else:
@@ -1771,6 +1777,8 @@ class ModelRunner:
                 self.hisparse_coordinator.num_real_reqs.fill_(forward_batch.batch_size)
 
             # Replay cuda graph if applicable
+            # NOTE 核心分支，如果打开了 CUDA Graph 并且是 decode 推理，走这里
+            #   注意：CUDA Graph 是 Decode 的常用优化手段
             if can_run_graph:
                 ret = self.decode_cuda_graph_runner.execute(
                     forward_batch,
@@ -1795,7 +1803,8 @@ class ModelRunner:
                 dwdp_mgr.prefetch_first_layers()
 
             if forward_batch.forward_mode.is_split_prefill():
-                # Layer-split mode; stays on ModelRunner, not the eager runner.
+                # Layer-split mode; stays on ModelRunner, not the eager runner. 
+                # tip 默认不走，忽略
                 ret = self.forward_split_prefill(
                     forward_batch,
                     reinit_attn_backend=reinit_attn_backend,
@@ -1810,7 +1819,8 @@ class ModelRunner:
                     self.prefill_cuda_graph_runner, forward_batch
                 )
             ):
-                # Prefill cuda graph (piecewise).
+                # Prefill cuda graph (piecewise). 
+                # tip 默认关闭，忽略
                 kwargs = self._extend_forward_kwargs(forward_batch, pp_proxy_tensors)
                 category = (
                     "target_verify"
@@ -1821,15 +1831,17 @@ class ModelRunner:
                 # load_batch time. Move it into the prefill cuda graph runner
                 # to capture only the model.forward part.
                 with device_timer_ctx(self.device_timer, category):
-                    # NOTE 真正执行推理的地方
                     ret = self.prefill_cuda_graph_runner.execute(
-                        forward_batch, **kwargs
+                        forward_batch, 
+                        **kwargs
                     )
                 can_run_graph = True
             else:
                 # Eager: decode / extend / idle dispatched inside the runner.
+                # NOTE 不用 CUDA Graph 的推理链路
                 ret = self.eager_runner.execute(
-                    forward_batch, pp_proxy_tensors=pp_proxy_tensors
+                    forward_batch, 
+                    pp_proxy_tensors=pp_proxy_tensors
                 )
 
             if (

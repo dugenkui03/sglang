@@ -599,7 +599,7 @@ class TpModelWorker(BaseTpWorker):
 
     def forward_batch_generation(
         self,
-        batch: Optional[ScheduleBatch],
+        batch: Optional[ScheduleBatch], # NOTE 任务
         forward_batch: Optional[ForwardBatch] = None,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
         is_verify: bool = False,
@@ -607,15 +607,20 @@ class TpModelWorker(BaseTpWorker):
         *,
         capture_hidden_mode: Optional[CaptureHiddenMode] = None,
     ) -> GenerationBatchResult:
-        """三步：构造 ForwardBatch、前向、采样，结果装进 GenerationBatchResult 交回 Scheduler"""
+        """ 
+        NOTE 推理的核心方法
+            step 1: 构造 ForwardBatch
+            step 2: 前向、采样
+            step 3: 结果装进 GenerationBatchResult 交回 Scheduler
+        """
         # Get forward batch from schedule batch
         if batch is not None:
             # update the consumer index of hicache to the running batch
             self.set_hicache_consumer(batch.hicache_consumer_index)
 
-            # 【Step 1】把 ScheduleBatch 转成模型要用的 GPU 张量
+            # tip step 1 : 把 ScheduleBatch 转成模型要用的 GPU Tensor
             forward_batch = ForwardBatch.init_new(
-                batch,
+                batch, # ScheduleBatch 类型
                 self.model_runner,
                 capture_hidden_mode=capture_hidden_mode,
                 return_hidden_states_before_norm=False,
@@ -634,7 +639,7 @@ class TpModelWorker(BaseTpWorker):
             return self._forward_batch_generation_dllm(forward_batch, batch)
 
         if self.pp_group.is_last_rank:
-            # 【Step 2】前向：ModelRunner 选 CUDA Graph 或 eager 执行，得到 logits
+            # NOTE Step 2:ModelRunner 选 CUDA Graph 或 eager 执行，得到 logits
             out = self.model_runner.forward(
                 forward_batch,
                 pp_proxy_tensors=pp_proxy_tensors,

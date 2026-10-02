@@ -3873,7 +3873,7 @@ class Scheduler(
 
     @contextmanager
     def _forward_isolation(self, batch: ScheduleBatch, *, overlap: bool):
-        """Make SB transactional across one forward (overlap and non-overlap).
+        """Make SB(ScheduleBatch) transactional across one forward (overlap and non-overlap).
 
         1. Snapshot SB fields so V2's mid-forward mutations (forward_mode /
            input_ids / seq_lens / spec_info / ...) can be undone. V1 / non-spec
@@ -3922,7 +3922,7 @@ class Scheduler(
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[GenerationBatchResult, EmbeddingBatchResult]:
         """Run a batch.
-        调用 TpModelWorker 完成前向和采样；详见 scheduler.py.run_batch.md
+        调用 TpModelWorker 完成 forward 和 sample；详见 scheduler.py.run_batch.md
         """
         self.forward_ct += 1
         batch.forward_iter = self.forward_ct
@@ -3940,7 +3940,7 @@ class Scheduler(
             time.sleep(self.forward_sleep_time)
 
         # Place holder handling for pd-disagg decode event loop
-        # PD 分离模式下 Prefill 已经完成且 KV Cache 搞定了
+        # PD 分离模式： 此时 Prefill/KV Cache 已经执行完了
         if batch.forward_mode.is_prebuilt():
             return self._run_batch_prebuilt(batch)
 
@@ -3949,7 +3949,7 @@ class Scheduler(
             for req in batch.reqs:
                 self.maybe_send_cached_prefix_chunk(req)
 
-        # Run forward
+        # NOTE Run forward
         if self.is_generation: # 是否是生成类的任务
             if self.enable_overlap: # 是否是 cpu 调度和 gpu 计算并行执行
 
@@ -3965,13 +3965,14 @@ class Scheduler(
                 #   退出时自动调用 forward_stream_ctx 的 __exit__() 方法
                 #   forward_stream_ctx 是 StreamContext 类型
                 with self.forward_stream_ctx:
-                    # forward_stream 等 schedule_stream 
+                    # TIP: forward_stream 等 schedule_stream 
                     self.forward_stream.wait_stream(self.schedule_stream)
 
                     # resolve consumes SB staging (prefill_input_ids_cpu /
                     # mix_running_indices). Run OUTSIDE isolation so the
                     # snapshot captures the post-consume state — restoring
                     # post-forward must not un-consume staging.
+                    # tip 给 batch.input_ids 赋值
                     resolve_forward_inputs(batch, self.future_map)
 
                     with self._forward_isolation(batch, overlap=True):
@@ -3995,8 +3996,11 @@ class Scheduler(
                                 )
 
                         # FIXME: pp is not compatible with overlap
-                        # NOTE
-                        # forward 的核心方法，进行推理并获取 logits、也就是结果位置每个token的分数
+                        # NOTE forward 的核心方法，进行推理并获取 logits、也就是结果位置每个token的分数
+                        #   链路：
+                        #       run_batch() 
+                        #       -> TpWorker#forward_batch_generation() 
+                        #       -> ModelRunner#forward() -> _forward_raw()
                         batch_result = self.model_worker.forward_batch_generation(
                             batch, 
                             **fwd_kwargs

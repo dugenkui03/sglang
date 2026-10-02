@@ -93,6 +93,8 @@ class _ModelRegistry:
 
 @lru_cache()
 def import_model_classes(package_name: str, strict: bool = False):
+    """ TOOD 模型加载
+    """
     model_arch_name_to_cls = {}
     package = importlib.import_module(package_name)
     for _, name, ispkg in pkgutil.iter_modules(package.__path__, package_name + "."):
