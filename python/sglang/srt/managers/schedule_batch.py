@@ -3537,5 +3537,9 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
 
 class NextBatchPlan(msgspec.Struct):
+    """下一批次的调度方案
+    """
+    # 本轮准备执行的批次
     batch_to_run: Optional[ScheduleBatch]
+    # 调度器需要继续维护的运行批
     running_batch: ScheduleBatch
