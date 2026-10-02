@@ -1813,8 +1813,10 @@ class Scheduler(
             plan = self.get_next_batch_to_run(
                 running_batch=self.running_batch, last_batch=self.last_batch
             )
-            self.running_batch = plan.running_batch
-            batch = plan.batch_to_run
+            # 更新调度器维护的运行批，供后续调度使用
+            self.running_batch = plan.running_batch 
+            #【重要】取出本轮待执行的批次，可能为 None
+            batch = plan.batch_to_run 
             self.cur_batch_for_debug = batch
 
             # Launch the current batch
@@ -3886,7 +3888,7 @@ class Scheduler(
     @scheduler_nvtx_method("scheduler.run_batch")
     def run_batch(
         self,
-        batch: ScheduleBatch,
+        batch: ScheduleBatch, # 要执行的任务
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[GenerationBatchResult, EmbeddingBatchResult]:
         """Run a batch.
@@ -3901,13 +3903,14 @@ class Scheduler(
         if self.scripted_scheduler_hook is not None:
             self.scripted_scheduler_hook.on_run_batch(batch)
 
-        # Whether to run the profiler
+        # Whether to run the profiler 用于性能分析
         self.profiler_manager._profile_batch_predicate(batch)
         if self.forward_sleep_time is not None:
             logger.info(f"Scheduler.run_batch sleep {self.forward_sleep_time}s")
             time.sleep(self.forward_sleep_time)
 
         # Place holder handling for pd-disagg decode event loop
+        # PD 分离模式下 Prefill 已经完成且 KV Cache 搞定了
         if batch.forward_mode.is_prebuilt():
             return self._run_batch_prebuilt(batch)
 
@@ -3917,16 +3920,24 @@ class Scheduler(
                 self.maybe_send_cached_prefix_chunk(req)
 
         # Run forward
-        if self.is_generation:
-            if self.enable_overlap:
+        if self.is_generation: # 是否是生成类的任务
+            if self.enable_overlap: # 是否是 cpu 调度和 gpu 计算并行执行
+
+                # NOTE 投机解码相关的逻辑，方法体中的 spec 就是 Speculative
                 # Self-gates on batch.spec_info.future_indices; non-spec_v2
                 # no-ops (ForwardBatch.init_new lazily computes the sum).
                 self.future_map.resolve_seq_lens_cpu(batch)
                 if self._confidence_budget_prepare is not None:
                     self._confidence_budget_prepare(batch, self.future_map)
 
+                # with 语法
+                #   进入时自动调用 forward_stream_ctx 的 __enter__() 方法
+                #   退出时自动调用 forward_stream_ctx 的 __exit__() 方法
+                #   forward_stream_ctx 是 StreamContext 类型
                 with self.forward_stream_ctx:
+                    # forward_stream 等 schedule_stream 
                     self.forward_stream.wait_stream(self.schedule_stream)
+
                     # resolve consumes SB staging (prefill_input_ids_cpu /
                     # mix_running_indices). Run OUTSIDE isolation so the
                     # snapshot captures the post-consume state — restoring
@@ -3954,8 +3965,11 @@ class Scheduler(
                                 )
 
                         # FIXME: pp is not compatible with overlap
+                        #【重要】
+                        # forward 的核心方法，进行推理并获取 logits、也就是结果位置每个token的分数
                         batch_result = self.model_worker.forward_batch_generation(
-                            batch, **fwd_kwargs
+                            batch, 
+                            **fwd_kwargs
                         )
                         if batch.spec_algorithm.is_none():
                             self.future_map.publish(future_indices, batch.seq_lens + 1)

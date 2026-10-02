@@ -871,7 +871,10 @@ class ModelRunner:
         self.pre_model_load_memory += preloaded_weights_bytes / (1 << 30)
 
     def alloc_memory_pool(self, memory_pool_config: Optional[MemoryPoolConfig] = None):
-        """Allocate KV cache memory pools only (no backends or cuda graphs)."""
+        """Allocate KV cache memory pools only (no backends or cuda graphs).
+        【重要】
+            保存显存中的重要几个缓存池
+        """
         if memory_pool_config is not None:
             self.memory_pool_config = memory_pool_config
 

@@ -1,0 +1,133 @@
+Create ONE high-resolution Chinese educational infographic for a programmer learning SGLang. Use the built-in image generator to produce a finished raster image, landscape 16:10, ideally 3200 × 2000 or larger. This is an infographic-diagram and scientific-educational explanation, based on verified local source. Prioritize technically correct, readable Chinese and exact English source identifiers.
+
+VISUAL STYLE
+Eye-friendly warm ivory background #F4F2E8, light sage panels #E6ECDD, pale blue-green panels #E1EEEA, restrained muted ochre accents. Crisp charcoal-green text #394B43, fine green-gray strokes. No dark-background panels, no pure-white/black split, no neon, no glossy 3D, no decorative robot or chip. Flat editorial technical illustration with subtly rounded cards, elegant grid, generous space, large readable type. Chinese sans-serif and legible monospace for source identifiers. Every connecting arrow must have a clearly visible circled number. Reuse the supplied source diagram's topology, simplify only visual presentation. The image must be understandable without outside commentary. Do not add file paths, source line numbers, a footer title, watermark, or logo.
+
+TITLE, exact:
+“槽位 × FutureMap：两轮解码怎样接力”
+Subtitle:
+“普通生成 · overlap 重叠调度 · decode 主路径”
+Small scope note:
+“省略推测解码、延迟采样等分支；编号表示阅读顺序”
+
+CORE TAKEAWAY immediately under title, concise and prominent:
+“槽位定位请求，FutureMap 接力 token，模型算出下一步。”
+A small definition strip:
+“示例请求：req.req_pool_idx = 7　｜　本批：batch.req_pool_indices = [7]”
+“槽位是分配期间稳定的行号；释放后可复用，批内顺序可以改变。”
+
+COMPOSITION
+Use the whole width. This is a self-contained integrated diagram, not a left bullet list beside an illustration.
+Upper area contains TWO CLEARLY DISTINCT TABLES. Middle area contains the numbered runtime pipeline and a large, clearly bounded three-stage worker. A broad green return arrow closes the token loop. Lower area contains the asynchronous host-result branch and two very concise explanatory notes. Allow the main pipeline and arrows most of the space. Avoid collisions or tiny typography.
+
+TABLE A, on the upper left, green:
+Title: “FutureMap”
+Subheading: “设备端接力表：保存下一轮的输入”
+Show two fields in a tiny table with column titles “槽位” / “output_tokens_buf” / “new_seq_lens_buf”.
+Example highlighted row: “7” / “tₙ₋₁ → tₙ” / “L + 1”.
+Explain the before/after in one short sentence:
+“第 N 轮读 tₙ₋₁；写入 tₙ，供下一轮读取”
+This table is the SAME storage used by both the read arrow ② and the return arrow ⑧. DO NOT duplicate it as independent buffers or connect it to the cache-address table.
+
+TABLE B, on the upper right, muted ochre:
+Title: “req_to_token_pool.req_to_token”
+Subheading: “KV（Key-Value）缓存位置表”
+Show small conceptual grid: row labels “槽位 6”, “槽位 7”, “槽位 8”; columns “位置 0”, “位置 1”, “位置 2”, “…” .
+Highlight row 7, containing “41”, “88”, “203”, “…”.
+Annotation:
+“每个数是缓存池中的位置，不是 token 编号”
+“按请求行号和上下文位置，找到 attention 要用的缓存”
+Tiny technical clarification if space:
+“实际形状：(size + 1, max_context_len)，第 0 行保留”
+This is an address mapping, not the cache tensor itself. Do not depict 41, 88, 203 as token values or contiguous physical memory.
+
+MAIN NUMBERED DATA FLOW, grounded in Scheduler.run_batch
+Draw a subtle outer boundary labeled “Scheduler.run_batch · 第 N 轮”.
+A. Small batch card on the left:
+“ScheduleBatch”
+“req_pool_indices = [7]”
+“input_ids = None（待解析）”
+Below/right, B. receiver card:
+“resolve_forward_inputs”
+“按槽位补齐 input_ids”
+Arrow A -> B labeled “① 带上槽位”.
+Arrow TABLE A -> B labeled “② 读出上一轮 token”.
+In or directly under B include exactly this readable one-line code expression:
+“input_ids = output_tokens_buf[req_pool_indices]”
+(It may wrap at the equals sign without altering identifiers.)
+
+To the right of B, a prominent outlined group named exactly:
+“TpModelWorker.forward_batch_generation”
+Inside are THREE sequential cards, with friendly explanations:
+1. “ForwardBatch.init_new”
+   “整理输入与批次信息”
+   “ScheduleBatch → ForwardBatch”
+2. “model_runner.forward”
+   “前向计算”
+   “logits：对词表各 token 打分”
+3. “model_runner.sample”
+   “按温度、top-k、top-p 采样”
+   “选出 next_token_ids”
+Arrow B -> stage 1 labeled “③ 模型输入”.
+Arrow stage 1 -> stage 2 labeled “④ ForwardBatch”.
+Arrow TABLE B -> stage 2 labeled “⑤ attention 查缓存位置”.
+Arrow stage 2 -> stage 3 labeled “⑥ logits”.
+
+Below the right side of the worker, OUTSIDE the worker group but INSIDE Scheduler.run_batch, a clear return-and-store card:
+“返回 GenerationBatchResult”
+“含 logits_output + next_token_ids”
+Divider, then:
+“Scheduler.run_batch 负责写回”
+“publish：保存 seq_lens + 1”
+“_relay_forward_payload → stash：保存新 token”
+Arrow stage 3 -> this card labeled “⑦ next_token_ids = tₙ”.
+Optional tiny sentence in this card:
+“worker 返回结果，Scheduler 调用 FutureMap”
+This distinction is essential: forward_batch_generation does NOT directly stash or publish.
+
+A BIG GREEN LOOP arrow from this return-and-store card back to the SAME TABLE A. Label:
+“⑧ 按槽位 7 写回，供第 N+1 轮读取”
+Near this return arrow place the short code-like semantic summary:
+“output_tokens_buf[7] = tₙ”
+“new_seq_lens_buf[7] = L + 1”
+Clearly label these as “写入含义（简化）” if needed.
+This is a next-iteration loop, NOT a second forward in the same iteration. Arrowhead MUST point into FutureMap. The ② arrowhead MUST point OUT of FutureMap into resolve_forward_inputs.
+The numbered ② + ⑧ loop is the visual focus.
+
+ASYNCHRONOUS RESULT BRANCH
+A muted blue-green branch leaves the return-and-store result card, labeled “⑨ 异步拷回结果”.
+Destination is a compact horizontal lane, below and visually separated from the device token loop:
+“copy_stream / copy_to_cpu”
+“copy_done 完成后”
+“process_batch_result”
+“更新 Req、判断结束、发给 DetokenizerManager”
+Keep this lane as a single visually grouped process strip; use separators instead of extra unnumbered graph arrows.
+Zone labels, if used, MUST expand acronyms:
+“设备端 GPU（Graphics Processing Unit）”
+“主机端 CPU（Central Processing Unit）”
+Do not repeat unexpanded GPU/CPU elsewhere. Source identifiers such as copy_to_cpu are exact code, not prose abbreviations.
+Critical timing note:
+“下一轮取输入，不必等 token 拷回主机；主机读结果仍要等 copy_done。”
+Do NOT claim that device computations have no dependencies or that all host work never waits.
+Do not put Python class boxes inside a physical chip illustration; this is a logical orchestration and tensor-flow diagram, not a claim Python executes on the device.
+
+BOTTOM TWO SHORT CALLOUTS, only if needed for clarity
+A. “两轮接力”
+“第 N 轮：读 tₙ₋₁ → 算 tₙ → 写回槽位 7”
+“第 N+1 轮：读 tₙ → 算 tₙ₊₁ → 写回槽位 7”
+B. “首次 prefill 从哪里来？”
+“纯 prefill 的 input_ids 来自锁页内存，经 H2D（Host to Device）拷入。”
+“它不读取上一轮 token；采样结果可供后续 decode 使用。”
+
+TECHNICAL INVARIANTS
+- All real connecting diagram arrows carry ① through ⑨ exactly matching the labels above; do not add unlabeled decorative connectors.
+- Slot number 7, token tₙ, and cache positions 41/88/203 are distinct concepts.
+- Stable slot only for the duration of a slot allocation. Released slots are reusable, and retracted/reallocated requests need not retain their old slot. Do not say permanently fixed for a request's whole lifetime.
+- A batch's slot order can change while the same active allocation is still addressed by its row.
+- FutureMap stores token relay data; req_to_token stores cache locations.
+- Direct current source input to ForwardBatch.init_new is ScheduleBatch; do NOT invent a ModelWorkerBatch intermediary.
+- Ordinary generation worker both forwards and samples, returning logits_output and next_token_ids.
+- Sequence length publish is bookkeeping; don't invent a sequence-length gather during ordinary decode. The next input gather in arrow ② reads output_tokens_buf.
+- In this normal branch publish occurs after worker return; stash is reached via _relay_forward_payload.
+- All source identifiers must be spelled exactly as given and remain readable.
+- These are explanatory labels, not a full code listing. Use space efficiently and preserve the data flow over decorative elements.
