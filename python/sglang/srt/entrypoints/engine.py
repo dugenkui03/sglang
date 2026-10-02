@@ -169,7 +169,7 @@ def init_tokenizer_manager(
     TokenizerManagerClass = TokenizerManagerClass or TokenizerManager
     # TokenizerManagerClass 不是一个具体的类，而是可以指向某个类、比如这里默认其实初始化的是 TokenizerManager
     # 这种参数定义和 a or b 是为了让用户可以穿入 自定义的子类
-    # 【重点】
+    # NOTE
     #   1）加载 tokenizer对象；
     #   2）建立与 Scheduler、Detokenizer 通信的 zmq 管道： send_to_scheduler 提交任务，recv_from_detokenizer 接收结果；
     #   3）创建请求状态表 rid_to_state，用来按请求 ID 对号入座、唤醒等待结果的请求
@@ -220,11 +220,11 @@ def init_tokenizer_manager(
 
 class Engine(EngineScoreMixin, EngineBase):
     """
-    【重要】The entry point to the inference engine.
+    NOTE The entry point to the inference engine.
 
     组件阅读：[核心组件一：Engine](../../../../user_guide_zh/核心组件一：Engine.md)
 
-    - 【重要】The engine consists of three components:
+    - NOTE The engine consists of three components:
         1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
         2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
         3. DetokenizerManager (subprocess): Detokenizes the output tokens and sends the result back to the Tokenizer Manager.
@@ -283,7 +283,7 @@ class Engine(EngineScoreMixin, EngineBase):
         # Shutdown the subprocesses automatically when the program exits
         atexit.register(self.shutdown)
 
-        # Launch subprocesses 【重要】加载各种模型组件，启动服务
+        # Launch subprocesses NOTE 加载各种模型组件，启动服务
         (
             tokenizer_manager,
             template_manager,
@@ -315,7 +315,7 @@ class Engine(EngineScoreMixin, EngineBase):
             self.send_to_rpc = get_zmq_socket(
                 context,  # ZeroMQ 上下文，所有 socket 都从它创建
                 zmq.DEALER,  # socket 类型：可连续收发消息，不必一问一答
-                # 【重点】
+                # NOTE
                 # 本机 IPC 地址，专用于 Engine 与 Scheduler 之间的 RPC 调用
                 # scheduler_components/ipc_channels.py 第 48-49 行 scheduler 也连接了这个地址
                 self.port_args.rpc_ipc_name,
@@ -1152,7 +1152,7 @@ class Engine(EngineScoreMixin, EngineBase):
             if placement_group is not None
             else {}
         )
-        # 【重要】启动 schedule 进程
+        # NOTE 启动 schedule 进程
         scheduler_init_result, scheduler_procs = cls._launch_scheduler_processes(
             server_args, port_args,
             run_scheduler_process_func, # 默认是 run_scheduler_process
@@ -1222,7 +1222,7 @@ class Engine(EngineScoreMixin, EngineBase):
                 None,
             )
 
-        # 【重要】启动 detokenizer 子进程
+        # NOTE 启动 detokenizer 子进程
         # Launch detokenizer process(es) — optionally fronted by a router when
         # detokenizer_worker_num > 1.
         detoken_procs, detoken_names = cls._launch_detokenizer_subprocesses(
@@ -1235,7 +1235,7 @@ class Engine(EngineScoreMixin, EngineBase):
 
         # Init tokenizer manager first, as the bootstrap server is initialized here
         if server_args.tokenizer_worker_num == 1:
-            # 【重要】 初始化 tokenizer_manager
+            # NOTE 初始化 tokenizer_manager
             #   init_tokenizer_manager_func 默认值 init_tokenizer_manager
             tokenizer_manager, template_manager = init_tokenizer_manager_func(
                 server_args, port_args
@@ -1247,7 +1247,7 @@ class Engine(EngineScoreMixin, EngineBase):
 
         startup_complete = False
         try:
-            # 【Step 3】【重点】
+            # 【Step 3】NOTE
             # Wait for the model to finish loading
             # 等待相关 Scheduler 子进程完成初始化，包括模型加载，并向主进程报告就绪
             scheduler_init_result.wait_for_ready()

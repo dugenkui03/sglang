@@ -15,7 +15,7 @@ suppress_noisy_warnings()
 
 
 def run_server(server_args):
-    """【重要】
+    """NOTE
     调用示例：python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000
     Run the server based on the gRPC flags and server_args.encoder_only.
     """
@@ -56,7 +56,7 @@ def run_server(server_args):
 
         launch_server(server_args)
     else:
-        # 【重点】Default mode: HTTP mode.
+        # NOTE Default mode: HTTP mode.
         from sglang.srt.entrypoints.http_server import launch_server
 
         launch_server(server_args)

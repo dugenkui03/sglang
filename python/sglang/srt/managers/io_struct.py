@@ -94,7 +94,7 @@ class BaseReq(msgspec.Struct, tag=True, kw_only=True, array_like=True):
 class BaseBatchReq(msgspec.Struct, tag=True, kw_only=True, array_like=True):
     """Base for batched IPC payloads."""
 
-    # 【重要】
+    # NOTE
     #   rid 是request id、请求唯一标识
     #   list 是因为兼容批处理
     rids: Optional[List[str]] = None

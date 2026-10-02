@@ -546,7 +546,7 @@ def get_tokenizer(
                 tokenizer_name, revision=tokenizer_revision
             )
         else:
-            # 【重点】
+            # NOTE
             tokenizer = _auto_tokenizer_from_pretrained(
                 tokenizer_name, *args, **common_kwargs
             )

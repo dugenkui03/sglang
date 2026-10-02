@@ -50,7 +50,7 @@ class SchedulerRequestReceiver:
     """ Scheduler 的组件，负责接收从 TokenizerManager 发送来的消息
     """
 
-    #【重点】
+    # NOTE
     #【主链路】接收 TokenizerManager 的消息
     # - 对端：TokenizerManager；开 DP（Data Parallelism）时是 DataParallelController
     # - socket 类型：PULL（只收）
@@ -102,14 +102,14 @@ class SchedulerRequestReceiver:
             if not self.recv_skipper.handle(self.get_last_batch()):
                 return []
 
-        #【重要】接收消息
+        # NOTE 接收消息
         # 接收 TokenizerManager 发送的请求参数：token、采样参数等。
         recv_reqs = self._pull_raw_reqs()
 
         if self.input_blocker is not None:
             recv_reqs = self.input_blocker.handle(recv_reqs)
 
-        #【重要】x_rank=0的卡接收到消息后广播给其他GPU卡
+        # NOTE x_rank=0的卡接收到消息后广播给其他GPU卡
         # rank 0 把收到的完整请求列表原样复制给其他 rank，其他rank收到请求但仅计算自己的一份
         recv_reqs = self._broadcast_reqs_across_ranks(recv_reqs)
 
@@ -128,7 +128,7 @@ class SchedulerRequestReceiver:
         """拉取 TokenizerManager 发来的原始请求（还没广播）。
             tp_rank 和 pp_rank 是两种独立的 gpu卡编号，分别是横向和纵向的,
             cp(Data Parallelism) 是对输入进行拆分
-            【重要】(pp_rank, tp_rank)类似坐标，唯一确定一张卡和一份权重
+            NOTE (pp_rank, tp_rank)类似坐标，唯一确定一张卡和一份权重
              - tp_rank：卡在本级的 TP 组里排第几，也就是负责每层的哪一份权重，属于横向层内切
              - pp_rank：卡在第几级流水线，也就是负责哪一段层，属于纵向按层切
              - cp_rank：Data Parallelism，也是 cp_rank=0 接收信息，然后广播给其他节点
@@ -153,7 +153,7 @@ class SchedulerRequestReceiver:
                     try:
                         if self.recv_limit_reached(len(recv_reqs)):
                             break
-                        #【重要】接收 TokenizerManager 的推理任务消息
+                        # NOTE 接收 TokenizerManager 的推理任务消息
                         #   这里接受到的推理任务消息包括所有的输入，
                         #   注意、attn_cp_rank 是gpu卡属性
                         #       cp_rank=0 的卡：去 ZMQ 管道里读消息。

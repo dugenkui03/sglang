@@ -290,7 +290,7 @@ def resolve_draft_attention_backend(
 
 class ModelRunner:
     """ModelRunner runs the forward passes of the models.
-    【重要】执行 forward
+    NOTE 执行 forward
     详见 ../../../../user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md
     """
 
@@ -428,6 +428,7 @@ class ModelRunner:
 
         # Get available memory before model loading.
         # Stored for later use by alloc_memory_pool().
+        # NOTE 多卡通信相关实现
         self.init_torch_distributed()
 
         # Init forward stream for overlap schedule
@@ -461,6 +462,7 @@ class ModelRunner:
         self.startup_weight_load = None
 
         # Load model weights and configure
+        # NOTE 下载和加载模型
         self.initialize()
         self.check_quantized_moe_compatibility()
 
@@ -656,7 +658,7 @@ class ModelRunner:
         self.init_token_oracle()
         # 创建采样器，根据入参的温度值、topK等对结果进行采样
         self.sampler = create_sampler()
-        # 【重要】加载模型，包括下载
+        # NOTE 加载模型，包括下载
         self.load_model()
         prepare_moe_topk(
             model=self.model,
@@ -872,21 +874,25 @@ class ModelRunner:
 
     def alloc_memory_pool(self, memory_pool_config: Optional[MemoryPoolConfig] = None):
         """Allocate KV cache memory pools only (no backends or cuda graphs).
-        【重要】
-            保存显存中的重要几个缓存池
+            
+           NOTE 初始化 KV Cache 相关的显存池
         """
         if memory_pool_config is not None:
             self.memory_pool_config = memory_pool_config
 
         self.init_kv_cache_configurator()
+        # NOTE 初始化 KV Cache 相关的显存池
         result = self.kv_cache_configurator.configure(
             pre_model_load_memory=self.pre_model_load_memory
         )
+        # NOTE 运行时参数赋值
         self.max_total_num_tokens = result.max_total_num_tokens
+        # NOTE 用户即使配置了 --max-running-requests，实际能接受的并发处理可能更小
         self.max_running_requests = result.max_running_requests
-        self.req_to_token_pool = result.req_to_token_pool
-        self.token_to_kv_pool = result.token_to_kv_pool
-        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator
+        # NOTE 显存池相关参数赋值
+        self.req_to_token_pool = result.req_to_token_pool # slot -> KV index
+        self.token_to_kv_pool = result.token_to_kv_pool # KV index -> KV 向量
+        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator # 
         self.memory_pool_config = result.memory_pool_config
         if self.is_hybrid_swa:
             self.full_max_total_num_tokens = result.full_max_total_num_tokens
@@ -1104,6 +1110,16 @@ class ModelRunner:
         )
 
     def init_torch_distributed(self):
+        """ 初始化多卡通信，多卡通信负责：
+            1. 当前 scheduler 应该加载哪一份模型权重：按 tp_rank / pp_rank 只保留自己那份切片，
+               各卡从磁盘各读各的，加载本身不通信（R-Fork 等远程加载除外）
+            2. 支持并行计算：
+               - TP（Tensor Parallelism）：每层 all-reduce，把各卡算出的部分结果相加
+               - PP（Pipeline Parallelism）：相邻两段之间 send/recv 隐藏向量
+               - EP（Expert Parallelism）：all-to-all，把 token 发到专家所在的卡再收回
+               - rank 0 用 broadcast_pyobj 把请求广播给其他卡
+            GPU 张量走 NCCL（NVIDIA Collective Communications Library），CPU 上的 Python 对象走 gloo
+        """
         result = bootstrap.init_torch_distributed(
             server_args=self.server_args,
             model_config=self.model_config,
@@ -1113,8 +1129,10 @@ class ModelRunner:
             is_draft_worker=self.is_draft_worker,
             local_omp_cpuid=self.local_omp_cpuid if self.device == "cpu" else None,
         )
-        self.tp_group = result.tp_group
-        self.pp_group = result.pp_group
+        self.tp_group = result.tp_group # tensor parallel
+        self.pp_group = result.pp_group # pipeline parallel
+        # attention tensor parallel，和 tp_group 区别是：只用于 attention 层的 TP 组，
+        # 不开 DP（Data Parallelism）attention 和 CP（Context Parallelism）时，attention_tp_group 和 tp_group 相同
         self.attention_tp_group = result.attention_tp_group
         self.pre_model_load_memory = result.pre_model_load_memory
 
@@ -1122,8 +1140,10 @@ class ModelRunner:
         maybe_init_shared_mooncake_transfer_engine(gpu_id=self.gpu_id)
 
     def load_model(self):
+        """ 加载模型：
+        """
         tic_total = time.perf_counter()
-        before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
+        before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id) # 返回闲置的显存大小
         logger.info(
             f"Load weight begin. avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
         )
@@ -1150,6 +1170,7 @@ class ModelRunner:
 
         # If the weight cache is enabled, override the load format to IPC_CACHE
         # and derive the per-rank daemon socket. Idempotent across reloads.
+        # ipc in-processs communication 进程内通信
         maybe_enable_ipc_weight_cache(
             load_config=self.load_config,
             tp_size=self.ps.tp_size,
@@ -1167,6 +1188,7 @@ class ModelRunner:
         )
 
         with self._load_format_scope(draft_load_format):
+            # NOTE 下载和加载模型
             loaded = load_model_with_memory_saver(
                 server_args=self.server_args,
                 model_config=self.model_config,
@@ -1214,8 +1236,8 @@ class ModelRunner:
 
         self.dtype = self.model_config.dtype
 
-        after_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
-        self.weight_load_mem_usage = before_avail_memory - after_avail_memory
+        after_avail_memory = get_available_gpu_memory(self.device, self.gpu_id) # 当前闲置的显存大小
+        self.weight_load_mem_usage = before_avail_memory - after_avail_memory # 加载模型用了多大显存
         self.weight_load_time = time.perf_counter() - tic_total
         # Get quantization config from ModelConfig
         # This handles both config.json (standard) and hf_quant_config.json (ModelOpt)
@@ -1618,7 +1640,7 @@ class ModelRunner:
             ) as recorder_outputs,
         ):
             # 执行路径说明：[CUDA Graph 与 Eager](../../../../docs/learn/04-model-forward-execution.md)
-            output = self._forward_raw( # 【重要】真正执行推理的地方
+            output = self._forward_raw( # NOTE 真正执行推理的地方
                 forward_batch,
                 pp_proxy_tensors,
                 reinit_attn_backend,
@@ -1799,7 +1821,7 @@ class ModelRunner:
                 # load_batch time. Move it into the prefill cuda graph runner
                 # to capture only the model.forward part.
                 with device_timer_ctx(self.device_timer, category):
-                    # 【重要】真正执行推理的地方
+                    # NOTE 真正执行推理的地方
                     ret = self.prefill_cuda_graph_runner.execute(
                         forward_batch, **kwargs
                     )

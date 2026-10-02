@@ -322,8 +322,8 @@ class TpModelWorker(BaseTpWorker):
         ps: ParallelState,
         nccl_port: int,
         is_draft_worker: bool = False,
-        req_to_token_pool: Optional[ReqToTokenPool] = None,
-        token_to_kv_pool_allocator: Optional[BaseTokenToKVPoolAllocator] = None,
+        req_to_token_pool: Optional[ReqToTokenPool] = None, # req slot -> KV index
+        token_to_kv_pool_allocator: Optional[BaseTokenToKVPoolAllocator] = None, # free KV index
         memory_pool_config: Optional[MemoryPoolConfig] = None,
         is_multi_layer_eagle: bool = False,
         context_length: Optional[int] = None,
@@ -349,9 +349,9 @@ class TpModelWorker(BaseTpWorker):
         # MTP(Multi-Token Prediction) model runners
         self.model_runner_list: List[ModelRunner] = []
 
-        # 【重要】
+        # NOTE
         self._init_model_config() # 初始化模型配置
-        self._init_model_runner() # 初始化 model runner：加载模型、多卡通信、设置kv参数
+        self._init_model_runner() # NOTE 初始化 ModelRunner：加载模型、多卡通信、设置kv参数
 
         if is_multi_layer_eagle:
             self._init_multi_layer_eagle_model_runners()
@@ -417,6 +417,8 @@ class TpModelWorker(BaseTpWorker):
         if token_to_kv_pool_allocator is not None:
             self.token_to_kv_pool_allocator = token_to_kv_pool_allocator
             self.model_runner.token_to_kv_pool_allocator = token_to_kv_pool_allocator
+        # NOTE 初始化 KV Cache 相关的显存池
+        #   创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator 三个池
         self.model_runner.alloc_memory_pool(memory_pool_config)
         for mr in self.model_runner_list[1:]:
             mr.req_to_token_pool = self.req_to_token_pool
@@ -480,12 +482,12 @@ class TpModelWorker(BaseTpWorker):
         )
 
     def _init_model_runner(self):
-        """ 【重点】初始化 ModelRunner
+        """ NOTE 初始化 ModelRunner
             加载模型、多卡通信、设置kv参数
         """
         from sglang.srt.model_executor.model_runner import ModelRunner
 
-        self._model_runner = ModelRunner(
+        self._model_runner = ModelRunner( # NOTE 初始化 ModelRunner
             model_config=self.model_config,
             mem_fraction_static=get_schedule().mem_fraction_static,
             gpu_id=self.gpu_id,

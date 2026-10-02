@@ -2786,7 +2786,7 @@ def launch_server(
     server_args: ServerArgs,
     # 创建分词管理器（TokenizerManager）的函数，默认使用标准初始化逻辑。
     init_tokenizer_manager_func: Callable = init_tokenizer_manager,
-    # 调度器（Scheduler）子进程的入口函数，负责初始化调度器并运行调度循环 【重要】设置了默认值
+    # 调度器（Scheduler）子进程的入口函数，负责初始化调度器并运行调度循环 NOTE 设置了默认值
     run_scheduler_process_func: Callable = run_scheduler_process,
     # 反分词管理器（DetokenizerManager）子进程的入口函数，负责将输出 token 解码为文本。
     run_detokenizer_process_func: Callable = run_detokenizer_process,
@@ -2801,14 +2801,14 @@ def launch_server(
     The SRT server consists of an HTTP server and an SRT engine.
 
     - HTTP server: A FastAPI server that routes requests to the engine.
-    - The engine consists of three components:【重要】执行引擎的核心组件
+    - The engine consists of three components:NOTE 执行引擎的核心组件
         1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
         2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
         3. DetokenizerManager (subprocess): Detokenizes the output tokens and sends the result back to the Tokenizer Manager.
 
     Note:
     1. The HTTP server, Engine, and TokenizerManager all run in the main process.
-    2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library. 【重要】
+    2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library. NOTE
     """
     # Launch subprocesses
     (
