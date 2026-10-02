@@ -43,7 +43,9 @@ def _async_d2h(t: torch.Tensor) -> torch.Tensor:
 
 @dataclasses.dataclass
 class GenerationBatchResult:
+    # NOTE 保存每个 token 的分数
     logits_output: Optional[LogitsProcessorOutput] = None
+    
     pp_hidden_states_proxy_tensors: Optional[PPProxyTensors] = None
     next_token_ids: Optional[
         Union[torch.Tensor, List[torch.Tensor], List[List[int]]]

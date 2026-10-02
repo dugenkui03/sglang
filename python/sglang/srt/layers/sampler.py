@@ -105,6 +105,7 @@ class Sampler(nn.Module):
         positions: torch.Tensor,
     ):
         """Run a sampler & compute logprobs and update logits_output accordingly.
+        执行采样
 
         Args:
             logits_output: The logits from the model forward
