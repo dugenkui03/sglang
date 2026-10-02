@@ -435,6 +435,7 @@ def get_available_gpu_memory(
             # memory metric instead.
             free_gpu_memory = psutil.virtual_memory().available
         else:
+            #【总要】返回闲置的内存大小，单位 byte 字节
             free_gpu_memory, _ = torch.cuda.mem_get_info(gpu_id)
 
     elif device == "xpu":
@@ -537,7 +538,7 @@ def get_available_gpu_memory(
             tensor, op=torch.distributed.ReduceOp.MIN, group=cpu_group
         )
         free_gpu_memory = tensor.item()
-
+    # 单位  GB
     return free_gpu_memory / (1 << 30)
 
 

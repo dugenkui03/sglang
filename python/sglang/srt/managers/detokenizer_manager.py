@@ -83,13 +83,13 @@ class DecodeStatus:
     # tokenID，包括两部分：
     #   1. 你数三个数 对应的输入 tokenID
     #   2. 输出的tokenID
-    decode_ids: List[int] #【重点】
+    decode_ids: List[int] # NOTE
     surr_offset: int  # 上下文窗口起点
     read_offset: int  # 新 token 起点
 
     # 没有默认值，dataclass 要求它排在有默认值的 decoded_text_chunks 前面
-    decoded_text: str # 和输出tokenID对应的文本，比如输出可能依次是： 1，然后是 12，然后是 123 #【重点】
-    decoded_text_chunks: List[str] = dataclasses.field(default_factory=list) #【重点】
+    decoded_text: str # 和输出tokenID对应的文本，比如输出可能依次是： 1，然后是 12，然后是 123 # NOTE
+    decoded_text_chunks: List[str] = dataclasses.field(default_factory=list) # NOTE
     decoded_text_len: int = dataclasses.field(init=False)
 
     # Offset that's sent to tokenizer for incremental update.
@@ -124,7 +124,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         server_args: ServerArgs,
         port_args: PortArgs,
     ):
-        # 【重要】交互参考
+        # NOTE 交互参考
         # Init inter-process communication：两个管道：
         #   Scheduler - recv_from_scheduler -> DetoenizerManager：接收gpu推理结果的tokenID
         #   DetoenizerManager - ID，send_to_tokenizer -> TokenizerManager：将tokenID解码后的结果文本给到 TokenizerManager 
@@ -177,7 +177,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                 self.vocab_size = getattr(self.tokenizer, "vocab_size", None)
 
     def init_running_status(self, server_args: ServerArgs):
-        # 【重要】初始化一个有序、有容量限制的字典，保存 请求 id 到结果的映射
+        # NOTE 初始化一个有序、有容量限制的字典，保存 请求 id 到结果的映射
         self.decode_status = LimitedCapacityDict(capacity=DETOKENIZER_MAX_STATES)
 
         self.disable_tokenizer_batch_decode = server_args.disable_tokenizer_batch_decode
@@ -198,7 +198,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         self._request_dispatcher = TypeBasedDispatcher(
             [
                 (BatchEmbeddingOutput, self.handle_batch_embedding_out),
-                (BatchTokenIDOutput, self.handle_batch_token_id_out),  # 【重点】生成任务走这里
+                (BatchTokenIDOutput, self.handle_batch_token_id_out),  # NOTE 生成任务走这里
                 (FreezeGCReq, self.handle_freeze_gc_req),
                 (ConfigureLoggingReq, self.handle_configure_logging_req),
             ]
@@ -206,13 +206,13 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
 
     def event_loop(self):
         """The event loop that handles requests
-        【重点】从 scheduler 获取 tokenID 任务以及将结果发送给 TokenizerManager 都在这个类方法中
+        NOTE 从 scheduler 获取 tokenID 任务以及将结果发送给 TokenizerManager 都在这个类方法中
             单 tokenizer worker 模式的主循环；
             多 worker 模式走 multi_http_worker_event_loop
         """
         while True:
             # step 1
-            # 【重点】阻塞获取 Scheduler 的消息
+            # NOTE 阻塞获取 Scheduler 的消息
             with self.soft_watchdog.disable():
                 recv_obj = sock_recv(self.recv_from_scheduler) 
            
@@ -316,13 +316,13 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                 for ids, skip in zip(ids_list, skip_list)
             ]
         else:
-            # fast path: all rows share the same (skip, space) flags. 【重点】走这里
+            # fast path: all rows share the same (skip, space) flags. NOTE 走这里
             first_skip, first_space = skip_list[0], space_list[0]
             if all(
                 s == first_skip and sp == first_space
                 for s, sp in zip(skip_list, space_list)
             ):
-                # 【重要】【重要】【重要】结果 tokenID -> 输出文本
+                # NOTE NOTE NOTE 结果 tokenID -> 输出文本
                 logger.info(
                     f"[detok-debug] 分支：fast，选项相同，一次 batch_decode（skip={first_skip}, space={first_space}）"
                 )
@@ -377,7 +377,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                     surr_offset=0,
                     read_offset=recv_obj.read_offsets[i],
                 )
-                self.decode_status[rid] = s # 【重要】创建 rid 到结果的映射
+                self.decode_status[rid] = s # NOTE 创建 rid 到结果的映射
             else:
                 s = self.decode_status[rid]
                 s.decode_ids.extend( # 已有该 rid 的 DecodeStatus：把本次新 token ID 追加到 decode_ids 末尾，后面基于它做增量解码
@@ -396,7 +396,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         # Decode token ids to strings
         # 【Step 2.2】整批解码 surr_ids 和 read_ids
         if not self.disable_tokenizer_batch_decode:
-            # 【重要】默认走 batch
+            # NOTE 默认走 batch
             surr_texts = self._grouped_batch_decode(
                 surr_ids,
                 recv_obj.skip_special_tokens,
@@ -514,10 +514,10 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                 trim_matched_stop=self.trim_matched_stop,
             )
         # If handling idle batch, set output_strs to [].
-        # 【重点】增量解码，见 _decode_batch_token_id_output
+        # NOTE 增量解码，见 _decode_batch_token_id_output
         output_strs = (
             self._decode_batch_token_id_output(recv_obj)
-            # 【重要】
+            # NOTE
             #   rid 是request id、请求唯一标识
             #   list 是因为兼容批处理
             if len(recv_obj.rids) > 0

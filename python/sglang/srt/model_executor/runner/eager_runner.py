@@ -220,11 +220,11 @@ class EagerRunner(BaseRunner):
             forward_batch.forward_mode = ForwardMode.EXTEND
             mode = ForwardMode.EXTEND
         if mode.is_decode():
-            return self._execute_decode(forward_batch, pp_proxy_tensors) # 【重要】Decode
+            return self._execute_decode(forward_batch, pp_proxy_tensors) # NOTE Decode
         if mode.is_idle():
             return self._execute_idle(forward_batch, pp_proxy_tensors)
         if mode.is_extend(include_draft_extend_v2=True):
-            return self._execute_extend(forward_batch, pp_proxy_tensors) # 【重要】PreFill
+            return self._execute_extend(forward_batch, pp_proxy_tensors) # NOTE PreFill
         raise ValueError(f"Invalid forward mode for eager runner: {mode}")
 
     def _resolve_decode_pdmux(

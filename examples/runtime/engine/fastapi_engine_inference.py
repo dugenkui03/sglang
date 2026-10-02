@@ -29,7 +29,7 @@ async def sglang_engine_lifespan(app: FastAPI):
     # Initialize the SGLang engine when the server starts
     # Adjust model_path and other engine arguments as needed
     print("Loading SGLang engine...")
-    # 【重点】初始化 sglang 的 Engine
+    # NOTE 初始化 sglang 的 Engine
     engine = sgl.Engine(
         model_path=os.getenv("MODEL_PATH"), tp_size=int(os.getenv("TP_SIZE"))
     )

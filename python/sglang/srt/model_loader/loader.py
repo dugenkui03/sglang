@@ -334,7 +334,8 @@ class BaseModelLoader(ABC):
 
 
 class DefaultModelLoader(BaseModelLoader):
-    """Model loader that can load different file types from disk."""
+    """Model loader that can load different file types from disk.
+    """
 
     # default number of thread when enable multithread weight loading
     DEFAULT_NUM_THREADS = 8

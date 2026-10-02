@@ -226,7 +226,7 @@ class ReqState:
     【重点字段】out_list、finished、event、obj、text / text_chunks；其余是性能指标和流式输出的偏移
     """
 
-    out_list: List[Dict[Any, Any]]  # 【重点】收到的输出结果，流式时会分多次追加进来
+    out_list: List[Dict[Any, Any]]  # NOTE 收到的输出结果，流式时会分多次追加进来
     finished: bool  # 是否已经生成完毕
     event: asyncio.Event  # 结果到达时 set()，唤醒正在等待的 _wait_one_response
     obj: Union[GenerateReqInput, EmbeddingReqInput]  # 原始请求对象，比如 GenerateReqInput
@@ -446,17 +446,17 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
         # Initialize tokenizer and multimodalprocessor
         # 【核心加载分词器 self.tokenizer；多模态模型还会加载图像等输入的预处理器
-        # 【重点】分词靠这里
+        # NOTE 分词靠这里
         self.init_tokenizer_and_processor()
 
         # Init inter-process communication
         # 【核心】创建 zmq socket：send_to_scheduler 发请求给 Scheduler，recv_from_detokenizer 收 Detokenizer 回的结果
-        # 【重点】发送任务、接收结果
+        # NOTE 发送任务、接收结果
         self.init_ipc_channels(port_args)
 
         # Init running status
         # 【核心】运行状态：请求状态表 rid_to_state（请求 ID → ReqState，等结果时靠它），以及事件循环、服务健康状态
-        # 【重点】协同 ipc 发送任务和接收结果
+        # NOTE 协同 ipc 发送任务和接收结果
         self.init_running_status()
 
         # Init logging and dumping
@@ -537,7 +537,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 self.tokenizer = self.processor = None
             else:
                 self.processor = _processor
-                # 【重要】从 processor 中获取 tokenizer
+                # NOTE 从 processor 中获取 tokenizer
                 #       如果 processor 是 tokenizer 类型，直接返回；否则返回 processor.tokenizer
                 self.tokenizer = get_tokenizer_from_processor(self.processor)
                 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -548,7 +548,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             if get_serving().skip_tokenizer_init:
                 self.tokenizer = None
             else:
-                # 【重点】初始化 tokenizer
+                # NOTE 初始化 tokenizer
                 self.tokenizer = get_tokenizer(
                     # 这里的路径仍然是 Qwen/Qwen2.5-0.5B-Instruct 整个仓库
                     # 后续 AutoTokenizer.from_pretrained 自动获取分词起相关配置
@@ -593,7 +593,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
          IPC：Inter-Process Communication 进程间通信
         """
         context = zmq.asyncio.Context(2)  # 异步版 Context，创建出的 socket 可以 await 收发
-        # 【重点】接收结果的管道：单 worker、多 worker 两种模式都会创建
+        # NOTE 接收结果的管道：单 worker、多 worker 两种模式都会创建
         # Detokenizer 进程                                                              TokenizerManager 进程
         #      PUSH socket  ---- 生成结果(共用通信地址 tokenizer_ipc_name) ---->  PULL socket（后台 handle_loop 一直在收）
         self.recv_from_detokenizer = get_zmq_socket(
@@ -637,7 +637,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             # stamp：字面意思是“盖章”，这里就是打标记、写入字段
             # TODO：没理解啥意思？
             stamp_http_worker_ipc(obj, self.tokenizer_ipc_name)
-        #【重要】
+        # NOTE
         sock_send(
             self.send_to_scheduler, # 通信 socket
             obj # token化的对象
@@ -650,7 +650,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def init_running_status(self):
         # Request states
-        # 【重点】rid_to_state 保存请求 ID 及其对应的请求状态（包括结果）
+        # NOTE rid_to_state 保存请求 ID 及其对应的请求状态（包括结果）
         #   str：请求 ID（rid，字符串），每个请求唯一
         #   ReqState（输出结果、是否完成、唤醒等待方的 event 等）
         self.rid_to_state: Dict[str, ReqState] = {}
@@ -916,15 +916,15 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
                 # Tokenize the request and send it to the scheduler
                 if obj.is_single:
-                    # 【重要】5. 构造 TokenizedGenerateReqInput 对象
+                    # NOTE 5. 构造 TokenizedGenerateReqInput 对象
                     tokenized_obj = await self._tokenize_one_request(obj)
                     state = self.rid_to_state[obj.rid]
                     if obj.return_prompt_token_ids:
                         # 如果调用方要求返回提示词 token IDs，则保存到请求状态中。
                         state.prompt_token_ids = list(tokenized_obj.input_ids)
-                    # 【重要】将处理后的请求发送给 Scheduler，交由其安排推理。
+                    # NOTE 将处理后的请求发送给 Scheduler，交由其安排推理。
                     self._send_one_request(tokenized_obj)
-                    # 【重要】6. 等待并取得该请求的输出。
+                    # NOTE 6. 等待并取得该请求的输出。
                     async for response in self._wait_one_response(obj, request):
                         # 7. 将本次取得的结果交给调用方。
                         yield response
@@ -1037,7 +1037,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             logger.debug(f"Using regular tokenizer for {len(tokenizer_input)} inputs")
 
             if not is_cross_encoder and (not getattr(self.tokenizer, "is_fast", False)):
-                # 【重要】self.tokenizer.encode(t) 是使用 tokenizer 对输入进行token化
+                # NOTE self.tokenizer.encode(t) 是使用 tokenizer 对输入进行token化
                 input_ids = [self.tokenizer.encode(t) for t in tokenizer_input]
                 token_type_ids = None
             else:
@@ -1071,7 +1071,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     async def _tokenize_one_request(
         self,
-        obj: Union[GenerateReqInput, EmbeddingReqInput], # 【重要】
+        obj: Union[GenerateReqInput, EmbeddingReqInput], # NOTE
     ):
         """Tokenize one request."""
 
@@ -1107,7 +1107,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 # Use empty placeholder - multimodal processor will override
                 input_ids = []
             else:
-                # 【重要】6. 对文本进行分词
+                # NOTE 6. 对文本进行分词
                 input_ids, token_type_ids = await self._tokenize_texts(
                     input_text,
                     is_cross_encoder_request # 是否为交叉编码器请求；普通文本生成时为 False，但是不是所有 embedding 请求都为 True
@@ -1505,7 +1505,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
         # Build return object
         if isinstance(obj, GenerateReqInput):
-            # 【重要】
+            # NOTE
             session_params = (
                 SessionParams(**obj.session_params) if obj.session_params else None
             )
@@ -1712,7 +1712,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             tokenized_obj = wrap_shm_features(tokenized_obj)
             time_stats = tokenized_obj.time_stats
             tokenized_obj.wrap_pickle_fields()
-            #【重要】将分词后的请求发送给 Scheduler，由它负责调度后续模型推理。
+            # NOTE 将分词后的请求发送给 Scheduler，由它负责调度后续模型推理。
             self._dispatch_to_scheduler(tokenized_obj)
             dispatched = True
             tokenized_obj.time_stats = time_stats
@@ -3593,7 +3593,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 raise ValueError(f"Duplicate request ID detected: {rid}")
             time_stats = APIServerReqTimeStats(disagg_mode=self.disaggregation_mode)
             state = ReqState([], False, asyncio.Event(), sub_obj, time_stats)
-            self.rid_to_state[rid] = state # 【重要】 一次请求对应一个 ReqState
+            self.rid_to_state[rid] = state # NOTE 一次请求对应一个 ReqState
             if self.enable_trace:
                 time_stats.init_trace_ctx(rid, bootstrap_room, external_trace_header)
             time_stats.set_created_time(created_time)

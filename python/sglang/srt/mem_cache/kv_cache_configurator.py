@@ -270,17 +270,23 @@ class KVCacheConfigurator:
         return quant_method
 
     def configure(self, *, pre_model_load_memory: int) -> KVCacheConfigResult:
-        """Apply a resolved MemoryPoolConfig and initialize pools."""
+        """Apply a resolved MemoryPoolConfig and initialize pools.
+
+            NOTE：创建 KV Cache 相关显存池：req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator
+        """
         if not self.spec_algorithm.is_none() and self.is_draft_worker:
             assert (
                 self.memory_pool_config is not None
             ), "Draft worker requires memory_pool_config"
             config = self.memory_pool_config
         else:
+            # NOTE 
             config = self._resolve_memory_pool_config(pre_model_load_memory)
 
+        # NOTE 
         sizes = self._derive_pool_sizes(config=config)
 
+        # NOTE: 真正创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator
         pools = self._init_pools(
             sizes=sizes,
             req_to_token_pool=self.req_to_token_pool,

@@ -539,13 +539,13 @@ class Scheduler(
         maybe_revert_pr_fix()
 
         # Launch a model worker and draft model worker if using speculative decoding
-        # 【重点】初始化 TpModelWorker
+        # NOTE 初始化 TpModelWorker
         self.init_model_worker()
 
         if (t := envs.SGLANG_TEST_STUCK_SCHEDULER_INIT.get()) > 0:
             time.sleep(t)
 
-        # Init cache and memory pool
+        # Init tree_cache and memory pool
         result = kv_cache_builder.build_kv_cache(
             server_args=self.server_args,
             model_config=self.model_config,
@@ -577,8 +577,9 @@ class Scheduler(
         self.sliding_window_size = result.sliding_window_size
         self.full_tokens_per_layer = result.full_tokens_per_layer
         self.swa_tokens_per_layer = result.swa_tokens_per_layer
-        self.req_to_token_pool = result.req_to_token_pool
-        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator
+        
+        self.req_to_token_pool = result.req_to_token_pool # slot ->  KV index
+        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator # 空闲的 KV index
         self.disable_radix_cache = result.disable_radix_cache
         self.tree_cache = result.tree_cache
         self.emit_metrics_constants()
@@ -663,7 +664,7 @@ class Scheduler(
 
         self.maybe_init_scripted_scheduler_hook()
 
-        # 【重要】初始化 SchedulerRequestReceiver，用来接收 TokenizerManager 的请求
+        # NOTE 初始化 SchedulerRequestReceiver，用来接收 TokenizerManager 的请求
         self.init_request_receiver()
 
         self.init_dp_attn_adapter()
@@ -938,6 +939,11 @@ class Scheduler(
         self.require_mlp_sync = require_mlp_sync()
 
     def init_tp_model_worker(self):
+        """ 初始化 TpModelWorker
+         1. 初始化 ModelRunner：
+              下载和加载模型
+              初始化多卡通信：支持各种并行计算策略
+        """
         worker_kwargs = dict(
             server_args=self.server_args,
             gpu_id=self.ps.gpu_id,
@@ -947,12 +953,13 @@ class Scheduler(
 
         # FIXME: move tp worker's init logic outside of the scheduler.
         if use_mlx():
+            # Apple M芯片链路
             from sglang.srt.hardware_backend.mlx.tp_worker import MlxTpModelWorker
 
             self.tp_worker = MlxTpModelWorker(**worker_kwargs)
         else:
             from sglang.srt.managers.tp_worker import TpModelWorker
-            # 【重点】 初始化 TpModelWorker
+            # NOTE 初始化 TpModelWorker
             self.tp_worker = TpModelWorker(**worker_kwargs)
 
     def maybe_init_draft_worker(self):
@@ -989,7 +996,16 @@ class Scheduler(
             self.external_corpus_manager = None
 
     def init_target_memory_pool(self):
-        """Allocate target KV cache pools if they have not been allocated yet."""
+        """Allocate target KV cache pools if they have not been allocated yet.
+        
+        初始化 KV Cache 相关GPU显存池，核心链路：
+            Scheduler.__init__()
+            -> init_model_worker()
+            -> init_memory_pools()
+            -> init_target_memory_pool() // 当前方法
+            -> tp_worker.alloc_memory_pool()
+            -> model_runner.alloc_memory_pool()
+        """
         if (
             self.tp_worker.model_runner.memory_pool_config is not None
             and self.tp_worker.model_runner.req_to_token_pool is not None
@@ -1000,16 +1016,20 @@ class Scheduler(
         if self.draft_worker is not None:
             preloaded_weights_bytes += self.draft_worker.preloaded_weights_bytes
         self.tp_worker.model_runner.account_preloaded_weights(preloaded_weights_bytes)
-        self.tp_worker.alloc_memory_pool()
+        # NOTE
+        self.tp_worker.alloc_memory_pool() 
 
     def init_memory_pools(self):
-        """Allocate KV cache pools for target and draft workers."""
+        """Allocate KV cache pools for target and draft workers.
+         NOTE 初始化 KV Cache 相关的显存池
+        """
         self.init_target_memory_pool()
         # Lands the retraction backend on the disagg bag before the draft
         # worker's HiCache plan reads it.
         kv_cache_builder.resolve_decode_retraction_backup(tp_worker=self.tp_worker)
         if self.draft_worker is not None:
             pool, allocator = self.tp_worker.get_memory_pool()
+            # NOTE 初始化 KV Cache 相关的显存池
             self.draft_worker.alloc_memory_pool(
                 memory_pool_config=self.tp_worker.model_runner.memory_pool_config,
                 req_to_token_pool=pool,
@@ -1024,27 +1044,35 @@ class Scheduler(
             self.draft_worker.init_attention_backends()
 
     def init_all_cuda_graphs(self):
-        """Capture cuda graphs for all workers."""
+        """Capture cuda graphs for all workers.
+        支持 CUDA graph 加速策略
+        """
         self.tp_worker.init_cuda_graphs()
         if self.draft_worker is not None:
             self.draft_worker.init_cuda_graphs()
 
     def init_model_worker(self):
         """ 初始化 TpModelWorker
+            1. 初始化 TpModelWorker
+                1.1 初始化 ModelRunner：
+                    下载和加载模型
+                    初始化多卡通信：支持各种并行计算策略
         """
         # Load model weights.
-        self.init_tp_model_worker()
+        # NOTE 初始化 TpModelWorker
+        self.init_tp_model_worker() 
         if self.server_args.is_startup_weight_load_overlap:
             self.tp_worker.start_startup_weight_load()
         self.maybe_init_draft_worker()
 
         # Prepare KV cache pools for all workers
         tic = time.perf_counter()
+        # NOTE 初始化 KV Cache 相关的配置
         self.init_memory_pools()
         self.kv_cache_allocation_time = time.perf_counter() - tic
 
         self.init_all_attention_backends()
-        self.init_all_cuda_graphs()
+        self.init_all_cuda_graphs() # NOTE 支持 cuda graph 加速策略的初始化
 
         model_runner = self.tp_worker.model_runner
         if model_runner.token_to_kv_pool.post_capture_active:
@@ -1102,6 +1130,8 @@ class Scheduler(
                 ),
             )
 
+        # NOTE 难点
+        # 各种并行方式对应的通信组（进程组），用与支持 GPU 间数据交换
         self.tp_group = get_tp_group()
         self.tp_cpu_group = self.tp_group.cpu_group
         self.attn_tp_group = get_parallel().attn_tp_group
@@ -1180,7 +1210,7 @@ class Scheduler(
         # Set by the ShutdownReq handler to break the event loop for graceful shutdown.
         self.gracefully_exit = False
 
-        #【重点】
+        # NOTE
         # Scheduler 接收到任务后就会放到这个队列，这个队列的任务的存取是核心链路
         self.waiting_queue: List[Req] = []
 
@@ -1601,7 +1631,7 @@ class Scheduler(
         # 调用到了 TypeBasedDispatcher.__init__() 方法
         self._request_dispatcher = TypeBasedDispatcher(
             [
-                (TokenizedGenerateReqInput, self.handle_generate_request), # 【重要】每个类型的输入及其对应的 handler
+                (TokenizedGenerateReqInput, self.handle_generate_request), # NOTE 每个类型的输入及其对应的 handler
                 (TokenizedEmbeddingReqInput, self.handle_embedding_request),
                 (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
@@ -1776,7 +1806,7 @@ class Scheduler(
         # on the previous forward's read of the unified memory pool.
         self._war_barrier_enabled = is_cuda() or envs.SGLANG_ENABLE_WAR_BARRIER.get()
         with self.device_module.StreamContext(self.schedule_stream):
-            #【重要】，走到核心方法 event_loop_overlap，实现 收请求 → 组批 → 执行 → 回包
+            # NOTE ，走到核心方法 event_loop_overlap，实现 收请求 → 组批 → 执行 → 回包
             dispatch_event_loop(self) 
 
     def _apply_war_barrier(self):
@@ -1799,7 +1829,7 @@ class Scheduler(
             if self.gracefully_exit:
                 break
 
-            #【重要】
+            # NOTE
             # 从 TokenizerManager 接收推理消息并发到任务队列
             # Receive requests
             recv_reqs = self.request_receiver.recv_requests()
@@ -1807,7 +1837,7 @@ class Scheduler(
             if self._engine_paused:
                 continue
 
-            #【重要】
+            # NOTE
             # 从任务队列获取消息进行处理
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
@@ -1815,7 +1845,7 @@ class Scheduler(
             )
             # 更新调度器维护的运行批，供后续调度使用
             self.running_batch = plan.running_batch 
-            #【重要】取出本轮待执行的批次，可能为 None
+            # NOTE 取出本轮待执行的批次，可能为 None
             batch = plan.batch_to_run 
             self.cur_batch_for_debug = batch
 
@@ -1861,7 +1891,7 @@ class Scheduler(
 
             # 【Step 1】收请求
             # Receive requests
-            # 【重要】recv_requests 接收的是 TokenizerManager 刚才发送的请求参数：token、采样参数等。
+            # NOTE recv_requests 接收的是 TokenizerManager 刚才发送的请求参数：token、采样参数等。
             #     recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
             recv_reqs = self.request_receiver.recv_requests()
             self.process_input_requests(recv_reqs)
@@ -1987,7 +2017,7 @@ class Scheduler(
             for recv_req in recv_reqs:
                 self._materialize_cuda_vmm_inputs(recv_req)
 
-        #【重要】遍历收到的请求
+        # NOTE 遍历收到的请求
         for recv_req in recv_reqs: 
             # Skip health check when server is busy — ongoing requests already carry health info.
             if is_health_check_generate_req(recv_req) and not self.is_fully_idle(
@@ -1998,7 +2028,7 @@ class Scheduler(
                 )
                 continue
 
-            #【重要】
+            # NOTE
             # 将消息给到对应的处理方法，主要是将任务入队
             # 任务队列中的消息被消费后会进行 prefill、decode、KV Cache 相关的逻辑
             output = self._request_dispatcher(recv_req)
@@ -2558,7 +2588,7 @@ class Scheduler(
 
             # beam 指 Beam Search，中文叫“束搜索”
             is_beam = BeamCoordinator.request_beam_width(recv_req) > 1
-            # 【重点】把 TokenizerManager 发来的请求转成 Scheduler 内部的 Req 对象
+            # NOTE 把 TokenizerManager 发来的请求转成 Scheduler 内部的 Req 对象
             req = Req(
                 recv_req.rid,
                 recv_req.input_text,
@@ -2856,7 +2886,7 @@ class Scheduler(
 
         added_to_grammar_queue = self.grammar_manager.process_req_with_grammar(req)
         if not added_to_grammar_queue:
-            # 【重要】推理任务入对
+            # NOTE 推理任务入对
             self._add_request_to_queue(req)
 
     def handle_batch_generate_request(
@@ -2925,7 +2955,7 @@ class Scheduler(
             if self._abort_on_queued_limit(req):
                 return
             self._prefetch_kvcache(req)
-            # 【重点】新请求进入等待队列，下一轮组批时从这里挑
+            # NOTE 新请求进入等待队列，下一轮组批时从这里挑
             self.waiting_queue.append(req)
             req.time_stats.set_wait_queue_entry_time()
         # PD 分离由 P/D 实例接力完成请求，流程说明见 docs/learn/03-pd-disaggregation.md。
@@ -3220,7 +3250,7 @@ class Scheduler(
     def get_next_batch_to_run(
         self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
     ) -> NextBatchPlan:
-        """【重要】决定本轮执行哪个批次，模型执行在 run_batch；详见 [组批](scheduler.py.get_next_batch_to_run.md)。"""
+        """NOTE 决定本轮执行哪个批次，模型执行在 run_batch；详见 [组批](scheduler.py.get_next_batch_to_run.md)。"""
         self.process_pending_chunked_abort()
 
         if self.enable_fpm:
@@ -3584,7 +3614,7 @@ class Scheduler(
                     req.swa_host_hit_length = (
                         self.tree_cache.staged_prefetch_swa_tokens(req.rid)
                     )
-            # 【重点】逐个尝试把请求加进本批，预算不够就停
+            # NOTE 逐个尝试把请求加进本批，预算不够就停
             res = adder.add_one_req(
                 req,
                 has_chunked_req=(self.chunked_req is not None),
@@ -3965,7 +3995,7 @@ class Scheduler(
                                 )
 
                         # FIXME: pp is not compatible with overlap
-                        #【重要】
+                        # NOTE
                         # forward 的核心方法，进行推理并获取 logits、也就是结果位置每个token的分数
                         batch_result = self.model_worker.forward_batch_generation(
                             batch, 
@@ -5477,7 +5507,7 @@ def run_scheduler_process(
     # Create a scheduler and run the event loop
     scheduler = None
     try:
-        #【重要】Engine 创建 Scheduler 对象路径：
+        # NOTE Engine 创建 Scheduler 对象路径：
         # Engine._launch_subprocesses -> Engine._launch_subprocesses()-> Scheduler.run_scheduler_process
         scheduler = Scheduler(
             server_args,
