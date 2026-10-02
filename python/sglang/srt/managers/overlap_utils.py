@@ -107,7 +107,7 @@ def resolve_forward_inputs(batch: ScheduleBatch, future_map: FutureMap) -> None:
         batch.prefill_input_ids_cpu = None
         batch.mix_running_indices = None
     elif batch.input_ids is None and future_map.spec_algo.is_none():
-        # NOTE 读取 output_tokens_buf数组下标对应的tokenID
+        # NOTE 读取 output_tokens_buf 数组下标对应的tokenID
         batch.input_ids = future_map.output_tokens_buf[batch.req_pool_indices]
         if _DEBUG_ASSERT:
             _assert_nonneg_and_invalidate(

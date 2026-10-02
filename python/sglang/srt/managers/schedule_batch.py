@@ -2058,8 +2058,8 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
     # === Global config and shared resources (engine-lifetime; identical across batches) ===
     # Memory pool and cache
-    req_to_token_pool: ReqToTokenPool = None
-    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None
+    req_to_token_pool: ReqToTokenPool = None # tip
+    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None # tip
     tree_cache: BasePrefixCache = None
 
     # Batch configs

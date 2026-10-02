@@ -4,6 +4,39 @@
 
 ## 1. 在核心链路中的位置
 
+序号按发生顺序排列：①–⑬ 都是一次请求的处理链路（实线箭头），本文的两个方法不涉及启动阶段；双向连线的标签上行是去程、下行是回程。黄色粗框为本文讲的 `run_batch` 和 `process_batch_result`。overlap 下 ⑩ 晚一轮发生：本批在 ⑨ 入队后，要等下一轮循环才被取出处理。
+
+```mermaid
+flowchart LR
+    H["HTTP 接口"]
+    subgraph Components["由 Engine._launch_subprocesses() 启动的三个组件"]
+        T["TokenizerManager<br/>分词、提交请求、接收结果"]
+        subgraph S["Scheduler：event_loop_overlap 每轮四步"]
+            RQ["Step 1 收请求<br/>recv_requests"]
+            GB["Step 2 组批<br/>get_next_batch_to_run"]
+            FM[("FutureMap<br/>按槽位存上一轮的 token")]
+            RB["Step 3 执行<br/>run_batch()"]
+            Q[("result_queue")]
+            PR["Step 4 处理结果<br/>process_batch_result()"]
+        end
+        D["DetokenizerManager<br/>生成任务：Token 转文本<br/>嵌入任务：直接转发向量"]
+        T -->|"② 提交请求"| RQ
+        RQ -->|"③ 进入 waiting_queue"| GB
+        GB -->|"④ ScheduleBatch"| RB
+        FM <-->|"⑤ 取上一轮 token<br/>⑧ 写回新 token"| RB
+        RB -->|"⑨ 入队，不等 GPU 算完"| Q
+        Q -->|"⑩ 下一轮取出"| PR
+        PR -->|"⑪ BatchTokenIDOutput"| D
+        D -->|"⑫ 回传结果"| T
+    end
+    H <-->|"① 发起请求<br/>⑬ 返回结果"| T
+    RB <-->|"⑥ forward_batch_generation<br/>⑦ GenerationBatchResult"| M["TpModelWorker / ModelRunner<br/>调用模型执行 GPU 计算"]
+    style Components fill:none,stroke:#5684c4,stroke-width:2px,stroke-dasharray:6 4
+    style M fill:#e8f5e9,stroke:#589765
+    classDef cur fill:#fff0c2,stroke:#b7791f,stroke-width:3px
+    class RB,PR cur
+```
+
 - Scheduler 主循环 `event_loop_overlap` 每轮四步：Step 1 收请求 → Step 2 组批 → Step 3 执行 → Step 4 处理结果；本文讲后两步，全貌见[核心组件四：Scheduler](../../../../user_guide_zh/核心组件四：Scheduler.md)。
 - Step 3 执行：[`run_batch`](scheduler.py#L3870) 把组好的 `ScheduleBatch` 交给 TpModelWorker，做一次前向(Forward)并采样(Sampling)，得到 `GenerationBatchResult`。
 - Step 4 处理结果：[`process_batch_result`](scheduler.py#L4212) 更新每个请求、判断是否结束，把新 token 打包成 `BatchTokenIDOutput`，发给下游的[核心组件三：DetokenizerManager](../../../../user_guide_zh/核心组件三：DetokenizerManager.md)。

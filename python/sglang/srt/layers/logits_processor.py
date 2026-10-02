@@ -98,7 +98,7 @@ def autotune_dummy_run_mode(*, run_lm_head: bool):
 @dataclasses.dataclass
 class LogitsProcessorOutput:
     ## Part 1: This part will be assigned in python/sglang/srt/layers/logits_processor.py::LogitsProcessor
-    # The logits of the next tokens.       shape: [#seq, vocab_size]
+    # The logits of the next tokens.       shape: [#seq, vocab_size] NOTE 保存了结果token、每个token的分数
     # Can be None for certain prefill-only requests (e.g., multi-item scoring) that don't need next token generation
     next_token_logits: Optional[torch.Tensor]
     # Used by speculative decoding (EAGLE)
@@ -755,8 +755,10 @@ class LogitsProcessor(nn.Module):
                     hidden_states.bfloat16(), lm_head.weight.T.bfloat16()
                 )
             else:
+                # NOTE 
                 logits = torch.matmul(
-                    hidden_states.to(lm_head.weight.dtype), lm_head.weight.T
+                    hidden_states.to(lm_head.weight.dtype), 
+                    lm_head.weight.T
                 )
         else:
             # GGUF models
