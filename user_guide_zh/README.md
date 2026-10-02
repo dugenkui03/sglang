@@ -13,6 +13,12 @@
 ## 核心概念(Core Concepts)
 
 - [核心概念一：SGLang中的并行策略](核心概念一：SGLang中的并行策略.md)：TP、PP、DP、EP、CP 五种基础策略及细分变体，卡怎么分，rank 坐标与请求分发。
+- [核心概念二：CPU 调度与 GPU 执行（CUDA Stream 与 Event）](<核心概念二：CPU 调度与 GPU 执行（CUDA Stream 与 Event）.md>)：三条流如何分工，event 的两种状态和等待方式，以及 overlap 调度如何靠它们并行。
+- [核心概念三：显存管理（槽位、KV Cache 与 FutureMap）](<核心概念三：显存管理（槽位、KV Cache 与 FutureMap）.md>)：槽位、req_to_token 与 KV 池的映射，KV 编号何时分配、K/V 何时写入和读取，FutureMap 如何按槽位把 token 交给下一轮。
+
+## 基础知识(Fundamentals)
+
+- [基础知识：ZeroMQ 进程间通信](<基础知识：ZeroMQ 进程间通信.md>)：PUSH/PULL socket、bind 与 connect，以及进程之间如何收发消息。
 
 ## 1. 服务与调优(Serving and Tuning)
 
