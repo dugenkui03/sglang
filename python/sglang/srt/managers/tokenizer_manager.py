@@ -640,11 +640,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def _dispatch_to_scheduler(self, obj: Any) -> None:
         if self.tokenizer_ipc_name is not None:
-            # Inter-Process Communication：进程间通信；ipc_name 是通信地址
-            # stamp：字面意思是“盖章”，这里就是打标记、写入字段
-            # TODO：没理解啥意思？
+            # Inter-Process Communication
             stamp_http_worker_ipc(obj, self.tokenizer_ipc_name)
-        # NOTE
+        # NOTE tokenizer_manager -req_token->Scheduler
         sock_send(
             self.send_to_scheduler, # 通信 socket
             obj # token化的对象

@@ -2051,7 +2051,11 @@ def _compute_chunked_req_next_prompt_token(
 
 @dataclasses.dataclass
 class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
-    """Store all information of a batch on the scheduler."""
+    """Store all information of a batch on the scheduler.
+
+       NOTE 保存某一批次任务的所有的信息
+       分析文档：schedule_batch.py.ScheduleBatch.md（同目录）
+    """
 
     # === Core: request list (ForwardBatch derives lora_ids / rids / grammars / positions from it) ===
     reqs: List[Req]
@@ -3537,7 +3541,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
 
 class NextBatchPlan(msgspec.Struct):
-    """下一批次的调度方案
+    """批任务
     """
     # 本轮准备执行的批次
     batch_to_run: Optional[ScheduleBatch]

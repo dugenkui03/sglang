@@ -1864,10 +1864,17 @@ class Scheduler(
             if envs.SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_BUSY.get():
                 self.invariant_checker.self_check_during_busy()
 
-    @DynamicGradMode()  # 作用是让整个主循环运行时关闭梯度计算
+    @DynamicGradMode()  # tip 让整个主循环运行时关闭梯度计算
     def event_loop_overlap(self):
         """A scheduler loop that overlaps the CPU processing and GPU computation.
             - overlaps a and b：让 a 和 b 同时进行
+
+            1. RequestReceiver.recv_request()：接收并广播 TokenizerManager的请求
+            2. 任务入队（即加入到 waiting_queue)， waiting_queue 的作用：
+                2.1 支持 批处理：任务在 waiting_queue 中攒着，组批后交给 GPU，批处理比单个处理 gpu 资源利用更高
+                2.2 槽位或者 KV 编号不够用的时候，请求在 waiting_queue 中排队
+                2.3 从 waiting_queue中选择组批的请求的时候也可以按照指定优先级处理
+
         """
 
         # Deque：双端队列，两端都能添加、取出元素。这里用来暂存各个 batch 及其执行结果。
@@ -1886,23 +1893,35 @@ class Scheduler(
             # 处理这组结果 【TODO】待分析
             self.process_batch_result(tmp_batch, tmp_result)
 
-        while True:
+        while True: # tip 后续代码的 next batch 啥的，每一个batch都是只 while true 执行了一轮
             if self.gracefully_exit:
                 break
 
-            # 【Step 1】收请求
+            # NOTE step 1
             # Receive requests
-            # NOTE recv_requests 接收的是 TokenizerManager 刚才发送的请求参数：token、采样参数等。
-            #     recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
+            #   recv_requests：1）使用 tp_rank=0 的节点收到请求；2）广播给其他 tp_rank 的节点
+            # tip recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
             recv_reqs = self.request_receiver.recv_requests()
+            # NOTE step 2：
+            #   任务入队、即加入到 waiting queue
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
                 continue
 
-            # 【Step 2】组批
+            # NOTE step 3:
+            # 组批进行处理：gpu利用率、调度优先级
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
-                running_batch=self.running_batch, last_batch=self.last_batch
+                running_batch=self.running_batch, # tips 标识请求集合，比如 今天天气 -> 阴天
+                last_batch=self.last_batch # tips 标识上一轮跑的什么操作，比如 prefill(今天天气) 或者 decode(阴)
+                # 示例：只有请求 A「今天天气」，依次输出「阴」「天」，最后是 EOS（overlap 模式）
+                # 
+                # | 轮次    | 进入时 running_batch　　| 进入时 last_batch　 | 本轮执行（GPU）          | 本轮处理上一轮结果（CPU）  |
+                # | N　　   | 空　　　　　　　         | None　　　　        | prefill(今天天气) -> 阴　| 无　　　　　　　　　　     |
+                # | N+1　　 | 空，组批时并入 A　       | prefill(今天天气)   | decode(阴) -> 天　　　　 | 追加「阴」　　　　　　     |
+                # | N+2　　 | {A}　　　　　　　　      | decode(阴)　　　    | decode(天) -> EOS　　　　| 追加「天」　　　　　　     |
+                # | N+3　　 | {A}　　　　　　　　      | decode(天)　　　    | decode(EOS)，多算一步　  | 追加 EOS，判定结束　　　　 |
+                # | N+4　　 | {A}，组批时移出变空      | decode(EOS)　　　　 | 无　　　　　             | 跳过已结束请求的结果　     |
             )
             self.running_batch = plan.running_batch
             batch = plan.batch_to_run
@@ -2006,10 +2025,9 @@ class Scheduler(
     @scheduler_nvtx_method("scheduler.process_input_requests")
     def process_input_requests(self, recv_reqs: List):
         """
-            遍历收到的请求，按类型交给对应处理器
-            详见 scheduler.py.process_input_requests.md
-
+        NOTE：遍历收到的请求并交给对应的函数入队，即放进 waiting_queue 中
             recv_reqs 类型为 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
+            详见 scheduler.py.process_input_requests.md
         """
         now = time.monotonic()
         self.session_controller.maybe_reap(now)
@@ -2887,7 +2905,7 @@ class Scheduler(
 
         added_to_grammar_queue = self.grammar_manager.process_req_with_grammar(req)
         if not added_to_grammar_queue:
-            # NOTE 推理任务入对
+            # NOTE 推理任务放进 
             self._add_request_to_queue(req)
 
     def handle_batch_generate_request(
@@ -2948,7 +2966,7 @@ class Scheduler(
                 )
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
-        """推理任务入队逻辑
+        """推理任务入队逻辑/waiting_queue
         """
         if not self._set_or_validate_priority(req):
             return
@@ -3249,9 +3267,13 @@ class Scheduler(
 
     @scheduler_nvtx_method("scheduler.get_next_batch_to_run")
     def get_next_batch_to_run(
-        self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
+        self, 
+        running_batch: ScheduleBatch,
+        last_batch: Optional[ScheduleBatch]
     ) -> NextBatchPlan:
-        """NOTE 决定本轮执行哪个批次，模型执行在 run_batch；详见 [组批](scheduler.py.get_next_batch_to_run.md)。"""
+        """
+            NOTE 决定本轮执行哪个批次
+        """
         self.process_pending_chunked_abort()
 
         if self.enable_fpm:
@@ -3261,7 +3283,6 @@ class Scheduler(
         if self.dllm_config is not None:
             self.dllm_manager.filter_finished_reqs()
 
-        # 【Step 1】合并上一轮预填充完成、仍需继续生成的请求；未完成的分块请求暂不并入。
         chunked_req_to_exclude = set()
 
         if self.dllm_config is not None and self.dllm_manager.any_staging_reqs():
@@ -3275,9 +3296,11 @@ class Scheduler(
                 else:
                     self.stash_chunked_request(req)
 
+        # tips https://lmsysorg.mintlify.app/docs/advanced_features/pipeline_parallelism#chunked-prefill-size-and-smoothing-factor
+        #   中文：user_guide_zh/1.7 长上下文流水线并行(Pipeline Parallelism for Long Context).md 的「分块预填充大小与平滑因子」
+        #   说明：分块预填充(chunked prefill)把很长的提示词按 --chunked-prefill-size 切成几块、每轮只算一块，避免一次 prefill 跑太久卡住正在 decode 的请求或撑爆显存；
+        #       self.chunked_req 是还没切完的那个请求，这里先把它已算完那几块的 KV 存进前缀缓存，下一轮再接着算下一块
         if self.chunked_req is not None:
-            # 当前请求还没完成所有分块的预填充，先从待合并请求中排除。
-            # 这里的“完成”指预填充完成，不是整个生成请求结束。
             chunked_req_to_exclude.add(self.chunked_req)
 
             # Stash (cache) the previous chunk only when it produced new KV
@@ -3288,6 +3311,10 @@ class Scheduler(
             if self.chunked_req.extend_range.end > len(self.chunked_req.prefix_indices):
                 self.stash_chunked_request(self.chunked_req)
 
+        # tip https://lmsysorg.mintlify.app/docs/advanced_features/hisparse_guide
+        #   中文：user_guide_zh/2.2 分层稀疏注意力(Hierarchical Sparse Attention).md
+        #   说明：分层稀疏注意力(HiSparse)用于 DeepSeek-V3.2 这类自带稀疏注意力的模型，decode 时每个请求在 GPU 上只保留一块固定大小的热点 KV 缓冲区，
+        #       完整 KV 放在 CPU 锁页内存，按 Top-k 选中的 token 按需换入，从而降低长上下文的显存占用、提高 decode 并发
         # HiSparse has its own prefill-to-decode transition; skip last_batch merge.
         if self.enable_hisparse:
             ready_reqs = self.hisparse_coordinator.collect_ready_reqs()
@@ -3343,6 +3370,7 @@ class Scheduler(
         elif self._should_defer_prefill():
             new_batch = None
         else:
+            # NOTE 获取 prefill 任务
             prefill_plan = self.get_new_batch_prefill(running_batch)
             new_batch = prefill_plan.batch_to_run
             running_batch = prefill_plan.running_batch
@@ -3419,6 +3447,9 @@ class Scheduler(
         return res
 
     def get_new_batch_prefill(self, running_batch: ScheduleBatch) -> NextBatchPlan:
+        """
+            NOTE
+        """
         prefill_delayer_single_pass = None
         if self.prefill_delayer:
             # Get max usage across all pools for prefill delay decision
@@ -3428,7 +3459,7 @@ class Scheduler(
             prefill_delayer_single_pass = PrefillDelayerSinglePassExecutor(
                 self.prefill_delayer, token_usage=max_pool_usage
             )
-
+        # NOTE 获取 prefill 任务数据，ret 和 running batch都是 ScheduleBatch
         ret, running_batch = self._get_new_batch_prefill_raw(
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             running_batch=running_batch,
@@ -3443,7 +3474,10 @@ class Scheduler(
                     observed_prefill_bs
                 )
 
-        return NextBatchPlan(batch_to_run=ret, running_batch=running_batch)
+        return NextBatchPlan(
+            batch_to_run=ret,  # tip 执行的推理任务
+            running_batch=running_batch # tip 上一轮的推理请求
+        )
 
     def _get_new_batch_prefill_raw(
         self,
