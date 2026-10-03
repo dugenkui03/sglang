@@ -872,25 +872,32 @@ class Engine(EngineScoreMixin, EngineBase):
                 )
             )
 
-            for pp_rank in pp_rank_range:
-                for tp_rank in tp_rank_range:
+            for pp_rank in pp_rank_range: # NOTE pipeline parallelism 对权重进行纵向切分
+                for tp_rank in tp_rank_range: # NOTE tensor parallelism 对权重进行横向切分
                     reader, writer = mp.Pipe(duplex=False)
+                    # NOTE 每个 gpu_id 启动一个 Scheduler 子进程
+                    #   注意，(pp_rank=x, tp_rank=y) 确定唯一一张物理显卡
+                    # tip 根据 pp_rank 和 tp_rank 计算出当前索引对应的 gpu_id
                     gpu_id = (
                         server_args.base_gpu_id
                         + ((pp_rank % pp_size_per_node) * tp_size_per_node)
                         + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
                     )
+                    # NOTE 总卡数由 tp × pp × dp 决定（开 DP attention 时 DP 不算在内）；
+                    #   注意：attn_cp、moe_dp、ep 只是在每个 TP 组的卡里重新分组编号，并不改变卡数量
+                    #       编号和卡的关系参考 《基础知识三...》
                     attn_cp_rank, moe_dp_rank, moe_ep_rank = _compute_parallelism_ranks(
                         server_args, tp_rank
                     )
 
                     with maybe_reindex_device_id(gpu_id) as gpu_id:
+                        # NOTE 为当前 gpu_id 启动 scheduler 子进程
                         proc = mp.Process(
-                            target=run_scheduler_process_func,
+                            target=run_scheduler_process_func, # tip 子进程要执行的函数，默认是 run_scheduler_process
                             args=(
                                 server_args,
                                 port_args,
-                                gpu_id,
+                                gpu_id, # tip 子进程对应的 gpu_id 编号
                                 tp_rank,
                                 attn_cp_rank,
                                 moe_dp_rank,
@@ -904,7 +911,7 @@ class Engine(EngineScoreMixin, EngineBase):
                             memory_saver_adapter.configure_subprocess(),
                             numa_utils.configure_subprocess(server_args, gpu_id),
                         ):
-                            proc.start()
+                            proc.start() # tip 启动 scheduler 进程
 
                     scheduler_procs.append(proc)
                     scheduler_pipe_readers.append(reader)
@@ -950,7 +957,7 @@ class Engine(EngineScoreMixin, EngineBase):
                 wait_for_ready=wait_for_ready,
                 block_until_scheduler_exits=block_until_scheduler_exits,
             ),
-            scheduler_procs,
+            scheduler_procs, # 所有 gpu_id 对应的子进程
         )
 
     @classmethod
@@ -974,8 +981,9 @@ class Engine(EngineScoreMixin, EngineBase):
         names: List[str] = []
 
         if get_serving().detokenizer_worker_num <= 1:
+            # NOTE 普通模式下创建 detokenizer 的地方
             proc = mp.Process(
-                target=run_detokenizer_process_func,
+                target=run_detokenizer_process_func,  # tip 默认是 run_detokenizer_process
                 args=(server_args, port_args),
             )
             proc.start()
@@ -1228,7 +1236,7 @@ class Engine(EngineScoreMixin, EngineBase):
         detoken_procs, detoken_names = cls._launch_detokenizer_subprocesses(
             server_args=server_args,
             port_args=port_args,
-            run_detokenizer_process_func=run_detokenizer_process_func, # 默认是 run_detokenizer_process
+            run_detokenizer_process_func=run_detokenizer_process_func, # tip 默认是 run_detokenizer_process
         )
         for p in detoken_procs:
             scheduler_init_result.all_child_pids.append(p.pid)

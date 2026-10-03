@@ -540,6 +540,7 @@ class Scheduler(
 
         # Launch a model worker and draft model worker if using speculative decoding
         # NOTE 初始化 TpModelWorker
+        #   初始化 ModelRunner：1)下载和加载模型;2)初始化多卡通信：支持各种并行计算策略
         self.init_model_worker()
 
         if (t := envs.SGLANG_TEST_STUCK_SCHEDULER_INIT.get()) > 0:
@@ -5529,6 +5530,7 @@ def run_scheduler_process(
         # Send initialization info back to the parent process
         pipe_writer.send(scheduler.get_init_info())
 
+        # NOTE 启动 scheduler 进程
         # Run the event loop (blocks until a ShutdownReq sets gracefully_exit)
         scheduler.run_event_loop()
 

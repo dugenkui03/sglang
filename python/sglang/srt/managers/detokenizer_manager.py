@@ -620,7 +620,7 @@ def run_detokenizer_process(
 
     manager = None
     try:
-        # 【启动】Engine._launch_detokenizer_subprocesses 用 mp.Process 启动本函数，在新进程里构造 DetokenizerManager
+        # NOTE
         manager = detokenizer_manager_class(server_args, port_args)
         # 进入主循环，不再返回
         if server_args.tokenizer_worker_num == 1:
