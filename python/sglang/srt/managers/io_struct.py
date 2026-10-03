@@ -2500,6 +2500,8 @@ async def async_sock_send(socket: zmq.asyncio.Socket, obj: Any, flags: int = 0) 
 
 
 async def async_sock_recv(socket: zmq.asyncio.Socket, flags: int = 0) -> Any:
+    """异步从 zmq.asyncio.Socket 获取结果，如果上游通过 await 调用则表示是要阻塞获取到结果
+    """
     if _USE_PICKLE_IPC:
         return await socket.recv_pyobj(flags=flags)
 

@@ -1,0 +1,283 @@
+{
+  "version": 1,
+  "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
+  "scope": "SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph。",
+  "representatives": "模型只取 Llama，Attention 后端只取 FlashAttention，前缀缓存只取基础 RadixCache，KV 槽位取 paged allocator；同类实现不重复扩展分母。",
+  "excluded": ["通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter", "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑", "多模态、Mamba/SWA、量化和硬件专用变体、底层算子实现", "AI 生成文档、图片及其文件数量不作为直接已读证据"],
+  "branch_threshold": {"numerator": 2, "denominator": 3, "min_direct": 2},
+  "node_columns": ["id", "source", "qualname", "concept"],
+  "sources": {
+    "engine": "python/sglang/srt/entrypoints/engine.py",
+    "http": "python/sglang/srt/entrypoints/http_server.py",
+    "args": "python/sglang/srt/server_args.py",
+    "context": "python/sglang/srt/runtime_context.py",
+    "chat": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+    "serving": "python/sglang/srt/entrypoints/openai/serving_base.py",
+    "tokenizer": "python/sglang/srt/managers/tokenizer_manager.py",
+    "scheduler": "python/sglang/srt/managers/scheduler.py",
+    "receiver": "python/sglang/srt/managers/scheduler_components/request_receiver.py",
+    "policy": "python/sglang/srt/managers/schedule_policy.py",
+    "batch": "python/sglang/srt/managers/schedule_batch.py",
+    "worker": "python/sglang/srt/managers/tp_worker.py",
+    "runner": "python/sglang/srt/model_executor/model_runner.py",
+    "forward_batch": "python/sglang/srt/model_executor/forward_batch_info.py",
+    "overlap": "python/sglang/srt/managers/overlap_utils.py",
+    "eager": "python/sglang/srt/model_executor/runner/eager_runner.py",
+    "graph": "python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py",
+    "llama": "python/sglang/srt/models/llama.py",
+    "attention": "python/sglang/srt/layers/radix_attention.py",
+    "flash": "python/sglang/srt/layers/attention/flashattention_backend.py",
+    "pool": "python/sglang/srt/mem_cache/memory_pool.py",
+    "allocation": "python/sglang/srt/mem_cache/allocation.py",
+    "cache_common": "python/sglang/srt/mem_cache/common.py",
+    "paged": "python/sglang/srt/mem_cache/allocator/paged.py",
+    "radix": "python/sglang/srt/mem_cache/radix_cache.py",
+    "logits": "python/sglang/srt/layers/logits_processor.py",
+    "sampler": "python/sglang/srt/layers/sampler.py",
+    "params": "python/sglang/srt/sampling/sampling_params.py",
+    "result": "python/sglang/srt/managers/scheduler_components/batch_result_processor.py",
+    "streamer": "python/sglang/srt/managers/scheduler_components/output_streamer.py",
+    "detokenizer": "python/sglang/srt/managers/detokenizer_manager.py"
+  },
+  "stages": {
+    "1": "启动与进程",
+    "2": "配置发布",
+    "3": "API 与请求转换",
+    "4": "分词与请求提交",
+    "5": "调度与组批",
+    "6": "执行桥接与 overlap 数据交接",
+    "7": "模型前向与 Attention",
+    "8": "KV 分配与前缀缓存",
+    "9": "采样、结果处理与回包"
+  },
+  "branches": [
+    {"id": "launch", "stage": "1", "label": "启动三类进程及 HTTP 服务", "nodes": [
+      ["launch_server", "http", "launch_server", "服务启动总入口"],
+      ["launch_processes", "engine", "Engine._launch_subprocesses", "编排进程启动与就绪"],
+      ["launch_schedulers", "engine", "Engine._launch_scheduler_processes", "按 rank 拉起 GPU worker"],
+      ["launch_detokenizer", "engine", "Engine._launch_detokenizer_subprocesses", "拉起解码回包进程"],
+      ["init_tokenizer", "engine", "init_tokenizer_manager", "建立主进程请求入口"],
+      ["run_scheduler_process", "scheduler", "run_scheduler_process", "Scheduler 子进程入口"],
+      ["run_detokenizer_process", "detokenizer", "run_detokenizer_process", "Detokenizer 子进程入口"],
+      ["setup_http", "http", "_setup_and_run_http_server", "将 Engine 组件接入 HTTP 服务"]
+    ]},
+    {"id": "worker_startup", "stage": "1", "label": "GPU 执行组件初始化与模型加载", "nodes": [
+      ["scheduler_init", "scheduler", "Scheduler.__init__", "调度器资源与组件初始化"],
+      ["init_model_worker", "scheduler", "Scheduler.init_model_worker", "编排权重、缓存、后端和图初始化"],
+      ["init_tp_worker", "scheduler", "Scheduler.init_tp_model_worker", "建立调度到 GPU 的执行桥"],
+      ["worker_init", "worker", "TpModelWorker.__init__", "建立模型配置与 ModelRunner"],
+      ["runner_init", "runner", "ModelRunner.__init__", "GPU 执行状态与设备配置"],
+      ["runner_initialize", "runner", "ModelRunner.initialize", "模型执行环境初始化顺序"],
+      ["load_model", "runner", "ModelRunner.load_model", "将模型权重与结构加载到执行器"]
+    ]},
+    {"id": "configuration", "stage": "2", "label": "从启动参数到本进程配置", "nodes": [
+      ["resolve_config", "args", "ServerArgs.resolve_once", "一次性解析启动配置"],
+      ["publish_config", "context", "publish", "向本进程发布运行配置"],
+      ["install_config", "context", "RuntimeContext.set_server_args", "构造可读取的配置分组"],
+      ["port_args", "args", "PortArgs.init_new", "分配组件间通信地址"]
+    ]},
+    {"id": "api", "stage": "3", "label": "生成 API 到内部请求", "nodes": [
+      ["native_generate", "http", "generate_request", "原生生成入口与流式选择"],
+      ["chat_endpoint", "http", "openai_v1_chat_completions", "OpenAI chat 入口"],
+      ["handle_api_request", "serving", "OpenAIServingBase.handle_request", "校验、转换和响应路径选择"],
+      ["convert_chat", "chat", "OpenAIServingChat._convert_to_internal_request", "Chat 请求转换为 GenerateReqInput"],
+      ["process_messages", "chat", "OpenAIServingChat._process_messages", "会话消息转换为模型输入"],
+      ["chat_template", "chat", "OpenAIServingChat._apply_jinja_template", "应用模型会话模板"]
+    ]},
+    {"id": "tokenizer_setup", "stage": "4", "label": "主进程请求处理组件", "nodes": [
+      ["tokenizer_init", "tokenizer", "TokenizerManager.__init__", "建立请求处理状态与组件"],
+      ["tokenizer_processor", "tokenizer", "TokenizerManager.init_tokenizer_and_processor", "初始化模型分词器"],
+      ["tokenizer_ipc", "tokenizer", "TokenizerManager.init_ipc_channels", "建立请求与回包管道"]
+    ]},
+    {"id": "tokenize_submit", "stage": "4", "label": "请求登记、分词与提交", "nodes": [
+      ["generate_request", "tokenizer", "TokenizerManager.generate_request", "统一请求生命周期入口"],
+      ["init_req_state", "tokenizer", "TokenizerManager._init_req_state", "以 rid 登记请求状态"],
+      ["tokenize_request", "tokenizer", "TokenizerManager._tokenize_one_request", "构造单个 tokenized 请求"],
+      ["tokenize_texts", "tokenizer", "TokenizerManager._tokenize_texts", "文本与 token 输入的分词路径"],
+      ["validate_request", "tokenizer", "TokenizerManager._validate_one_request", "上下文长度与生成预算检查"],
+      ["create_tokenized", "tokenizer", "TokenizerManager._create_tokenized_object", "生成跨进程请求对象"],
+      ["send_request", "tokenizer", "TokenizerManager._send_one_request", "提交请求并关联返回状态"]
+    ]},
+    {"id": "scheduler_ingress", "stage": "5", "label": "接收、分发与入队", "nodes": [
+      ["receive_requests", "receiver", "SchedulerRequestReceiver.recv_requests", "接收本轮请求并做 rank 同步"],
+      ["pull_requests", "receiver", "SchedulerRequestReceiver._pull_raw_reqs", "从主进程管道接收消息"],
+      ["broadcast_requests", "receiver", "SchedulerRequestReceiver._broadcast_reqs_across_ranks", "将请求分发到参与执行的 rank"],
+      ["dispatch_requests", "scheduler", "Scheduler.process_input_requests", "按消息类型分派处理"],
+      ["handle_generate", "scheduler", "Scheduler.handle_generate_request", "将 tokenized 输入变为调度请求"],
+      ["init_request", "batch", "Req.__init__", "建立请求、生成和缓存状态"],
+      ["enqueue", "scheduler", "Scheduler._add_request_to_queue", "进入等待队列"]
+    ]},
+    {"id": "scheduler_loop", "stage": "5", "label": "普通与重叠调度主循环", "nodes": [
+      ["dispatch_loop", "scheduler", "dispatch_event_loop", "选择运行主循环"],
+      ["run_loop", "scheduler", "Scheduler.run_event_loop", "按服务模式选择事件循环"],
+      ["normal_loop", "scheduler", "Scheduler.event_loop_normal", "收请求、组批、前向、结果处理"],
+      ["overlap_loop", "scheduler", "Scheduler.event_loop_overlap", "CPU 调度和 GPU 执行交错推进"]
+    ]},
+    {"id": "prefill_admission", "stage": "5", "label": "Prefill 选择与预算控制", "nodes": [
+      ["next_batch", "scheduler", "Scheduler.get_next_batch_to_run", "选择下一轮 prefill/decode 批次"],
+      ["new_prefill", "scheduler", "Scheduler.get_new_batch_prefill", "建立 prefill 批次入口"],
+      ["raw_prefill", "scheduler", "Scheduler._get_new_batch_prefill_raw", "选择可接纳的等待请求"],
+      ["priority", "policy", "SchedulePolicy.calc_priority", "确定等待队列处理顺序"],
+      ["prefill_budget", "policy", "PrefillAdder.__init__", "建立 token 与显存接纳预算"],
+      ["admit_request", "policy", "PrefillAdder.add_one_req", "检查预算并接纳请求"],
+      ["admit_chunk", "policy", "PrefillAdder.add_chunked_req", "继续处理分块 prefill 请求"],
+      ["update_budget", "policy", "PrefillAdder._update_prefill_budget", "扣减本轮 prefill 预算"]
+    ]},
+    {"id": "batch_layout", "stage": "5", "label": "Prefill 与 decode 批次状态", "nodes": [
+      ["request_next_input", "batch", "Req.init_next_round_input", "按已缓存前缀准备下轮输入"],
+      ["batch_init", "batch", "ScheduleBatch.init_new", "从请求集合建立调度批次"],
+      ["prepare_extend", "batch", "ScheduleBatch.prepare_for_extend", "准备 prefill token、长度和缓存位置"],
+      ["update_decode", "scheduler", "Scheduler.update_running_batch", "维护继续生成的请求集合"],
+      ["prepare_decode", "batch", "ScheduleBatch.prepare_for_decode", "为每个请求准备下一 token 的执行状态"],
+      ["filter_batch", "batch", "ScheduleBatch.filter_batch", "移除结束请求并对齐批次张量"],
+      ["merge_batch", "batch", "ScheduleBatch.merge_batch", "合并完成 prefill 的请求与运行批次"]
+    ]},
+    {"id": "decode_pressure", "stage": "5", "label": "Decode 显存不足与回退", "nodes": [
+      ["check_decode_memory", "batch", "ScheduleBatch.check_decode_mem", "检查下一轮 KV 容量"],
+      ["retract_decode", "batch", "ScheduleBatch.retract_decode", "显存不足时撤回部分请求"],
+      ["reset_retracted", "batch", "Req.reset_for_retract", "重置被撤回请求以便重新调度"]
+    ]},
+    {"id": "forward_bridge", "stage": "6", "label": "调度批次进入 GPU 执行", "nodes": [
+      ["run_batch", "scheduler", "Scheduler.run_batch", "提交一轮模型计算并接收结果"],
+      ["worker_forward", "worker", "TpModelWorker.forward_batch_generation", "组织 ForwardBatch、前向与采样"],
+      ["forward_batch", "forward_batch", "ForwardBatch.init_new", "调度视图转换为 GPU 批次视图"],
+      ["resolve_inputs", "overlap", "resolve_forward_inputs", "将 overlap 的未来 token 解析为实际输入"]
+    ]},
+    {"id": "future_map", "stage": "6", "label": "Overlap 结果与后续输入衔接", "nodes": [
+      ["future_init", "overlap", "FutureMap.__init__", "建立未来输出槽位映射"],
+      ["future_publish", "overlap", "FutureMap.publish", "发布 GPU 输出供后续批次使用"],
+      ["future_stash", "overlap", "FutureMap.stash", "保存可复用的异步执行结果"]
+    ]},
+    {"id": "runner_dispatch", "stage": "7", "label": "模型执行路径分派", "nodes": [
+      ["model_forward", "runner", "ModelRunner.forward", "模型前向总入口"],
+      ["raw_forward", "runner", "ModelRunner._forward_raw", "选择图执行或 eager 路径"],
+      ["eager_execute", "eager", "EagerRunner.execute", "按 ForwardMode 分派执行"],
+      ["eager_extend", "eager", "EagerRunner._execute_extend", "Prefill 的模型执行入口"],
+      ["eager_decode", "eager", "EagerRunner._execute_decode", "Decode 的模型执行入口"]
+    ]},
+    {"id": "decode_graph", "stage": "7", "label": "基础 decode CUDA Graph", "nodes": [
+      ["can_replay", "graph", "DecodeCudaGraphRunner.can_run_graph", "判断批次是否满足图重放条件"],
+      ["capture_graph", "graph", "DecodeCudaGraphRunner.capture", "捕获固定布局的执行图"],
+      ["replay_graph", "graph", "DecodeCudaGraphRunner.execute", "重放已捕获的执行图"]
+    ]},
+    {"id": "dense_model", "stage": "7", "label": "一个 dense 模型的前向主干", "nodes": [
+      ["causal_lm", "llama", "LlamaForCausalLM.forward", "模型前向与语言模型输出"],
+      ["llama_model", "llama", "LlamaModel.forward", "嵌入与多层执行"],
+      ["decoder_layer", "llama", "LlamaDecoderLayer.forward", "Attention、MLP 与残差连接"],
+      ["llama_attention", "llama", "LlamaAttention.forward", "QKV 投影与位置编码"],
+      ["llama_mlp", "llama", "LlamaMLP.forward", "前馈网络计算"]
+    ]},
+    {"id": "attention_backend", "stage": "7", "label": "Attention 与 KV 读写", "nodes": [
+      ["radix_attention", "attention", "RadixAttention.forward", "模型层接入 SGLang 注意力后端"],
+      ["attention_metadata", "flash", "FlashAttentionBackend.init_forward_metadata", "准备批次和 KV 索引元数据"],
+      ["attention_extend", "flash", "FlashAttentionBackend.forward_extend", "Prefill 注意力与 KV 写入"],
+      ["attention_decode", "flash", "FlashAttentionBackend.forward_decode", "读取历史 KV 并计算 decode 注意力"],
+      ["store_kv", "pool", "MHATokenToKVPool.set_kv_buffer", "将新 token 的 K/V 写入槽位"]
+    ]},
+    {"id": "kv_setup", "stage": "8", "label": "请求池和 KV 池的建立", "nodes": [
+      ["init_memory", "scheduler", "Scheduler.init_memory_pools", "建立调度器持有的缓存池"],
+      ["init_target_memory", "scheduler", "Scheduler.init_target_memory_pool", "连接模型执行器的目标缓存池"],
+      ["worker_memory", "worker", "TpModelWorker.alloc_memory_pool", "向执行器请求 KV 池"],
+      ["runner_memory", "runner", "ModelRunner.alloc_memory_pool", "按容量创建并发布缓存资源"],
+      ["request_pool", "pool", "ReqToTokenPool.__init__", "建立请求槽位到 token 槽位的映射表"],
+      ["kv_pool", "pool", "MHATokenToKVPool.__init__", "建立各层 K/V 的实际存储"]
+    ]},
+    {"id": "kv_slots", "stage": "8", "label": "请求与 KV 槽位分配", "nodes": [
+      ["allocate_request", "pool", "ReqToTokenPool.alloc", "为活跃请求分配映射表行"],
+      ["free_request", "pool", "ReqToTokenPool.free", "归还请求映射表行"],
+      ["allocate_extend", "allocation", "alloc_for_extend", "为新增 prefill token 分配 KV"],
+      ["allocate_decode", "allocation", "alloc_for_decode", "为下一轮 decode token 分配 KV"],
+      ["map_slots", "allocation", "assign_req_to_token_pool", "将逻辑 token 位置映射到 KV 槽位"],
+      ["paged_extend", "paged", "PagedTokenToKVPoolAllocator.alloc_extend", "按页接纳 prefill 的 KV 增量"],
+      ["paged_decode", "paged", "PagedTokenToKVPoolAllocator.alloc_decode", "处理 decode 跨页分配"],
+      ["paged_free", "paged", "PagedTokenToKVPoolAllocator.free", "归还 KV 页面"]
+    ]},
+    {"id": "radix_lookup", "stage": "8", "label": "前缀匹配与引用保护", "nodes": [
+      ["match_prefix", "radix", "RadixCache.match_prefix", "查找可复用前缀"],
+      ["match_prefix_tree", "radix", "RadixCache._match_prefix_helper", "沿树匹配 token 序列"],
+      ["split_radix_node", "radix", "RadixCache._split_node", "部分命中时拆分树节点"],
+      ["lock_prefix", "radix", "RadixCache.inc_lock_ref", "保护活跃请求使用的缓存"],
+      ["unlock_prefix", "radix", "RadixCache.dec_lock_ref", "释放缓存引用保护"]
+    ]},
+    {"id": "radix_update", "stage": "8", "label": "缓存写回与淘汰", "nodes": [
+      ["insert_prefix", "radix", "RadixCache.insert", "插入可复用 token 前缀"],
+      ["insert_prefix_tree", "radix", "RadixCache._insert_helper", "维护前缀树节点与 KV 所有权"],
+      ["cache_running", "radix", "RadixCache.cache_unfinished_req", "缓存继续运行请求的前缀"],
+      ["cache_finished", "radix", "RadixCache.cache_finished_req", "完成请求的缓存写回与释放"],
+      ["evict_prefix", "radix", "RadixCache.evict", "淘汰未保护前缀以腾出 KV"]
+    ]},
+    {"id": "sampling", "stage": "9", "label": "从隐藏状态到下一个 token", "nodes": [
+      ["normalize_sampling", "params", "SamplingParams.normalize", "将生成参数规范化为采样语义"],
+      ["process_logits", "logits", "LogitsProcessor.forward", "选择需要输出的 token 并形成 logits"],
+      ["get_logits", "logits", "LogitsProcessor._get_logits", "隐藏状态经过 LM head 得到词表分数"],
+      ["prepare_logits", "runner", "ModelRunner._preprocess_logits", "惩罚项、掩码与 logit 偏置"],
+      ["model_sample", "runner", "ModelRunner.sample", "调用 sampler 并返回 token ID"],
+      ["sample", "sampler", "Sampler.forward", "贪心与概率采样的核心分派"]
+    ]},
+    {"id": "result_commit", "stage": "9", "label": "前向结果进入请求状态", "nodes": [
+      ["process_result", "scheduler", "Scheduler.process_batch_result", "按批次类型处理前向结果"],
+      ["prefill_result", "result", "SchedulerBatchResultProcessor.process_batch_result_prefill", "处理 prefill 输出和请求状态"],
+      ["decode_result", "result", "SchedulerBatchResultProcessor.process_batch_result_decode", "接收新 token 并推进 decode 状态"],
+      ["finish_request", "batch", "Req.update_finish_state", "判断长度、终止 token 和停止字符串"],
+      ["release_request", "cache_common", "release_kv_cache", "结束请求时转交缓存并释放资源"]
+    ]},
+    {"id": "output_stream", "stage": "9", "label": "Scheduler 输出 token 消息", "nodes": [
+      ["stream_output", "streamer", "SchedulerOutputStreamer.stream_output", "组织生成结果并选择输出类型"],
+      ["stream_generation", "streamer", "SchedulerOutputStreamer._stream_output_generation", "按流式间隔构造 token 输出批次"]
+    ]},
+    {"id": "detokenize", "stage": "9", "label": "Token 消息增量解码为文本", "nodes": [
+      ["detokenizer_loop", "detokenizer", "DetokenizerManager.event_loop", "接收 token 输出并分发解码"],
+      ["handle_token_output", "detokenizer", "DetokenizerManager.handle_batch_token_id_out", "解码并发送文本输出消息"],
+      ["decode_token_output", "detokenizer", "DetokenizerManager._decode_batch_token_id_output", "维护请求的增量解码状态"],
+      ["group_decode", "detokenizer", "DetokenizerManager._grouped_batch_decode", "将批量 token 增量转为字符串"],
+      ["trim_stop", "detokenizer", "DetokenizerManager.trim_matched_stop", "按停止规则裁剪返回文本"]
+    ]},
+    {"id": "response", "stage": "9", "label": "按 rid 回送流式与完整响应", "nodes": [
+      ["tokenizer_handle_loop", "tokenizer", "TokenizerManager.handle_loop", "接收返回消息并按类型分发"],
+      ["handle_text_output", "tokenizer", "TokenizerManager._handle_batch_output", "更新 ReqState 并唤醒等待者"],
+      ["wait_response", "tokenizer", "TokenizerManager._wait_one_response", "等待并产出请求结果"],
+      ["nonstream_response", "chat", "OpenAIServingChat._handle_non_streaming_request", "收集完整结果并构造 chat 响应"],
+      ["stream_response", "chat", "OpenAIServingChat._handle_streaming_request", "建立 chat 流式响应"],
+      ["chat_stream", "chat", "OpenAIServingChat._generate_chat_stream", "将增量结果转换为 SSE 消息"]
+    ]}
+  ],
+  "chains": [
+    {"id": "start_scheduler", "kind": "call/process", "label": "启动 Scheduler 及模型执行器", "nodes": ["launch_server", "launch_processes", "launch_schedulers", "run_scheduler_process", "scheduler_init", "init_model_worker", "init_tp_worker", "worker_init", "runner_init", "runner_initialize", "load_model"]},
+    {"id": "start_tokenizer", "kind": "call", "label": "启动主进程请求处理器", "nodes": ["launch_processes", "init_tokenizer", "tokenizer_init", "tokenizer_processor"]},
+    {"id": "start_detokenizer", "kind": "call/process", "label": "启动解码进程并进入消息循环", "nodes": ["launch_processes", "launch_detokenizer", "run_detokenizer_process", "detokenizer_loop"]},
+    {"id": "config_resolve", "kind": "call", "label": "发布前完成配置解析", "nodes": ["launch_processes", "publish_config", "resolve_config"]},
+    {"id": "config_install", "kind": "call", "label": "发布配置到运行上下文", "nodes": ["launch_processes", "publish_config", "install_config"]},
+    {"id": "chat_convert", "kind": "call", "label": "Chat 协议转内部请求", "nodes": ["chat_endpoint", "handle_api_request", "convert_chat", "process_messages", "chat_template"]},
+    {"id": "chat_nonstream", "kind": "call", "label": "非流式请求进入 TokenizerManager", "nodes": ["chat_endpoint", "handle_api_request", "nonstream_response", "generate_request"]},
+    {"id": "chat_streaming", "kind": "call", "label": "流式请求进入 TokenizerManager", "nodes": ["chat_endpoint", "handle_api_request", "stream_response", "chat_stream", "generate_request"]},
+    {"id": "native_request", "kind": "call", "label": "原生请求进入 TokenizerManager", "nodes": ["native_generate", "generate_request", "tokenize_request", "tokenize_texts"]},
+    {"id": "tokenized_object", "kind": "call", "label": "生成待提交的内部消息", "nodes": ["generate_request", "tokenize_request", "create_tokenized"]},
+    {"id": "request_validation", "kind": "call", "label": "分词后的上下文预算校验", "nodes": ["generate_request", "tokenize_request", "validate_request"]},
+    {"id": "receive_ipc", "kind": "ipc", "label": "请求消息跨进程交接（接收入口到消息读取）", "nodes": ["send_request", "receive_requests", "pull_requests"]},
+    {"id": "request_to_queue", "kind": "call", "label": "分发生成请求并入队", "nodes": ["dispatch_requests", "handle_generate", "enqueue"]},
+    {"id": "request_state", "kind": "call", "label": "建立调度请求对象", "nodes": ["dispatch_requests", "handle_generate", "init_request"]},
+    {"id": "normal_schedule", "kind": "call", "label": "普通主循环选择 prefill 批次", "nodes": ["run_loop", "dispatch_loop", "normal_loop", "next_batch", "new_prefill", "raw_prefill", "admit_request", "update_budget"]},
+    {"id": "overlap_schedule", "kind": "call", "label": "重叠主循环选择 prefill 批次", "nodes": ["run_loop", "dispatch_loop", "overlap_loop", "next_batch", "new_prefill", "raw_prefill", "admit_request", "update_budget"]},
+    {"id": "prefill_batch", "kind": "call", "label": "生成 prefill 批次输入与 KV 布局", "nodes": ["next_batch", "new_prefill", "raw_prefill", "prepare_extend", "allocate_extend", "paged_extend"]},
+    {"id": "prefill_priority", "kind": "call", "label": "选择请求前进行队列排序", "nodes": ["next_batch", "new_prefill", "raw_prefill", "priority"]},
+    {"id": "decode_batch", "kind": "call", "label": "更新 decode 批次和下一轮 KV", "nodes": ["next_batch", "update_decode", "prepare_decode", "allocate_decode", "paged_decode"]},
+    {"id": "decode_retract", "kind": "call", "label": "Decode 容量不足时回退请求", "nodes": ["update_decode", "retract_decode", "reset_retracted"]},
+    {"id": "worker_model", "kind": "call", "label": "批次提交到模型前向", "nodes": ["run_batch", "worker_forward", "model_forward", "raw_forward", "eager_execute"]},
+    {"id": "worker_batch", "kind": "call", "label": "构造 GPU 批次视图", "nodes": ["run_batch", "worker_forward", "forward_batch"]},
+    {"id": "worker_sample", "kind": "call", "label": "Worker 的采样调用", "nodes": ["run_batch", "worker_forward", "model_sample", "sample"]},
+    {"id": "eager_extend_model", "kind": "call", "label": "Prefill 经 dense 模型进入 Attention", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "llama_model", "decoder_layer", "llama_attention", "radix_attention", "attention_extend", "store_kv"]},
+    {"id": "eager_decode_model", "kind": "call", "label": "Decode 经 dense 模型进入 Attention", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "llama_model", "decoder_layer", "llama_attention", "radix_attention", "attention_decode", "store_kv"]},
+    {"id": "model_mlp", "kind": "call", "label": "Dense 模型的前馈计算分支", "nodes": ["causal_lm", "llama_model", "decoder_layer", "llama_mlp"]},
+    {"id": "model_logits", "kind": "call", "label": "模型隐藏状态进入词表投影", "nodes": ["causal_lm", "process_logits", "get_logits"]},
+    {"id": "kv_init", "kind": "call", "label": "从调度器初始化执行器缓存资源", "nodes": ["init_memory", "init_target_memory", "worker_memory", "runner_memory"]},
+    {"id": "prefix_lookup", "kind": "call", "label": "请求下一轮输入匹配前缀", "nodes": ["request_next_input", "match_prefix", "match_prefix_tree", "split_radix_node"]},
+    {"id": "prefix_insert", "kind": "call", "label": "完成请求的缓存写回", "nodes": ["release_request", "cache_finished", "insert_prefix", "insert_prefix_tree"]},
+    {"id": "prefill_output", "kind": "call", "label": "Prefill 结果向 token 输出消息转换", "nodes": ["process_result", "prefill_result", "stream_output", "stream_generation"]},
+    {"id": "decode_output", "kind": "call", "label": "Decode 结果向 token 输出消息转换", "nodes": ["process_result", "decode_result", "stream_output", "stream_generation"]},
+    {"id": "decode_finish", "kind": "call", "label": "Decode 结果更新终止状态", "nodes": ["process_result", "decode_result", "finish_request"]},
+    {"id": "decode_release", "kind": "call", "label": "Decode 请求结束后的资源回收", "nodes": ["process_result", "decode_result", "release_request"]},
+    {"id": "token_message", "kind": "ipc", "label": "Token 输出消息跨进程进入增量解码", "nodes": ["stream_output", "stream_generation", "detokenizer_loop", "handle_token_output", "decode_token_output", "group_decode"]},
+    {"id": "text_message", "kind": "ipc", "label": "文本输出消息按 rid 回到请求状态", "nodes": ["handle_token_output", "tokenizer_handle_loop", "handle_text_output"]},
+    {"id": "text_response", "kind": "data", "label": "更新 ReqState 后唤醒请求等待协程", "nodes": ["handle_text_output", "wait_response", "nonstream_response"]}
+  ]
+}

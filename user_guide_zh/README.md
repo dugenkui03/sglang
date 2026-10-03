@@ -19,8 +19,9 @@
 ## 基础知识(Fundamentals)
 
 - [基础知识：ZeroMQ 进程间通信](<基础知识：ZeroMQ 进程间通信.md>)：PUSH/PULL socket、bind 与 connect，以及进程之间如何收发消息。
-- [基础知识二：一次推理的全过程（启动、组批、前向与采样）](<基础知识二：一次推理的全过程（启动、组批、前向与采样）.md>)：启动时加载模型、建 KV 池；每轮组批、`run_batch` 前向、`lm_head` 打分、采样出下一个 token，以及 CUDA Graph 与 eager 路径和数据形状的变化。
+- [基础知识二：一次推理的全过程（启动、组批、前向与采样）](<基础知识二：一次推理的全过程（启动、组批、前向与采样）.md>)：启动时加载模型、建 KV 池；请求如何经 ZMQ 提交、`_wait_one_response` 如何等待结果；每轮组批、`run_batch` 前向、`lm_head` 打分、采样出下一个 token，以及 CUDA Graph 与 eager 路径和数据形状的变化。
 - [基础知识三：推理并行参数解释](<基础知识三：推理并行参数解释.md>)：每张卡一个 Scheduler 进程怎么启动、`gpu_id` 怎么算，TP、PP、DP、attn_cp、moe_dp、EP 各切什么，size 与 rank 的约束，以及一次前向里各种切法怎么配合。
+- [基础知识四：Python 中的进程、线程与协程](<基础知识四：Python 中的进程、线程与协程.md>)：三者的关系与区别、GIL、协程如何在 `await` 处轮流执行、`async`/`await`/`yield` 语法速查，以及 sglang 里多进程、后台线程和 TokenizerManager 协程的对应代码。
 
 ## 1. 服务与调优(Serving and Tuning)
 

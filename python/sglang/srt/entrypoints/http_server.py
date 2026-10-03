@@ -897,16 +897,21 @@ if os.environ.get("DUMPER_SERVER_PORT") == "reuse":
     response_class=SGLangORJSONResponse,
 )
 async def generate_request(obj: GenerateReqInput, request: Request):
-    """Handle a generate request."""
+    """Handle a generate request.
+        NOTE 请求入口
+    """
     if envs.SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES.get():
         apply_header_overrides(obj, request.headers)
+    # note 流式链路
     if obj.stream:
-
         async def stream_results() -> AsyncIterator[bytes]:
             try:
+                # note 支持 stream，generate_request 通过 yield 返回结果
                 async for out in _global_state.tokenizer_manager.generate_request(
-                    obj, request
+                    obj, 
+                    request
                 ):
+                    # tip 通过 yield 向上游返回结果
                     yield b"data: " + dumps_json(out) + b"\n\n"
             except ValueError as e:
                 # A client disconnect also surfaces here. It's a client-side
@@ -934,6 +939,7 @@ async def generate_request(obj: GenerateReqInput, request: Request):
             background=_global_state.tokenizer_manager.create_abort_task(obj),
         )
     else:
+        # note 非流式链路，await获取全部结果
         try:
             ret = await _global_state.tokenizer_manager.generate_request(
                 obj, request
