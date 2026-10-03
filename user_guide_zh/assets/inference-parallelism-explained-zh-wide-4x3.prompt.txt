@@ -1,0 +1,103 @@
+Generation record
+Mode: built-in image_gen edit (no CLI fallback)
+Edit target: inference-parallelism-explained-zh.png
+Final asset: inference-parallelism-explained-zh-wide-4x3.png
+Actual canvas: 1448 × 1086 pixels, 4:3 landscape, opaque RGB.
+User-requested changes: remove global title and subtitle; reflow into a wider / near-square layout.
+The exact edit prompt follows.
+
+Use case: infographic-diagram
+Input image 1: edit target, the existing Chinese SGLang inference parallelism educational poster.
+Primary request: Remove the global title and subtitle, and reflow the complete infographic into a LANDSCAPE 4:3 canvas, close to square but wider. This is a layout edit, not a change of technical content. Make a finished, readable technical diagram suitable for embedding into a Chinese Markdown article.
+
+Canvas: exactly 4:3 landscape, ideally 2048 × 1536 or higher. A solid opaque white rectangular canvas with NO transparent areas. Preserve the navy text, blue borders, small numbered section headers and restrained teal/purple accents. Use sharp Simplified Chinese sans-serif typography with legible English identifiers. Do not stretch or squash the old image; REARRANGE the panels and redraw/retypeset the diagram at their new sizes. Do not put the old tall poster on a wider blank canvas.
+
+REMOVE these two global heading lines entirely: "一图读懂 SGLang 推理并行" and "先数 GPU，再看分组，最后读懂每张卡的角色". Do not replace them with any title, subtitle, masthead, slogan or empty top margin. Remove the five colored mnemonic tags formerly beneath the subtitle, so that the picture starts directly with numbered content panels. Keep the five numbered local section headers 01–05.
+
+NEW COMPOSITION: a compact, aligned grid with three horizontal rows and one slim footer, filling the whole landscape canvas.
+- Top row, about 27% height: section 01 occupies 52% width on the left; section 02 occupies 48% width on the right. Their top and bottom edges align.
+- Middle row, about 39% height: section 03 spans the ENTIRE width. This is the largest panel, showing the same four GPU lanes with Attention above MoE. Give it generous room.
+- Bottom row, about 29% height: section 04 occupies 49% width on the left; section 05 occupies 51% width on the right. Within each, preserve the two internal columns.
+- Footer, about 5% height: the compact constraint note spans the whole width in a pale amber box; two or three readable lines. Do not render these layout percentages.
+The whole picture is landscape 4:3, not portrait. No global title.
+
+Preserve the substantive content of all five sections. You may shorten redundant prose to fit, but the formulas, GPU counts, group identities, table, conditional constraints and communication semantics below must remain exact.
+
+SECTION 01: "01  先数卡：哪些参数增加 GPU？"
+Compare normal DP and DP Attention in two compact subpanels.
+Normal DP: "普通 DP：复制完整模型". Request A → full replica 0 on eight chips with IDs 0,1,2,3 / 4,5,6,7. Request B → replica 1 on eight chips with IDs 8,9,10,11 / 12,13,14,15. Every replica collectively contains the full model.
+Formula "总卡数 = DP × TP × PP".
+Example "DP=2，TP=4，PP=2 → 16 卡".
+Parameter labels "--dp-size  --tp-size  --pp-size".
+DPA: "DP Attention：在 TP 组内分工". There is ONE deployment of EIGHT GPUs: PP stage 0 has GPUs 0,1,2,3 and PP stage 1 has GPUs 4,5,6,7. Within each PP stage, group its first pair under 注意力组 A and its second pair under 注意力组 B. No extra full-model replicas.
+Formula "总卡数 = TP × PP".
+Example "DP=2，TP=4，PP=2 → 8 卡".
+Parameter labels "--enable-dp-attention + --dp-size".
+Note "attn_cp、moe_dp、EP 在 TP 组内分，不再乘进总卡数。"
+
+SECTION 02: "02  PP × TP：先把模型放到 8 张卡上"
+Badge "独立例子 A：DP=1，PP=2，TP=4".
+Input "输入表示" → stage "PP 段 0：第 1–32 层" containing GPUs 0,1,2,3 → stage "PP 段 1：第 33–64 层" containing GPUs 4,5,6,7 → "Logits → 采样".
+Keep a small matrix/layer stack split across the four GPUs in each stage. The arrow between the stages is labeled "传递隐藏向量". Keep this as a readable mini pipeline within its top-right panel, wrapping the final output below if needed.
+Captions "PP 按层分，TP 分层内权重" and "单个请求依次通过各段；多个微批可交错推进。"
+
+SECTION 03: "03  同一批 4 卡，Attention 与 MoE 的角色不同"
+Badge "独立例子 B：PP=1，TP=4，attn_cp=2，moe_dp=2，EP=2".
+Make the "同一请求：t1 t2 t3 t4 t5 t6 t7 t8" token strip visible, and the note "两排是同一批 GPU 的两种视图，不是 8 张卡。".
+Allocate a compact left formula/definition column, four aligned GPU columns in the center, and a slim right callout column. The same physical columns are always GPU 0, GPU 1, GPU 2, GPU 3 from left to right in BOTH rows. Do not accidentally label any of these four chips GPU 4. Physical GPU lanes are aligned between rows.
+Upper row: "Attention：先按 token 分，再按注意力头分".
+Formula "attn_tp = TP ÷ attn_dp ÷ attn_cp = 4 ÷ 1 ÷ 2 = 2".
+GPU 0 and GPU 1 form "CP 组 0：t1–t4". Their attn_tp_rank labels are 0 and 1, with "一半注意力头" and "另一半注意力头". Both GPUs receive the same token chunk t1–t4 and compute complementary heads.
+GPU 2 and GPU 3 form "CP 组 1：t5–t8". Their attn_tp_rank labels are 0 and 1, with "一半注意力头" and "另一半注意力头". Both GPUs receive the same token chunk t5–t8 and compute complementary heads.
+Between CP groups, show "共享所需 KV，保持因果依赖" with a communication arrow.
+Note "连续切分仅作示意；实际可用交错或之字形。".
+Row transition caption "隐藏向量进入 MoE；按需重排 token 布局".
+Lower row: "MoE：先分 token 副本组，再按专家分".
+Glossary "MoE＝混合专家；Router＝路由器；专家是前馈网络 MLP。".
+Formula "moe_tp = TP ÷ moe_dp ÷ EP = 4 ÷ 2 ÷ 2 = 1".
+GPU 0 and GPU 1 form "MoE-DP 组 0：部分 token"; GPU 2 and GPU 3 form "MoE-DP 组 1：其余 token".
+GPU 0: "EP rank 0" and "专家 E0–E3".
+GPU 1: "EP rank 1" and "专家 E4–E7".
+GPU 2: "EP rank 0" and "专家 E0–E3".
+GPU 3: "EP rank 1" and "专家 E4–E7".
+Retain small expert blocks and router labels, with caption "Router 选专家 → 分发 token → 专家计算 → 合并结果".
+Note "每个 MoE-DP 组共同拥有全部专家；每张卡只存分给自己的专家。".
+Callout "同一张 GPU 1：Attention 算一半头；MoE 存 E4–E7。".
+
+SECTION 04: "04  公式与编号：size 是份数，rank 是位置"
+Left internal column: grouping formulas and a small expert-matrix split.
+"Attention：attn_dp × attn_cp × attn_tp = TP"
+"MoE：moe_dp × EP × moe_tp = TP"
+"不开 DP Attention 时，attn_dp=1。"
+Expert split inset "MoE-TP：一个专家也能再切": a single expert's matrix split into two complementary halves, GPU A holding 分片 0, GPU B holding 分片 1. Both compute partial outputs and arrows converge into "合并部分结果". Caption "moe_tp=2 的原理示意".
+Right internal column: "例子 B 的 rank 对照" table, EXACTLY SIX columns and FOUR rows.
+Header: "GPU | tp | attn_cp | attn_tp | moe_dp | EP"
+Rows:
+"0 | 0 | 0 | 0 | 0 | 0"
+"1 | 1 | 0 | 1 | 0 | 1"
+"2 | 2 | 1 | 0 | 1 | 0"
+"3 | 3 | 1 | 1 | 1 | 1"
+Keep readable definitions:
+"size=4 → rank 取 0、1、2、3"
+"gpu_id 是本机设备编号；rank 是并行分工坐标。"
+"--base-gpu-id / --gpu-id-step：起始卡号与间隔"
+"--nnodes / --node-rank：机器数与本机序号"
+
+SECTION 05: "05  为什么要通信？并行的收益与代价"
+Left internal column: four compact communication mini diagrams. Preserve exact mathematical semantics.
+"Send / Recv：把隐藏向量传给下一段" — GPU A:H → GPU B:H. The SAME payload H arrives unchanged.
+"All-reduce：合并部分结果，各卡拿到总结果" — GPU A:a and GPU B:b feed a+b, then BOTH GPUs receive a+b. Both final labels must be a+b, not a and b separately.
+"All-gather：收集各卡持有的数据分片" — GPU A:x and GPU B:y; BOTH end holding the pair x,y.
+"All-to-all：按目标卡交换不同的 token" — different token tiles are routed to their destinations, with crossing arrows and no sum sign.
+Right internal column: "按瓶颈选策略" and these concise rows:
+"并发请求多 → DP：增加副本，也增加权重占用"
+"单卡放不下 → TP：分摊权重，层内通信频繁"
+"模型层数多 → PP：按层分担，注意流水线空泡"
+"长提示词 → CP：分摊 prefill，仍需共享上下文"
+"MoE 专家多 → EP：分摊专家，关注路由与负载均衡"
+
+FOOTER: in a shallow pale amber box, retain these exact content points in readable type; wrap naturally into 2–3 lines:
+"当前仓库：moe_dp>1 要求 PP=1 且 attn_cp=moe_dp；若 EP>1，还要求 moe_dp×EP=TP。"
+"PP 与 MoE-DP 分开展示，图示不等同于启动命令。CP 分摊预填充词元；DCP 分摊解码历史 KV 与局部注意力，配置不同。"
+
+Invariants: This is a landscape layout correction of the SAME infographic. Retain all five subject areas, distinct examples, core diagrams, rank table and the conditional footer. Do not change scientific meaning. No new performance claims. The canvas MUST be fully opaque. Delete the global title and subtitle, but keep local section headings. Keep section 03 devices in numerical order 0,1,2,3 in both role rows. Keep labels sharp, unclipped, nonoverlapping and correctly spelled. Do not add unrelated decorative content. No top banner, no global title, no subtitle, no huge blank margins, no vertical poster.

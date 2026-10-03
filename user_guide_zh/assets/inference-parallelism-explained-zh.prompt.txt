@@ -1,0 +1,204 @@
+Generation record
+Mode: built-in image_gen tool (no CLI fallback)
+Final asset: inference-parallelism-explained-zh.png
+Source article: ../基础知识三：推理并行参数解释.md
+Repository revision inspected: 018663895bf1029d9e63eaa561d7dfb0f7438da1 (with existing local changes)
+Actual output resolution: 941 x 1672 pixels; opaque RGB PNG.
+
+Source checks:
+- python/sglang/srt/entrypoints/engine.py:1894 — Attention and MoE rank decomposition.
+- python/sglang/srt/server_args.py:7179–7215 — current local CP / MoE-DP / PP / EP compatibility checks.
+- python/sglang/srt/server_args.py:11030 — compute_world_size.
+- python/sglang/srt/managers/data_parallel_controller.py:369 — complete DP replicas.
+- https://docs.sglang.io/docs/advanced_features/expert_parallelism — EP communication varies by backend; the none backend uses all-gather or all-reduce.
+- ../2.5 预填充上下文并行(Prefill Context Parallelism).md — token partitioning, KV sharing, zigzag and interleave.
+- ../2.4 解码上下文并行(Decode Context Parallelism).md — DCP differs from prefill CP.
+
+Editorial decisions:
+- The original article's combined PP=2 and moe_dp=2 illustration does not pass the current repository's validation. The image therefore separates PP/TP and Attention/MoE grouping into independent examples A and B.
+- The original TP=8, moe_dp=2, EP=2 example also fails the current product-equality check. MoE-TP is shown as a separate principle inset rather than a runnable configuration.
+- CLI names and card-count semantics follow the local article/repository, not every upstream release. Actual backend/model support must still be checked.
+- No GPU deployment or performance benchmark was run; this is a conceptual illustration.
+
+The exact prompts used are preserved below, in order. Later edit prompts override only their named regions.
+
+===== 1. Initial generation =====
+
+Use case: infographic-diagram
+Asset type: one detailed, high-resolution Chinese educational infographic accompanying 基础知识三：推理并行参数解释.md in the SGLang learning guide.
+Primary request: Explain inference parallelism through GPU grouping diagrams, not walls of prose. Teach beginners what TP, PP, DP, DPA, CP, MoE-DP, EP and MoE-TP divide; how the same GPUs change roles between Attention and MoE; how to calculate device counts and read ranks. One cohesive image, not a collage of separate pages.
+
+Format: a tall portrait technical poster, target 2160 × 3840 pixels, approximately 9:16. Use the highest practical resolution and very sharp readable Simplified Chinese typography. White background, dark navy text, restrained blue/teal/purple/orange section accents. Flat textbook diagrams with real GPU chips, matrices, token tiles, group boundaries and directional arrows. No photographic mockup. Strong aligned grid, generous but efficient spacing, clear numbered reading order. Every diagram must communicate an actual partition or flow. Keep body text readable, no illegible tiny footnotes. Do not introduce mascots, slogans, logos or decorative server racks.
+
+Visual hierarchy: header 6%; section 01 about 14%; section 02 about 12%; section 03 about 31%; section 04 about 17%; section 05 about 12%; footer about 8%. Six horizontal bands stacked vertically; section 04 and 05 each have two columns. Do not render the layout percentages. Design for close inspection and zooming.
+
+HEADER
+Title, large and bold, verbatim: "一图读懂 SGLang 推理并行"
+Subtitle: "先数 GPU，再看分组，最后读懂每张卡的角色"
+Five compact colored mnemonic tags: "DP 分请求" "PP 分层" "TP 分矩阵" "CP 分上下文" "EP 分专家"
+Small scope line: "参数口径依据本文与当前仓库；各编号示例独立，不叠加配置。"
+
+SECTION 01 — exact heading: "01  先数卡：哪些参数增加 GPU？"
+Use two side-by-side comparative cards with small GPU-group illustrations, not just a table.
+Left card heading: "普通 DP：复制完整模型"
+Diagram: different requests A and B go to TWO independent full model replicas. Each replica is a rectangle containing a small 2 × 4 grid of exactly eight GPU squares. Label them "副本 0：8 卡" and "副本 1：8 卡". Their weights represent the complete model across each group, not a complete copy on every GPU.
+Exact formula: "总卡数 = DP × TP × PP"
+Example: "DP=2，TP=4，PP=2 → 16 卡"
+Parameter labels: "--dp-size   --tp-size   --pp-size"
+Right card heading: "DP Attention：在已有 TP 组内分工"
+Diagram: ONE existing group of eight GPUs, represented as two PP stages of four GPUs each. In each stage, bracket the first two GPUs as attention group A, the last two as attention group B, using teal/blue to match requests A/B. This is only an attention grouping; no full-model replica multiplication. Label "每个 PP 段：4 卡分成 2 个注意力组".
+Exact formula: "总卡数 = TP × PP"
+Example: "DP=2，TP=4，PP=2 → 8 卡"
+Parameter label: "--enable-dp-attention + --dp-size"
+Band caption: "attn_cp、moe_dp、EP 都在已有 TP 组内分，不再乘进总卡数。"
+
+SECTION 02 — exact heading: "02  PP × TP：先把模型放到 8 张卡上"
+Badge: "独立例子 A：DP=1，PP=2，TP=4"
+Draw a left-to-right inference path with two big stage rectangles and a distinct output node.
+"输入表示" → "PP 段 0 · 第 1–32 层" → "PP 段 1 · 第 33–64 层" → "Logits → 采样"
+Stage 0 contains four adjacent chips "GPU 0" "GPU 1" "GPU 2" "GPU 3". Stage 1 contains exactly "GPU 4" "GPU 5" "GPU 6" "GPU 7". Each stage has a repeated stack of layers, whose weight bars are split into four vertical slices aligned with its four chips.
+Vertical/horizontal visual braces explain: "PP：切模型深度" and "TP：切层内矩阵".
+Interstage arrow label: "传递隐藏向量".
+Below: "单个请求依次通过各段；多个微批可交错推进。"
+Tiny but readable glossary: "Token＝词元；隐藏向量＝词元的中间表示；KV＝注意力的键和值。"
+
+SECTION 03 — exact heading: "03  同一批 4 卡，Attention 与 MoE 的角色不同"
+Badge: "独立例子 B：PP=1，TP=4，attn_cp=2，moe_dp=2，EP=2"
+IMPORTANT prominent note: "下面两排是同一批 GPU 的两种视图，不是 8 张卡。"
+Use four strictly aligned vertical GPU columns, always GPU 0, GPU 1, GPU 2, GPU 3 in that order. Within these columns draw two rows: Attention role then MoE role. A pale continuous background lane per GPU emphasizes unchanged physical identity. Group brackets by pairs overlay the lanes. Keep the rows vertically aligned. Show input token strip "同一请求：t1 t2 t3 t4 t5 t6 t7 t8".
+
+Attention row heading: "Attention：先按 token 分，再按注意力头分"
+Formula: "attn_tp = TP ÷ attn_dp ÷ attn_cp = 4 ÷ 1 ÷ 2 = 2"
+Group left two GPUs under "CP 组 0 · t1–t4"; group right two under "CP 组 1 · t5–t8".
+Within left group: GPU 0 text "attn_tp_rank=0" and "一半注意力头"; GPU 1 "attn_tp_rank=1" and "另一半注意力头".
+Within right group: GPU 2 "attn_tp_rank=0" and "一半注意力头"; GPU 3 "attn_tp_rank=1" and "另一半注意力头".
+Each chip includes a small head-split illustration. Input token partitions should arrive at BOTH chips in their CP group, not one token chunk per head-shard.
+Between the CP groups draw a clear bidirectional communication line labelled "共享所需 KV，保持因果依赖".
+Below Attention: "连续切分仅作示意；实际可用交错或之字形策略。"
+
+Vertical transition between rows: "隐藏向量进入 MoE；按需重排 token 布局". Do not claim every transition needs a cross-device shuffle when layouts align. No arrow suggesting one parallelism strategy is a separate neural network layer.
+
+MoE row heading: "MoE：先分 token 副本组，再按专家分"
+Compact glossary: "MoE＝混合专家；Router＝路由器；专家是前馈网络 MLP。"
+Formula: "moe_tp = TP ÷ moe_dp ÷ EP = 4 ÷ 2 ÷ 2 = 1"
+Pair GPU 0 and GPU 1 in a purple boundary "MoE-DP 组 0 · 部分 token". Pair GPU 2 and GPU 3 in another boundary "MoE-DP 组 1 · 其余 token".
+GPU 0 contains "EP rank 0" and "专家 E0–E3".
+GPU 1 contains "EP rank 1" and "专家 E4–E7".
+GPU 2 contains "EP rank 0" and "专家 E0–E3".
+GPU 3 contains "EP rank 1" and "专家 E4–E7".
+Each group has a small "Router" diamond directing tokens to its locally hosted selected experts, with returning outputs merged inside the group. Draw a few selected expert blocks highlighted, not every expert selected for every token.
+Caption: "每个 MoE-DP 组共同拥有全部专家；每张卡只存分给自己的专家。"
+Follow-up caption: "Router 选专家 → 分发 token → 专家计算 → 合并结果"
+Accent callout: "同一张 GPU 1：Attention 算一半头；MoE 存 E4–E7。"
+
+SECTION 04 — exact heading: "04  公式与编号：size 是份数，rank 是位置"
+Two equal-width columns.
+Left column heading: "在 TP 组内继续分组"
+Show nested horizontal braces or a three-level tree, not a time-order flow:
+"Attention：attn_dp × attn_cp × attn_tp = TP"
+"MoE：moe_dp × EP × moe_tp = TP"
+Exact helper text: "不开 DP Attention 时，attn_dp=1。"
+"每一步必须整除；算得出的拓扑也要通过模型与后端校验。"
+Small independent matrix inset heading: "MoE-TP：一个专家也能再切"
+One matrix "专家 E 的权重" split into two complementary portions, placed on two chips labelled "分片 0" and "分片 1", then combine arrows labelled "合并部分结果". Caption "moe_tp=2 的原理示意". This inset is a concept illustration, NOT an extension of Example B or another eight-GPU configuration. Do not add a made-up unsupported command line.
+Right column heading: "例子 B 的 rank 对照"
+A perfectly legible table with six columns and exactly four data rows. Header text:
+"GPU" | "tp" | "attn_cp" | "attn_tp" | "moe_dp" | "EP"
+Rows exactly:
+"0" | "0" | "0" | "0" | "0" | "0"
+"1" | "1" | "0" | "1" | "0" | "1"
+"2" | "2" | "1" | "0" | "1" | "0"
+"3" | "3" | "1" | "1" | "1" | "1"
+Caption: "表中数值均为 rank；本例 pp_rank=0、moe_tp_rank=0。"
+Definition: "size=4 → rank 取 0、1、2、3"
+Definition: "gpu_id 是本机设备编号；rank 是并行分工坐标。"
+Extra small lines: "--base-gpu-id / --gpu-id-step：选择本地卡号"
+"--nnodes / --node-rank：机器数与本机序号"
+
+SECTION 05 — exact heading: "05  为什么要通信？并行的收益与代价"
+Left column heading: "四种常见协作"
+Four mini diagrams with concise exact explanations:
+"Send / Recv：把隐藏向量交给下一段" — two boxes with one directed arrow.
+"All-reduce：合并部分结果，各卡拿到总结果" — partial tensors a and b reduce to a+b then branch to both cards.
+"All-gather：收集各卡持有的数据分片" — tiles x and y on two devices become x,y on both.
+"All-to-all：按目标卡交换不同的 token" — two token sets redistribute through crossing arrows; no sum sign.
+Small note: "TP、CP、EP 的具体通信取决于实现；EP 也可用 gather/reduce 分发。"
+Right column heading: "按瓶颈选策略"
+Five concise rows:
+"并发请求多 → DP：增加副本，也增加权重占用"
+"单卡放不下 → TP：分摊权重，层内通信频繁"
+"模型层数多 → PP：按层分担，注意流水线空泡"
+"长提示词 → CP：分摊 prefill，仍需共享上下文"
+"MoE 专家多 → EP：分摊专家，关注路由与负载均衡"
+Final line: "更多 GPU 不保证等比例加速；显存、带宽与负载共同决定收益。"
+
+FOOTER — two readable informational lines in a pale amber callout, not an alarming warning sign.
+Heading: "概念能组合，参数不一定能任意组合"
+Text exactly: "当前仓库：moe_dp>1 要求 PP=1 且 attn_cp=moe_dp；若 EP>1，还要求 moe_dp×EP=TP。"
+Text exactly: "因此将原文的 PP 示例与 MoE-DP 示例分开展示；图示不等同于启动命令。"
+One separate quiet note: "本图 CP 讲预填充分词元；DCP 讲解码时分摊历史 KV 与局部注意力，配置不同。"
+Source credit: "依据《基础知识三：推理并行参数解释》及仓库分组与参数校验逻辑整理。"
+
+Accuracy constraints: All GPU counts, IDs, grouping boundaries and the four-row rank table must be exact. Do not multiply internal CP/EP/MoE-DP factors again when counting GPUs. DP groups store a complete distributed replica collectively, never claim every GPU holds all weights. In Example B each MoE-DP group collectively holds E0–E7, not each individual GPU. Do not draw attention only attending to local tokens without KV sharing. Do not imply CP produces dependent output tokens concurrently. PP stage 0 contains Attention/MoE repeated for its own layers, not all attention separated from all MoE; the abstract stack in section 02 is deliberately independent of section 03. Do not portray every TP operation as always all-reduce or every EP dispatch as always all-to-all. Do not claim the old CLI spelling is current across every SGLang release; the scope line specifies the source article and local repository. Preserve all supplied Chinese, Latin acronyms, identifiers, numbers and formulas. Omit English acronym expansions if space is tight; never omit the distinct-example badges or correctness notes. No invented performance benchmarks, no watermark, no extra unrequested text.
+
+
+
+===== 2. Edit pass =====
+
+Use case: infographic-diagram
+Input image 1: edit target, the generated Chinese SGLang parallelism poster.
+Primary request: Repair the poster's legibility and a few specific diagram-label defects. Keep its title, five numbered sections, overall organization, independent examples A and B, GPU grouping semantics, and four-row rank table. Produce the finished printable teaching poster. Use a FULLY OPAQUE solid WHITE rectangular background across the ENTIRE image. No transparency, no alpha holes, no background removal, no speckled edges or checkered areas. Every label must be solid dark navy or black, sharply typeset. Preserve the existing restrained section colors. Prefer a high-resolution 2160 × 3840 output, portrait 9:16, with readable small text.
+
+Apply these precise repairs:
+1. Repaint all currently transparent/black gaps as solid white, restore the title and captions as clean dark navy text, and remove all speckles/halos. This includes the header, whitespace between sections, transition arrows and footer. Keep normal diagram fills intact. The background must remain white in both light and dark viewers.
+2. In section 01, normal DP uses two separate replicas of EIGHT GPUs each. Correct their tiny GPU labels: the first replica has GPU 0,1,2,3 across the top and GPU 4,5,6,7 below; the second replica has GPU 8,9,10,11 across the top and GPU 12,13,14,15 below. Each replica thus has exactly eight chips. These are unique device IDs across a single illustrative 16-GPU deployment, not duplicated IDs. Keep formulas DP×TP×PP=16 and TP×PP=8.
+3. Section 02 left input node should say only "输入表示". Remove "(Token)" under it because a hidden representation is not the token ID itself. The GPU sequence must remain 0,1,2,3 → 4,5,6,7 with PP stages 1–32 layers and 33–64 layers. Preserve "传递隐藏向量" over the interstage arrow. Maintain explicit example A: DP=1, PP=2, TP=4.
+4. The section 03 four device lanes and expert ranges are correct and must remain unchanged. Maintain the clearly readable note "下面两排是同一批 GPU 的两种视图，不是 8 张卡。" Make the transition caption readable: "隐藏向量进入 MoE；按需重排 token 布局". Keep the exact footnote "每个 MoE-DP 组共同拥有全部专家；每张卡只存分给自己的专家。" Keep example B PP=1, TP=4, attn_cp=2, moe_dp=2, EP=2. Do not combine it with example A. The input token chunks are a simplified contiguous assignment, with "连续切分仅作示意；实际可用交错或之字形策略。".
+5. Section 04 MoE-TP mini-diagram: simplify to exactly ONE expert matrix "专家 E 的权重", split into TWO complementary colored halves. Place half 0 on "GPU A：分片 0" and half 1 on "GPU B：分片 1". Arrows from the two partial-compute outputs converge at "合并部分结果". Caption "moe_tp=2 的原理示意". Do not draw four matrix parts or four GPUs. This is an independent principle inset.
+6. Section 05 All-reduce diagram must be corrected. Draw GPU A initially holding scalar "a", GPU B initially holding scalar "b". They feed a center node "a+b". From that node, two arrows go to GPU A holding exactly "a+b" and GPU B holding exactly "a+b". Neither final GPU holds separate a/b tiles or x/y. Both receive the same sum. Keep the other three communication definitions. All-gather has GPU A=x and GPU B=y initially; BOTH get the pair x,y afterwards. All-to-all redistributes token tiles without summing. Do not confuse these mechanisms.
+7. Retypeset the bottom note in two or three large readable lines. Exact text: "当前仓库：moe_dp>1 要求 PP=1 且 attn_cp=moe_dp；若 EP>1，还要求 moe_dp×EP=TP。" / "原文的 PP 与 MoE-DP 示例分开展示；图示不等同于启动命令。" / "CP 分摊预填充词元；DCP 分摊解码历史 KV 与局部注意力，配置不同。" If needed, remove the long source-credit footer to give these text lines enough room. Do not invent new text.
+
+Other text to preserve clearly:
+"Attention：attn_dp × attn_cp × attn_tp = TP"
+"MoE：moe_dp × EP × moe_tp = TP"
+"不开 DP Attention 时，attn_dp=1。"
+"size=4 → rank 取 0、1、2、3"
+"gpu_id 是本机设备编号；rank 是并行分工坐标。"
+The rank table columns GPU / tp / attn_cp / attn_tp / moe_dp / EP have four exact rows:
+0 / 0 / 0 / 0 / 0 / 0
+1 / 1 / 0 / 1 / 0 / 1
+2 / 2 / 1 / 0 / 1 / 0
+3 / 3 / 1 / 1 / 1 / 1
+
+Constraints: Preserve useful content and scientific correctness. Improve readability and spacing without reducing contrast. The entire final image must have an opaque white canvas; do not apply transparent-background extraction. No invented diagrams, duplicated sections, decorative objects, watermarks or extra text. If space is tight, shorten minor explanatory prose, not the key formulas, GPU counts, rank table, KV sharing arrow, or independent-example labels.
+
+
+
+===== 3. Edit pass =====
+
+Use case: text-localization
+Input image 1: edit target, an almost-complete Chinese SGLang inference parallelism educational poster.
+Primary request: Correct ONLY the six localized labeling defects below. Keep all other pixels, section positions, groups, formulas, GPU counts, rank table, white background and visual style unchanged. Do not reimagine or redraw the poster. Keep the canvas FULLY OPAQUE WHITE, with no transparency or speckled text.
+
+1. Replace the single subtitle under the main title with exactly: "先数 GPU，再看分组，最后读懂每张卡的角色". Remove the existing efficiency slogan; it is not appropriate. The title "一图读懂 SGLang 推理并行" remains unchanged.
+2. Section 03, the tiny caption at the LEFT of the t1–t8 token strip, must read exactly "同一请求：". It currently reads "同一批次：". This section depicts token chunks from one request.
+3. Section 03, Attention row, CP 组 1: the LEFT chip in that CP group must read "GPU 2", not "GPU 4". The Attention chips from left to right MUST be GPU 0, GPU 1, GPU 2, GPU 3. The rightmost chip remains GPU 3. Do not change ANY other GPU number in sections 01 or 02. The MoE row below already correctly has GPU 0,1,2,3 and must remain unchanged.
+4. Section 03, Attention row, RIGHTMOST chip GPU 3: its bottom caption must read exactly "另一半注意力头", matching its attn_tp_rank=1 role. GPU 2 keeps "一半注意力头". This makes the two halves clear in both CP groups.
+5. Section 03, lower left MoE glossary: replace "MoE＝路由专家" with exactly "MoE＝混合专家". The two glossary lines must be exactly "MoE＝混合专家；Router＝路由器；" and "专家是前馈网络 MLP。".
+6. Section 05, the FIRST miniature communication diagram, Send / Recv: keep its two GPU boxes and right-pointing arrow, but replace the two payload labels so that GPU A has "H" and GPU B also has "H". The same hidden-state payload is transferred unchanged. The label above must read "Send / Recv：把隐藏向量传给下一段". Do not modify All-reduce, All-gather or All-to-all below: All-reduce must still produce a+b on BOTH GPUs, and All-gather must still produce x,y on BOTH GPUs.
+
+Scientific invariants: Section 01 has two complete eight-GPU ordinary DP replicas (IDs 0–7 and 8–15); DPA has eight total devices. Example A is independent of Example B. Example B has only four physical devices shown in two role views. The section 04 rank table must remain exactly as in the target. All formulas and the final current-repository constraints remain unchanged. Preserve opaque background and readability. No new slogans, labels, warnings, decorations, or watermarks.
+
+
+
+===== 4. Edit pass =====
+
+Use case: text-localization
+Input image 1: edit target. A Chinese educational poster with one remaining mislabeled GPU chip.
+Make exactly ONE small localized edit. Do not redraw or retype the rest of the poster.
+
+Locate section 03, the Attention row (the UPPER of the two device rows in that section). In the cyan bracket "CP 组 1: t5-t8", its LEFT black GPU chip is incorrectly labeled "GPU 4". Change that chip to "GPU 2". Change the white numeral FOUR (4) to the white numeral TWO (2). The chip is the third chip from the left in the Attention row, sitting above the labels "t5 t6 t7 t8", "attn_tp_rank=0" and "一半注意力头".
+
+Exact location in the supplied 941 × 1672 image: the erroneous numeral is around x=690, y=795. Limit the edit to the black chip rectangle approximately x=664..716, y=767..811. Relative location: 73% from the left edge, 47.5% from the top. This is NOT the GPU 4 in section 02 above; that other GPU 4 must remain unchanged.
+
+After the edit, the four chips across the section 03 Attention row must visibly read "GPU 0", "GPU 1", "GPU 2", "GPU 3". The MoE row directly below already reads 0,1,2,3 and must remain unchanged. Preserve all other pixels, Chinese text, colors, arrows, table, layout and the solid opaque white background. No transparency. No new objects or text. This is a one-character correction, 4 → 2.

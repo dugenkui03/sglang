@@ -1207,6 +1207,7 @@ def run_scheduler_process(
     from sglang.multimodal_gen.runtime.managers.scheduler import Scheduler
 
     try:
+        # NOTE 创建 Scheduler
         scheduler = Scheduler(
             server_args,
             gpu_id=rank,
@@ -1221,6 +1222,7 @@ def run_scheduler_process(
                 "status": "ready",
             }
         )
+        # NOTE 启动 scheduler 进程
         scheduler.event_loop()
     except _oom_exceptions() as _e:
         logger.warning(OOM_MSG)
