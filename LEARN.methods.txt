@@ -1,0 +1,175 @@
+# SGLang 核心链路阅读覆盖清单；由 quick_learn/update_learn_progress.py --write 生成。
+# scope_version=1; baseline_commit=6388b6cfb1d93c253714a408f1d66a093302acd7
+# source=current_worktree_including_uncommitted; HEAD=a4d25296b1a26c9218531b71b8efa152e47ded69
+# source_sha256=9858ca18d92f627506c60303b5a3e95947be3e8c65cd7cdf9b89ea3b61be47ea
+# scope_sha256=80157d7888b3ce30cae0b6d14f9c497d145881199eae91c807b306689faf2a06
+# SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph。
+# 模型只取 Llama，Attention 后端只取 FlashAttention，前缀缓存只取基础 RadixCache，KV 槽位取 paged allocator；同类实现不重复扩展分母。
+# D=直接注释；C=两个 D 之间的链路补全；B=分支补全；U=待覆盖。
+# 分支规则：至少 2 个 D，且补全前 (D+C)/N >= 2/3；C/B 不作为新的链路端点。
+# 每个方法只属于一个分支、等权计 1；learned=1 包含 D/C/B，不表示考试或能力认证。
+# 已覆盖=82/137 (59.9%); D=69; C=6; B=7; U=55
+# branch=launch (启动三类进程及 HTTP 服务): 8/8; D=8,C=0,B=0,U=0
+# branch=worker_startup (GPU 执行组件初始化与模型加载): 7/7; D=7,C=0,B=0,U=0
+# branch=configuration (从启动参数到本进程配置): 2/4; D=2,C=0,B=0,U=2
+# branch=api (生成 API 到内部请求): 3/6; D=3,C=0,B=0,U=3
+# branch=tokenizer_setup (主进程请求处理组件): 3/3; D=3,C=0,B=0,U=0
+# branch=tokenize_submit (请求登记、分词与提交): 7/7; D=7,C=0,B=0,U=0
+# branch=scheduler_ingress (接收、分发与入队): 7/7; D=5,C=0,B=2,U=0
+# branch=scheduler_loop (普通与重叠调度主循环): 4/4; D=4,C=0,B=0,U=0
+# branch=prefill_admission (Prefill 选择与预算控制): 3/8; D=2,C=1,B=0,U=5
+# branch=batch_layout (Prefill 与 decode 批次状态): 1/7; D=1,C=0,B=0,U=6
+# branch=decode_pressure (Decode 显存不足与回退): 0/3; D=0,C=0,B=0,U=3
+# branch=forward_bridge (调度批次进入 GPU 执行): 4/4; D=3,C=0,B=1,U=0
+# branch=future_map (Overlap 结果与后续输入衔接): 3/3; D=2,C=0,B=1,U=0
+# branch=runner_dispatch (模型执行路径分派): 5/5; D=4,C=1,B=0,U=0
+# branch=decode_graph (基础 decode CUDA Graph): 0/3; D=0,C=0,B=0,U=3
+# branch=dense_model (一个 dense 模型的前向主干): 0/5; D=0,C=0,B=0,U=5
+# branch=attention_backend (Attention 与 KV 读写): 0/5; D=0,C=0,B=0,U=5
+# branch=kv_setup (请求池和 KV 池的建立): 6/6; D=4,C=0,B=2,U=0
+# branch=kv_slots (请求与 KV 槽位分配): 0/8; D=0,C=0,B=0,U=8
+# branch=radix_lookup (前缀匹配与引用保护): 0/5; D=0,C=0,B=0,U=5
+# branch=radix_update (缓存写回与淘汰): 0/5; D=0,C=0,B=0,U=5
+# branch=sampling (从隐藏状态到下一个 token): 3/6; D=2,C=1,B=0,U=3
+# branch=result_commit (前向结果进入请求状态): 3/5; D=3,C=0,B=0,U=2
+# branch=output_stream (Scheduler 输出 token 消息): 2/2; D=1,C=1,B=0,U=0
+# branch=detokenize (Token 消息增量解码为文本): 5/5; D=4,C=0,B=1,U=0
+# branch=response (按 rid 回送流式与完整响应): 6/6; D=4,C=2,B=0,U=0
+learned	status	stage	branch	id	file	qualname	line	concept	evidence
+1	D	1	launch	launch_server	python/sglang/srt/entrypoints/http_server.py	launch_server	2790	服务启动总入口	新增中文说明 L2791,2793,2795,2797,2799,2801,2810,2827
+1	D	1	launch	launch_processes	python/sglang/srt/entrypoints/engine.py	Engine._launch_subprocesses	1051	编排进程启动与就绪	新增中文说明 L1067,1068,1069,1070,1071,1072,1083,1092,1102,1103,1111,1126,1128,1153,1154,1163,1166,1174,1175,1176,1180,1182,1233,1239,1246,1247,1260,1266,1276,1283,1284,1285,1289
+1	D	1	launch	launch_schedulers	python/sglang/srt/entrypoints/engine.py	Engine._launch_scheduler_processes	838	按 rank 拉起 GPU worker	新增中文说明 L875,876,878,879,880,886,887,888,894,896,900,914,960
+1	D	1	launch	launch_detokenizer	python/sglang/srt/entrypoints/engine.py	Engine._launch_detokenizer_subprocesses	964	拉起解码回包进程	新增中文说明 L984,986
+1	D	1	launch	init_tokenizer	python/sglang/srt/entrypoints/engine.py	init_tokenizer_manager	156	建立主进程请求入口	新增中文说明 L159,161,162,163,164,168,170,171,173,174,175
+1	D	1	launch	run_scheduler_process	python/sglang/srt/managers/scheduler.py	run_scheduler_process	5465	Scheduler 子进程入口	新增中文说明 L5516,5533
+1	D	1	launch	run_detokenizer_process	python/sglang/srt/managers/detokenizer_manager.py	run_detokenizer_process	610	Detokenizer 子进程入口	新增中文说明 L625
+1	D	1	launch	setup_http	python/sglang/srt/entrypoints/http_server.py	_setup_and_run_http_server	2522	将 Engine 组件接入 HTTP 服务	新增中文说明 L2533,2534,2535,2536,2542,2544,2557,2605
+1	D	1	worker_startup	scheduler_init	python/sglang/srt/managers/scheduler.py	Scheduler.__init__	413	调度器资源与组件初始化	新增中文说明 L542,543,583,668
+1	D	1	worker_startup	init_model_worker	python/sglang/srt/managers/scheduler.py	Scheduler.init_model_worker	1055	编排权重、缓存、后端和图初始化	新增中文说明 L1056,1057,1058,1059,1060,1063,1071,1076,1134,1135
+1	D	1	worker_startup	init_tp_worker	python/sglang/srt/managers/scheduler.py	Scheduler.init_tp_model_worker	942	建立调度到 GPU 的执行桥	新增中文说明 L943,944,945,946,957,963
+1	D	1	worker_startup	worker_init	python/sglang/srt/managers/tp_worker.py	TpModelWorker.__init__	318	建立模型配置与 ModelRunner	新增中文说明 L353,354
+1	D	1	worker_startup	runner_init	python/sglang/srt/model_executor/model_runner.py	ModelRunner.__init__	314	GPU 执行状态与设备配置	新增中文说明 L329,431,465
+1	D	1	worker_startup	runner_initialize	python/sglang/srt/model_executor/model_runner.py	ModelRunner.initialize	649	模型执行环境初始化顺序	新增中文说明 L650,659,661,678,679
+1	D	1	worker_startup	load_model	python/sglang/srt/model_executor/model_runner.py	ModelRunner.load_model	1142	将模型权重与结构加载到执行器	新增中文说明 L1143,1146,1173,1191,1239,1240
+1	D	2	configuration	resolve_config	python/sglang/srt/server_args.py	ServerArgs.resolve_once	3675	一次性解析启动配置	新增中文说明 L3687,3690
+1	D	2	configuration	publish_config	python/sglang/srt/runtime_context.py	publish	1323	向本进程发布运行配置	新增中文说明 L1339
+0	U	2	configuration	install_config	python/sglang/srt/runtime_context.py	RuntimeContext.set_server_args	807	构造可读取的配置分组	无直接证据，且未满足补全规则
+0	U	2	configuration	port_args	python/sglang/srt/server_args.py	PortArgs.init_new	11197	分配组件间通信地址	无直接证据，且未满足补全规则
+1	D	3	api	native_generate	python/sglang/srt/entrypoints/http_server.py	generate_request	899	原生生成入口与流式选择	新增中文说明 L901,905,942
+1	D	3	api	chat_endpoint	python/sglang/srt/entrypoints/http_server.py	openai_v1_chat_completions	1732	OpenAI chat 入口	新增中文说明 L1736
+1	D	3	api	handle_api_request	python/sglang/srt/entrypoints/openai/serving_base.py	OpenAIServingBase.handle_request	73	校验、转换和响应路径选择	新增中文说明 L79,80,91,97,98,99,104,114
+0	U	3	api	convert_chat	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._convert_to_internal_request	968	Chat 请求转换为 GenerateReqInput	无直接证据，且未满足补全规则
+0	U	3	api	process_messages	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._process_messages	1102	会话消息转换为模型输入	无直接证据，且未满足补全规则
+0	U	3	api	chat_template	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._apply_jinja_template	1208	应用模型会话模板	无直接证据，且未满足补全规则
+1	D	4	tokenizer_setup	tokenizer_init	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager.__init__	423	建立请求处理状态与组件	新增中文说明 L431,449,451,455,456,460,461,465,466,470,474,478,482,486,490,495
+1	D	4	tokenizer_setup	tokenizer_processor	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager.init_tokenizer_and_processor	517	初始化模型分词器	新增中文说明 L519,524,543,547,548,554,558,560,561,562,563
+1	D	4	tokenizer_setup	tokenizer_ipc	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager.init_ipc_channels	598	建立请求与回包管道	新增中文说明 L600,602,603,604,605,607,608,609,610,613,614,615,617,622,623,624,625,630
+1	D	4	tokenize_submit	generate_request	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager.generate_request	847	统一请求生命周期入口	新增中文说明 L852,855,860,867,873,885,888,892,895,899,901,902,903,911,913,914,916,917,918,919,920,924,926,936
+1	D	4	tokenize_submit	init_req_state	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._init_req_state	3570	以 rid 登记请求状态	新增中文说明 L3576,3592,3594,3611,3616,3617
+1	D	4	tokenize_submit	tokenize_request	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._tokenize_one_request	1066	构造单个 tokenized 请求	新增中文说明 L1077,1079,1104,1107,1110,1235,1237,1239,1240,1241,1242,1244,1245
+1	D	4	tokenize_submit	tokenize_texts	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._tokenize_texts	991	文本与 token 输入的分词路径	新增中文说明 L997,1034
+1	D	4	tokenize_submit	validate_request	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._validate_one_request	1279	上下文长度与生成预算检查	新增中文说明 L1284,1285,1286
+1	D	4	tokenize_submit	create_tokenized	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._create_tokenized_object	1458	生成跨进程请求对象	新增中文说明 L1459,1460,1461,1462,1463,1464,1465,1468,1471,1472,1482,1495,1496,1497,1507,1515
+1	D	4	tokenize_submit	send_request	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._send_one_request	1694	提交请求并关联返回状态	新增中文说明 L1696,1709
+1	D	5	scheduler_ingress	receive_requests	python/sglang/srt/managers/scheduler_components/request_receiver.py	SchedulerRequestReceiver.recv_requests	88	接收本轮请求并做 rank 同步	新增中文说明 L93,94,95,105,106,112,113,116,118,120
+1	D	5	scheduler_ingress	pull_requests	python/sglang/srt/managers/scheduler_components/request_receiver.py	SchedulerRequestReceiver._pull_raw_reqs	127	从主进程管道接收消息	新增中文说明 L128,129,130,131,132,133,134,135,139,156,157,158,159,160,170,179,180
+1	B	5	scheduler_ingress	broadcast_requests	python/sglang/srt/managers/scheduler_components/request_receiver.py	SchedulerRequestReceiver._broadcast_reqs_across_ranks	195	将请求分发到参与执行的 rank	branch=scheduler_ingress;direct=5;covered_before_branch=5/7
+1	D	5	scheduler_ingress	dispatch_requests	python/sglang/srt/managers/scheduler.py	Scheduler.process_input_requests	2007	按消息类型分派处理	新增中文说明 L2009,2010,2012,2016,2021,2033,2034
+1	D	5	scheduler_ingress	handle_generate	python/sglang/srt/managers/scheduler.py	Scheduler.handle_generate_request	2558	将 tokenized 输入变为调度请求	新增中文说明 L2563,2570,2573,2578,2590,2592,2639,2652,2653,2654,2720,2722,2890
+1	B	5	scheduler_ingress	init_request	python/sglang/srt/managers/schedule_batch.py	Req.__init__	830	建立请求、生成和缓存状态	branch=scheduler_ingress;direct=5;covered_before_branch=5/7
+1	D	5	scheduler_ingress	enqueue	python/sglang/srt/managers/scheduler.py	Scheduler._add_request_to_queue	2950	进入等待队列	新增中文说明 L2951,2959,2962
+1	D	5	scheduler_loop	dispatch_loop	python/sglang/srt/managers/scheduler.py	dispatch_event_loop	5354	选择运行主循环	新增中文说明 L5358,5362,5365,5368,5369,5370,5371,5374,5375,5376,5377,5380,5388
+1	D	5	scheduler_loop	run_loop	python/sglang/srt/managers/scheduler.py	Scheduler.run_event_loop	1773	按服务模式选择事件循环	新增中文说明 L1785,1810
+1	D	5	scheduler_loop	normal_loop	python/sglang/srt/managers/scheduler.py	Scheduler.event_loop_normal	1827	收请求、组批、前向、结果处理	新增中文说明 L1834,1842,1847,1849
+1	D	5	scheduler_loop	overlap_loop	python/sglang/srt/managers/scheduler.py	Scheduler.event_loop_overlap	1868	CPU 调度和 GPU 执行交错推进	新增中文说明 L1867,1870,1873,1874,1880,1893,1895,1896,1902,1927,1938
+1	D	5	prefill_admission	next_batch	python/sglang/srt/managers/scheduler.py	Scheduler.get_next_batch_to_run	3251	选择下一轮 prefill/decode 批次	新增中文说明 L3254,3264,3279,3280,3317,3323,3328,3340,3362,3364,3367,3398
+1	C	5	prefill_admission	new_prefill	python/sglang/srt/managers/scheduler.py	Scheduler.get_new_batch_prefill	3421	建立 prefill 批次入口	chain=normal_schedule;anchors=next_batch->raw_prefill | chain=overlap_schedule;anchors=next_batch->raw_prefill | chain=prefill_batch;anchors=next_batch->raw_prefill | chain=prefill_priority;anchors=next_batch->raw_prefill
+1	D	5	prefill_admission	raw_prefill	python/sglang/srt/managers/scheduler.py	Scheduler._get_new_batch_prefill_raw	3448	选择可接纳的等待请求	新增中文说明 L3618
+0	U	5	prefill_admission	priority	python/sglang/srt/managers/schedule_policy.py	SchedulePolicy.calc_priority	237	确定等待队列处理顺序	无直接证据，且未满足补全规则
+0	U	5	prefill_admission	prefill_budget	python/sglang/srt/managers/schedule_policy.py	PrefillAdder.__init__	512	建立 token 与显存接纳预算	无直接证据，且未满足补全规则
+0	U	5	prefill_admission	admit_request	python/sglang/srt/managers/schedule_policy.py	PrefillAdder.add_one_req	1208	检查预算并接纳请求	无直接证据，且未满足补全规则
+0	U	5	prefill_admission	admit_chunk	python/sglang/srt/managers/schedule_policy.py	PrefillAdder.add_chunked_req	1004	继续处理分块 prefill 请求	无直接证据，且未满足补全规则
+0	U	5	prefill_admission	update_budget	python/sglang/srt/managers/schedule_policy.py	PrefillAdder._update_prefill_budget	864	扣减本轮 prefill 预算	无直接证据，且未满足补全规则
+0	U	5	batch_layout	request_next_input	python/sglang/srt/managers/schedule_batch.py	Req.init_next_round_input	1323	按已缓存前缀准备下轮输入	无直接证据，且未满足补全规则
+0	U	5	batch_layout	batch_init	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.init_new	2244	从请求集合建立调度批次	无直接证据，且未满足补全规则
+0	U	5	batch_layout	prepare_extend	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.prepare_for_extend	2423	准备 prefill token、长度和缓存位置	无直接证据，且未满足补全规则
+1	D	5	batch_layout	update_decode	python/sglang/srt/managers/scheduler.py	Scheduler.update_running_batch	3774	维护继续生成的请求集合	新增中文说明 L3776
+0	U	5	batch_layout	prepare_decode	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.prepare_for_decode	3162	为每个请求准备下一 token 的执行状态	无直接证据，且未满足补全规则
+0	U	5	batch_layout	filter_batch	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.filter_batch	3254	移除结束请求并对齐批次张量	无直接证据，且未满足补全规则
+0	U	5	batch_layout	merge_batch	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.merge_batch	3341	合并完成 prefill 的请求与运行批次	无直接证据，且未满足补全规则
+0	U	5	decode_pressure	check_decode_memory	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.check_decode_mem	2899	检查下一轮 KV 容量	无直接证据，且未满足补全规则
+0	U	5	decode_pressure	retract_decode	python/sglang/srt/managers/schedule_batch.py	ScheduleBatch.retract_decode	2906	显存不足时撤回部分请求	无直接证据，且未满足补全规则
+0	U	5	decode_pressure	reset_retracted	python/sglang/srt/managers/schedule_batch.py	Req.reset_for_retract	1696	重置被撤回请求以便重新调度	无直接证据，且未满足补全规则
+1	D	6	forward_bridge	run_batch	python/sglang/srt/managers/scheduler.py	Scheduler.run_batch	3920	提交一轮模型计算并接收结果	新增中文说明 L3922,3926,3937,3944,3954,3955,3957,3964,3965,3966,3967,3969,3976,4000,4001,4005
+1	D	6	forward_bridge	worker_forward	python/sglang/srt/managers/tp_worker.py	TpModelWorker.forward_batch_generation	600	组织 ForwardBatch、前向与采样	新增中文说明 L602,611,612,613,615,622,624,643,663,688,691
+1	B	6	forward_bridge	forward_batch	python/sglang/srt/model_executor/forward_batch_info.py	ForwardBatch.init_new	723	调度视图转换为 GPU 批次视图	branch=forward_bridge;direct=3;covered_before_branch=3/4
+1	D	6	forward_bridge	resolve_inputs	python/sglang/srt/managers/overlap_utils.py	resolve_forward_inputs	87	将 overlap 的未来 token 解析为实际输入	新增中文说明 L96,110
+1	D	6	future_map	future_init	python/sglang/srt/managers/overlap_utils.py	FutureMap.__init__	259	建立未来输出槽位映射	新增中文说明 L287,288,289,290,291,292,298,299,300,301,302
+1	B	6	future_map	future_publish	python/sglang/srt/managers/overlap_utils.py	FutureMap.publish	535	发布 GPU 输出供后续批次使用	branch=future_map;direct=2;covered_before_branch=2/3
+1	D	6	future_map	future_stash	python/sglang/srt/managers/overlap_utils.py	FutureMap.stash	560	保存可复用的异步执行结果	新增中文说明 L561
+1	D	7	runner_dispatch	model_forward	python/sglang/srt/model_executor/model_runner.py	ModelRunner.forward	1597	模型前向总入口	新增中文说明 L1606,1645
+1	D	7	runner_dispatch	raw_forward	python/sglang/srt/model_executor/model_runner.py	ModelRunner._forward_raw	1745	选择图执行或 eager 路径	新增中文说明 L1747,1753,1780,1781,1807,1823,1841
+1	C	7	runner_dispatch	eager_execute	python/sglang/srt/model_executor/runner/eager_runner.py	EagerRunner.execute	214	按 ForwardMode 分派执行	chain=eager_extend_model;anchors=raw_forward->eager_extend | chain=eager_decode_model;anchors=raw_forward->eager_decode
+1	D	7	runner_dispatch	eager_extend	python/sglang/srt/model_executor/runner/eager_runner.py	EagerRunner._execute_extend	289	Prefill 的模型执行入口	新增中文说明 L291,295,300
+1	D	7	runner_dispatch	eager_decode	python/sglang/srt/model_executor/runner/eager_runner.py	EagerRunner._execute_decode	248	Decode 的模型执行入口	新增中文说明 L254,255,256,257,258,259,260,279,280,281,283
+0	U	7	decode_graph	can_replay	python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py	DecodeCudaGraphRunner.can_run_graph	676	判断批次是否满足图重放条件	无直接证据，且未满足补全规则
+0	U	7	decode_graph	capture_graph	python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py	DecodeCudaGraphRunner.capture	1027	捕获固定布局的执行图	无直接证据，且未满足补全规则
+0	U	7	decode_graph	replay_graph	python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py	DecodeCudaGraphRunner.execute	1449	重放已捕获的执行图	无直接证据，且未满足补全规则
+0	U	7	dense_model	causal_lm	python/sglang/srt/models/llama.py	LlamaForCausalLM.forward	563	模型前向与语言模型输出	无直接证据，且未满足补全规则
+0	U	7	dense_model	llama_model	python/sglang/srt/models/llama.py	LlamaModel.forward	419	嵌入与多层执行	无直接证据，且未满足补全规则
+0	U	7	dense_model	decoder_layer	python/sglang/srt/models/llama.py	LlamaDecoderLayer.forward	341	Attention、MLP 与残差连接	无直接证据，且未满足补全规则
+0	U	7	dense_model	llama_attention	python/sglang/srt/models/llama.py	LlamaAttention.forward	240	QKV 投影与位置编码	无直接证据，且未满足补全规则
+0	U	7	dense_model	llama_mlp	python/sglang/srt/models/llama.py	LlamaMLP.forward	111	前馈网络计算	无直接证据，且未满足补全规则
+0	U	7	attention_backend	radix_attention	python/sglang/srt/layers/radix_attention.py	RadixAttention.forward	157	模型层接入 SGLang 注意力后端	无直接证据，且未满足补全规则
+0	U	7	attention_backend	attention_metadata	python/sglang/srt/layers/attention/flashattention_backend.py	FlashAttentionBackend.init_forward_metadata	683	准备批次和 KV 索引元数据	无直接证据，且未满足补全规则
+0	U	7	attention_backend	attention_extend	python/sglang/srt/layers/attention/flashattention_backend.py	FlashAttentionBackend.forward_extend	1228	Prefill 注意力与 KV 写入	无直接证据，且未满足补全规则
+0	U	7	attention_backend	attention_decode	python/sglang/srt/layers/attention/flashattention_backend.py	FlashAttentionBackend.forward_decode	1804	读取历史 KV 并计算 decode 注意力	无直接证据，且未满足补全规则
+0	U	7	attention_backend	store_kv	python/sglang/srt/mem_cache/memory_pool.py	MHATokenToKVPool.set_kv_buffer	2376	将新 token 的 K/V 写入槽位	无直接证据，且未满足补全规则
+1	D	8	kv_setup	init_memory	python/sglang/srt/managers/scheduler.py	Scheduler.init_memory_pools	1023	建立调度器持有的缓存池	新增中文说明 L1025,1033
+1	D	8	kv_setup	init_target_memory	python/sglang/srt/managers/scheduler.py	Scheduler.init_target_memory_pool	999	连接模型执行器的目标缓存池	新增中文说明 L1002,1006
+1	D	8	kv_setup	worker_memory	python/sglang/srt/managers/tp_worker.py	TpModelWorker.alloc_memory_pool	407	向执行器请求 KV 池	新增中文说明 L420,421
+1	D	8	kv_setup	runner_memory	python/sglang/srt/model_executor/model_runner.py	ModelRunner.alloc_memory_pool	875	按容量创建并发布缓存资源	新增中文说明 L878,884,888,890,892,894
+1	B	8	kv_setup	request_pool	python/sglang/srt/mem_cache/memory_pool.py	ReqToTokenPool.__init__	261	建立请求槽位到 token 槽位的映射表	branch=kv_setup;direct=4;covered_before_branch=4/6
+1	B	8	kv_setup	kv_pool	python/sglang/srt/mem_cache/memory_pool.py	MHATokenToKVPool.__init__	1805	建立各层 K/V 的实际存储	branch=kv_setup;direct=4;covered_before_branch=4/6
+0	U	8	kv_slots	allocate_request	python/sglang/srt/mem_cache/memory_pool.py	ReqToTokenPool.alloc	292	为活跃请求分配映射表行	无直接证据，且未满足补全规则
+0	U	8	kv_slots	free_request	python/sglang/srt/mem_cache/memory_pool.py	ReqToTokenPool.free	340	归还请求映射表行	无直接证据，且未满足补全规则
+0	U	8	kv_slots	allocate_extend	python/sglang/srt/mem_cache/allocation.py	alloc_for_extend	282	为新增 prefill token 分配 KV	无直接证据，且未满足补全规则
+0	U	8	kv_slots	allocate_decode	python/sglang/srt/mem_cache/allocation.py	alloc_for_decode	528	为下一轮 decode token 分配 KV	无直接证据，且未满足补全规则
+0	U	8	kv_slots	map_slots	python/sglang/srt/mem_cache/allocation.py	assign_req_to_token_pool	594	将逻辑 token 位置映射到 KV 槽位	无直接证据，且未满足补全规则
+0	U	8	kv_slots	paged_extend	python/sglang/srt/mem_cache/allocator/paged.py	PagedTokenToKVPoolAllocator.alloc_extend	172	按页接纳 prefill 的 KV 增量	无直接证据，且未满足补全规则
+0	U	8	kv_slots	paged_decode	python/sglang/srt/mem_cache/allocator/paged.py	PagedTokenToKVPoolAllocator.alloc_decode	222	处理 decode 跨页分配	无直接证据，且未满足补全规则
+0	U	8	kv_slots	paged_free	python/sglang/srt/mem_cache/allocator/paged.py	PagedTokenToKVPoolAllocator.free	261	归还 KV 页面	无直接证据，且未满足补全规则
+0	U	8	radix_lookup	match_prefix	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.match_prefix	377	查找可复用前缀	无直接证据，且未满足补全规则
+0	U	8	radix_lookup	match_prefix_tree	python/sglang/srt/mem_cache/radix_cache.py	RadixCache._match_prefix_helper	679	沿树匹配 token 序列	无直接证据，且未满足补全规则
+0	U	8	radix_lookup	split_radix_node	python/sglang/srt/mem_cache/radix_cache.py	RadixCache._split_node	705	部分命中时拆分树节点	无直接证据，且未满足补全规则
+0	U	8	radix_lookup	lock_prefix	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.inc_lock_ref	623	保护活跃请求使用的缓存	无直接证据，且未满足补全规则
+0	U	8	radix_lookup	unlock_prefix	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.dec_lock_ref	638	释放缓存引用保护	无直接证据，且未满足补全规则
+0	U	8	radix_update	insert_prefix	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.insert	437	插入可复用 token 前缀	无直接证据，且未满足补全规则
+0	U	8	radix_update	insert_prefix_tree	python/sglang/srt/mem_cache/radix_cache.py	RadixCache._insert_helper	738	维护前缀树节点与 KV 所有权	无直接证据，且未满足补全规则
+0	U	8	radix_update	cache_running	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.cache_unfinished_req	516	缓存继续运行请求的前缀	无直接证据，且未满足补全规则
+0	U	8	radix_update	cache_finished	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.cache_finished_req	459	完成请求的缓存写回与释放	无直接证据，且未满足补全规则
+0	U	8	radix_update	evict_prefix	python/sglang/srt/mem_cache/radix_cache.py	RadixCache.evict	593	淘汰未保护前缀以腾出 KV	无直接证据，且未满足补全规则
+1	D	9	sampling	normalize_sampling	python/sglang/srt/sampling/sampling_params.py	SamplingParams.normalize	218	将生成参数规范化为采样语义	新增中文说明 L253
+0	U	9	sampling	process_logits	python/sglang/srt/layers/logits_processor.py	LogitsProcessor.forward	343	选择需要输出的 token 并形成 logits	无直接证据，且未满足补全规则
+0	U	9	sampling	get_logits	python/sglang/srt/layers/logits_processor.py	LogitsProcessor._get_logits	657	隐藏状态经过 LM head 得到词表分数	无直接证据，且未满足补全规则
+0	U	9	sampling	prepare_logits	python/sglang/srt/model_executor/model_runner.py	ModelRunner._preprocess_logits	1855	惩罚项、掩码与 logit 偏置	无直接证据，且未满足补全规则
+1	C	9	sampling	model_sample	python/sglang/srt/model_executor/model_runner.py	ModelRunner.sample	1883	调用 sampler 并返回 token ID	chain=worker_sample;anchors=worker_forward->sample
+1	D	9	sampling	sample	python/sglang/srt/layers/sampler.py	Sampler.forward	98	贪心与概率采样的核心分派	新增中文说明 L108
+1	D	9	result_commit	process_result	python/sglang/srt/managers/scheduler.py	Scheduler.process_batch_result	4279	按批次类型处理前向结果	新增中文说明 L4284
+1	D	9	result_commit	prefill_result	python/sglang/srt/managers/scheduler_components/batch_result_processor.py	SchedulerBatchResultProcessor.process_batch_result_prefill	240	处理 prefill 输出和请求状态	新增中文说明 L245
+1	D	9	result_commit	decode_result	python/sglang/srt/managers/scheduler_components/batch_result_processor.py	SchedulerBatchResultProcessor.process_batch_result_decode	870	接收新 token 并推进 decode 状态	新增中文说明 L875
+0	U	9	result_commit	finish_request	python/sglang/srt/managers/schedule_batch.py	Req.update_finish_state	1654	判断长度、终止 token 和停止字符串	无直接证据，且未满足补全规则
+0	U	9	result_commit	release_request	python/sglang/srt/mem_cache/common.py	release_kv_cache	202	结束请求时转交缓存并释放资源	无直接证据，且未满足补全规则
+1	D	9	output_stream	stream_output	python/sglang/srt/managers/scheduler_components/output_streamer.py	SchedulerOutputStreamer.stream_output	118	组织生成结果并选择输出类型	新增中文说明 L125
+1	C	9	output_stream	stream_generation	python/sglang/srt/managers/scheduler_components/output_streamer.py	SchedulerOutputStreamer._stream_output_generation	146	按流式间隔构造 token 输出批次	chain=token_message;anchors=stream_output->detokenizer_loop
+1	D	9	detokenize	detokenizer_loop	python/sglang/srt/managers/detokenizer_manager.py	DetokenizerManager.event_loop	207	接收 token 输出并分发解码	新增中文说明 L209,210,211,215,220,221,225
+1	D	9	detokenize	handle_token_output	python/sglang/srt/managers/detokenizer_manager.py	DetokenizerManager.handle_batch_token_id_out	506	解码并发送文本输出消息	新增中文说明 L517,521,522,528
+1	D	9	detokenize	decode_token_output	python/sglang/srt/managers/detokenizer_manager.py	DetokenizerManager._decode_batch_token_id_output	360	维护请求的增量解码状态	新增中文说明 L361,366,370,373,374,380,383,397,399,434
+1	D	9	detokenize	group_decode	python/sglang/srt/managers/detokenizer_manager.py	DetokenizerManager._grouped_batch_decode	282	将批量 token 增量转为字符串	新增中文说明 L319,325
+1	B	9	detokenize	trim_stop	python/sglang/srt/managers/detokenizer_manager.py	DetokenizerManager.trim_matched_stop	230	按停止规则裁剪返回文本	branch=detokenize;direct=4;covered_before_branch=4/5
+1	D	9	response	tokenizer_handle_loop	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager.handle_loop	2328	接收返回消息并按类型分发	新增中文说明 L2331,2335,2336,2342
+1	D	9	response	handle_text_output	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._handle_batch_output	2349	更新 ReqState 并唤醒等待者	新增中文说明 L2351,2357,2366,2368,2380,2493,2505,2509,2510,2640,2648,2654,2667
+1	D	9	response	wait_response	python/sglang/srt/managers/tokenizer_manager.py	TokenizerManager._wait_one_response	1829	等待并产出请求结果	新增中文说明 L1835,1842,1843,1844,1850,1867,1868,1869,1876,1883,1884,1896,1906,1925,1934,1939,1948
+1	D	9	response	nonstream_response	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._handle_non_streaming_request	1811	收集完整结果并构造 chat 响应	新增中文说明 L1818,1821,1825
+1	C	9	response	stream_response	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._handle_streaming_request	1517	建立 chat 流式响应	chain=chat_streaming;anchors=handle_api_request->generate_request
+1	C	9	response	chat_stream	python/sglang/srt/entrypoints/openai/serving_chat.py	OpenAIServingChat._generate_chat_stream	1545	将增量结果转换为 SSE 消息	chain=chat_streaming;anchors=handle_api_request->generate_request
