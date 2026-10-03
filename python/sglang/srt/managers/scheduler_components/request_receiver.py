@@ -89,10 +89,7 @@ class SchedulerRequestReceiver:
         self,
     ) -> List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]:
         """Receive results at tp_rank = 0 and broadcast it to all other TP ranks.
-
-            - TP: Tensor Parallelism，把模型每一层的权重切开分到多张 GPU，横向拆分
-            - PP：Pipeline Parallelism 是纵向拆分
-            - tp_rank：TP 组里每张卡的编号，从 0 开始。每张卡对应一个 Scheduler 进程
+           NOTE 用 tp_rank = 0 的卡接收 TokenizerManager 的推理请求消息，然后广播给其他的 TP ranks。
         """
 
         if self.scripted_scheduler_hook is not None:
@@ -102,15 +99,16 @@ class SchedulerRequestReceiver:
             if not self.recv_skipper.handle(self.get_last_batch()):
                 return []
 
-        # NOTE 接收消息
+        # NOTE 1）接收消息
         # 接收 TokenizerManager 发送的请求参数：token、采样参数等。
         recv_reqs = self._pull_raw_reqs()
 
         if self.input_blocker is not None:
             recv_reqs = self.input_blocker.handle(recv_reqs)
 
-        # NOTE x_rank=0的卡接收到消息后广播给其他GPU卡
-        # rank 0 把收到的完整请求列表原样复制给其他 rank，其他rank收到请求但仅计算自己的一份
+        # NOTE 2）广播消息给其他 tp_rank gpu 
+        #    rank=0的卡接收到消息后广播给其他GPU卡
+        #   【注意】rank 0 把收到的完整请求列表原样复制给其他 rank，其他rank收到请求但仅计算自己的一份
         recv_reqs = self._broadcast_reqs_across_ranks(recv_reqs)
 
         # pipeline parallelism 逻辑走这里，如果没有配置则所有 scheduler 节点 pp_rank 都是0
@@ -125,14 +123,8 @@ class SchedulerRequestReceiver:
         return recv_reqs
 
     def _pull_raw_reqs(self) -> Optional[List]:
-        """拉取 TokenizerManager 发来的原始请求（还没广播）。
-            tp_rank 和 pp_rank 是两种独立的 gpu卡编号，分别是横向和纵向的,
-            cp(Data Parallelism) 是对输入进行拆分
-            NOTE (pp_rank, tp_rank)类似坐标，唯一确定一张卡和一份权重
-             - tp_rank：卡在本级的 TP 组里排第几，也就是负责每层的哪一份权重，属于横向层内切
-             - pp_rank：卡在第几级流水线，也就是负责哪一段层，属于纵向按层切
-             - cp_rank：Data Parallelism，也是 cp_rank=0 接收信息，然后广播给其他节点
-            详见 ../../../../../user_guide_zh/核心概念一：SGLang中的并行策略.md
+        """
+            note 拉取 TokenizerManager 发来的原始请求    
         """
         if self.ps.pp_rank == 0:
             if self.ps.attn_tp_rank == 0 and self.ps.attn_cp_rank == 0:
@@ -154,10 +146,6 @@ class SchedulerRequestReceiver:
                         if self.recv_limit_reached(len(recv_reqs)):
                             break
                         # NOTE 接收 TokenizerManager 的推理任务消息
-                        #   这里接受到的推理任务消息包括所有的输入，
-                        #   注意、attn_cp_rank 是gpu卡属性
-                        #       cp_rank=0 的卡：去 ZMQ 管道里读消息。
-                        #       cp_rank=1 的卡：后面通过广播拿到同样的消息。
                         recv_req = sock_recv(self.recv_from_tokenizer, zmq.NOBLOCK)
                     except zmq.ZMQError:
                         break
