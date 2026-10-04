@@ -1,0 +1,119 @@
+Generation mode: built-in image_gen
+Context sources: user_guide_zh/思考一：关于组批请求的思考.md; attached cursor_9_scheduler.md (reference conversation only).
+
+Use case: infographic-diagram
+Asset type: A detailed Chinese educational illustration embedded in an SGLang source-code learning article.
+Primary request: Explain batching as interactions between stateful entities: scheduling rules read state, requests change container membership, and admission/allocation update state. Use the exact copy below and the specified logical relationships.
+
+Canvas and style:
+Wide landscape, width:height = 3:2, preferably 3072 × 2048 or comparable high resolution. Fully opaque light background, refined flat technical illustration, very crisp Simplified Chinese sans-serif and exact Latin code identifiers, generous breathing room. Color is used semantically: blue for request flow, amber for admission/budgets, teal for slots and allocation, violet for prefix-tree metadata, muted red only for retraction. Consistent thin strokes and gentle rounded containers. Educational, approachable, visually rich with real request cards, token slots, a small tree and a KV memory grid; do not reduce everything to text boxes.
+ABSOLUTELY NO OVERALL TITLE, NO HERO HEADING, NO TOP BANNER TITLE. Start directly with the components at the top. Component labels and small local explanations are allowed. No watermark, branding, source labels, illustration credit, or decorative characters.
+
+Composition:
+Three horizontal zones and a narrow bottom reading guide. Upper zone about 15% height: control and configuration. Middle zone about 43%: one dominant left-to-right request lifecycle plus well-separated return paths. Lower zone about 34%: three state/resource illustrations. Keep all arrows outside text, avoid crossings. Main flow should be unmistakable. Small labels must remain comfortably legible.
+
+UPPER ZONE — three aligned compact cards, no global heading:
+Card A, icon of a coordinator:
+"Scheduler"
+"选择本轮批次，协调请求流转"
+Small supporting text: "决定 Prefill / Decode，创建 PrefillAdder"
+Card B, icon of a sorted queue:
+"SchedulePolicy"
+"为 waiting_queue 排序"
+Small supporting text: "FCFS：先来先服务"
+"LPM：优先命中较长前缀"
+Card C, configuration sliders:
+"启动配置也是规则来源"
+"并发上限 · Prefill 额度 · 分块额度 · 排序策略"
+Keep these cards visually distinct from actual request containers. Thin neutral connectors may show that Scheduler coordinates the flow and SchedulePolicy orders the waiting queue. Do not put request-flow arrows through the configuration card.
+
+MIDDLE ZONE — five main stages arranged horizontally:
+1. A blue tray holding three separate request cards marked "Req A", "Req B", "Req C".
+Labels: "waiting_queue", "等待 Prefill".
+Arrow toward stage 2 labelled "按顺序尝试".
+2. A spacious amber admission gate:
+"PrefillAdder"
+"先判断，再记账"
+Inside, three short readable lines:
+"读：请求长度、前缀命中、剩余额度"
+"查：请求槽位、KV 容量"
+"改：扣预算、锁定命中前缀"
+At the gate bottom, a small emphasized note:
+"此时尚未分配具体编号"
+Arrow to stage 3 labelled "可入批".
+A short clearly directed loop back to stage 1 labelled "放不下：留队".
+3. A blue/teal tray containing selected Req cards:
+"新 ScheduleBatch"
+"prepare_for_extend()"
+"分配请求槽位与 KV 编号"
+"写入 req_to_token"
+"执行 Prefill"
+Maintain the temporal order shown in these lines. No depiction of K/V tensor computation inside PrefillAdder.
+Arrow to stage 4 labelled "Prefill 完成后合并".
+4. A blue tray containing Req cards, with a small local circular arrow:
+"running_batch"
+"执行 Decode"
+"未结束：继续生成"
+"每轮申请新增 KV 空间"
+5. A small completion card:
+"请求结束"
+"释放请求槽位"
+"解锁前缀"
+Arrow stage 4 → stage 5.
+
+Reserve clear space beneath the main line for two different return paths:
+- A compact secondary card immediately under stage 3: "Scheduler.chunked_req", "分块未算完". Arrow from stage 3 to this card labelled "保留进度"; a separate dashed blue return arrow from this card to stage 2 labelled "下一轮续算". The chunk request does not join running_batch before its full prefill finishes.
+- A muted-red dashed long arrow from stage 4 back to stage 1, visibly pointing left, labelled "KV 空间不足：retract_decode → 退回等待". Keep this lower than the chunk loop and prevent overlap with other arrows.
+
+LOWER ZONE — three panels of similar height, left panel narrower, middle and right wider:
+Panel 1, a magnified request card:
+"Req：被调度的有状态对象"
+Two small subsections with strong visual separation:
+"判断时读取"
+"输入长度 · 前缀命中长度"
+"max_new_tokens"
+"入批过程更新"
+"prefix_indices · last_node"
+"extend_range · req_pool_idx"
+Small caption: "搬运 = 改变所属请求集合"
+Represent Req membership changes, NOT physically copying a Req object from CPU memory to GPU memory.
+
+Panel 2, a clear index-to-storage illustration:
+"请求槽位 → KV 编号 → K/V 数据"
+Show a small table labelled "ReqToTokenPool", with one highlighted row labelled "槽位 2".
+The highlighted row has EXACTLY three example cells with text "7", "12", "19", with a caption "req_to_token[2] = [7, 12, 19]".
+Beside it show allocator free-number tokens:
+"KV 分配器"
+"分配空闲编号，更新余量"
+Then show a small separate memory grid labelled "KV 池", with matching clearly marked cells "7", "12", "19" and tiny paired K/V blocks in each. Arrows from table cells identify matching memory locations. Caption:
+"表里存编号，池里存 K/V"
+"前向时，才把新 K/V 写入池"
+A concise strip along this panel's bottom:
+"先记账 → 再分配 → 前向写入"
+Use the three example identifiers only to explain mapping. Do not imply that token ID equals KV index, and do not draw pool storage inside the request-index table.
+
+Panel 3, a violet prefix tree and distinct state indicators:
+"RadixCache：前缀索引树"
+Render an actual small branching tree. A path with token labels "A" then "B" leads to an index card "KV 编号 [7, 12]". Put a small lock icon on that path and show another unprotected leaf, to contrast protected and evictable states.
+Text:
+"TreeNode 保存前缀片段与 KV 编号"
+"lock_ref > 0：不可淘汰"
+"0 → 1：可淘汰转为受保护"
+"已有引用：只增加引用计数"
+Small caption close to the tree:
+"节点可分裂、加锁、淘汰；不随 Req 搬运"
+A distinct cleanup callout within this panel:
+"结束时登记可复用前缀"
+"可复用 KV 留在池中"
+"淘汰或无需保留时，才归还编号"
+Show a thin arrow from the completion card above into this metadata panel; this arrow means registration/cleanup, NOT movement of tensor blocks. Show a separate dotted link labelled "复用前缀编号" from the tree panel toward the resource mapping panel. No arrow that visually moves K/V tensor blocks into the tree.
+
+BOTTOM READING GUIDE — small local legend, not a title or slogan:
+Three balanced items:
+"读状态：现在能放下吗？"
+"改状态：预算、锁、槽位如何变化？"
+"请求流转：从哪个容器到哪个容器？"
+Tiny qualifier, still legible: "示意普通 Prefill / Decode 与 RadixCache 路径"
+
+Accuracy and typography constraints:
+Render all provided Chinese and code names exactly. Keep underscores as underscores in waiting_queue, running_batch, req_to_token, lock_ref, prepare_for_extend, retract_decode, prefix_indices, last_node, extend_range, req_pool_idx, max_new_tokens, Scheduler.chunked_req. Do not invent additional function names. PrefillAdder does budget accounting and prefix locking; prepare_for_extend allocates actual request slots and KV indices; forward execution writes tensors. Request completion does NOT immediately free all cached KV, and a radix tree stores metadata/index mappings rather than moved K/V data. Keep CPU/GPU physical placement out of the Req lifecycle. Do not include a global title.

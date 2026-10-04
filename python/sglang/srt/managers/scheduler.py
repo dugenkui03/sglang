@@ -3376,7 +3376,7 @@ class Scheduler(
         elif self._should_defer_prefill():
             new_batch = None
         else:
-            # NOTE 每次请求都有优先尝试 get_new_batch_prefill 获取 prefill 任务
+            # NOTE 【重要】每次请求都有优先尝试 get_new_batch_prefill 获取 prefill 任务
             #   获取不到才会继续 decode 任务
             prefill_plan = self.get_new_batch_prefill(running_batch)
             new_batch = prefill_plan.batch_to_run
@@ -3458,9 +3458,6 @@ class Scheduler(
         return res
 
     def get_new_batch_prefill(self, running_batch: ScheduleBatch) -> NextBatchPlan:
-        """
-            NOTE
-        """
         prefill_delayer_single_pass = None
         if self.prefill_delayer:
             # Get max usage across all pools for prefill delay decision
