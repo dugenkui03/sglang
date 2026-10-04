@@ -26,9 +26,9 @@
 | 成熟低音男声、十六步、八线程、速度 0.95 | 7.00 秒 | 15.66 秒 | 1.60 秒 | 本轮未单独记录 |
 
 - 因八线程已有实际加速，安装脚本默认八线程。没有根据宿主机显示的二百五十六个逻辑核心盲目增加线程。
-- 基础样音：`/home/tiger/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice.mp3`；同名 `.json` 文件记录文本、参数和时长。
-- 讲解节奏候选：`/home/tiger/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice-explainer.mp3`；同名 `.json` 文件记录参数与识别结果。
-- 已选定的成熟低音男声样音：`/home/tiger/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice-male-low.mp3`。通过正式 `LocalSpeech` 接口生成，属性为 `male, middle-aged, low pitch`，十六步，速度 `0.95`；用户已回复“OK，就用这个吧”。该确认针对声音选择，不代表整课逐句配音已完成验收。
+- 基础样音：`~/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice.mp3`；同名 `.json` 文件记录文本、参数和时长。
+- 讲解节奏候选：`~/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice-explainer.mp3`；同名 `.json` 文件记录参数与识别结果。
+- 已选定的成熟低音男声样音：`~/.codex/artifacts/sglang-learning/tts-demo/sample-zh-omnivoice-male-low.mp3`。通过正式 `LocalSpeech` 接口生成，属性为 `male, middle-aged, low pitch`，十六步，速度 `0.95`；用户已回复“OK，就用这个吧”。该确认针对声音选择，不代表整课逐句配音已完成验收。
 - 使用 faster-whisper 的 `tiny` 模型进行本地识别粗检。基础样音识别为“要讀器，先接收請求，再根據請求類型分發，最後把聲稱請求放進等待對列”；候选样音识别为“釣督器先接收請求再根據請求類型分發最後把聲稱請求放進等待對列”。整句结构完整，识别仍存在同音字错误，**不能将这些错误全部归因于配音或识别中的某一方**。
 - 男声样音的轻量识别结果为“掉度氣，先接收請求，再根據請求內行分發，最後把聲稱請求放進等待對列”；没有明显漏掉整段，字词发音仍需人工核对。
 - 初期女声实验在加载模型前设置随机种子，正式接口在每段生成前设置随机种子。因此种子数值相同不意味着二者音频逐样本相同；已选定男声的样音使用正式接口，与后续视频的生成流程一致。
@@ -43,7 +43,7 @@
 - 较长中文讲稿达到一千零二十四帧上限，约一百一十六秒；“调度器每一轮都会选择一批请求，交给模型计算。”达到三百八十四帧上限，约二十三秒；“这是一个中文测试。”也达到一百九十二帧上限，未自然结束。
 - 为诊断保留了一段标有 `diagnostic-truncated` 的八点九二秒音频，轻量识别只得到“啊”。同一解码器对模型附带参考声码能恢复接近参考文本的句子，因此本轮问题出现在生成结果，不能仅凭非静音波形判定可用。
 - 这些截断音频**不是合格配音**。默认模块会明确报错，不把达到长度上限的结果保存为成功产物，不静默切回其他语音引擎。
-- 详细实验记录：`/home/tiger/.codex/artifacts/sglang-learning/tts-demo/audio8-cpu-assessment.json`。
+- 详细实验记录：`~/.codex/artifacts/sglang-learning/tts-demo/audio8-cpu-assessment.json`。
 
 ## 脚本检查
 

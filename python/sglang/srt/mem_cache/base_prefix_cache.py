@@ -41,10 +41,10 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class PrefixCacheTrait(Protocol):
-    req_to_token_pool: ReqToTokenPool
-    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator
-    page_size: int
-    disable: bool
+    req_to_token_pool: ReqToTokenPool # 
+    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator # KV Index 管理器
+    page_size: int # 缓存页占用 kv 编号数量
+    disable: bool # 是否禁用缓存
 
 
 @dataclasses.dataclass
@@ -116,7 +116,9 @@ class EvictResult:
 
 @dataclasses.dataclass
 class IncLockRefResult:
-    """Result of an inc_lock_ref operation."""
+    """Result of an inc_lock_ref operation.
+    tip 标识 inc_lock_ref 让 evactable_size 变化了多少个 token
+    """
 
     delta: Optional[int] = None
     swa_uuid_for_lock: Optional[int] = None
@@ -233,7 +235,9 @@ def zero_match_result(
 
 
 class BasePrefixCache(ABC, PrefixCacheTrait):
-    """Cache can be indexed by either rid or key."""
+    """Cache can be indexed by either rid or key.
+        NOTE RadixCache 的父类
+    """
 
     metrics_collector: Optional[RadixCacheMetricsCollector] = (
         None  # metrics collector for the cache

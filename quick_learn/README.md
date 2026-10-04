@@ -1,6 +1,6 @@
 # 学习辅助工具
 
-- [学习进度统计](update_learn_progress.py)：按 [核心范围](LEARN.scope.json) 重算 [LEARN.md](../LEARN.md) 和 [方法清单](../LEARN.methods.txt)。在仓库根目录运行 `python quick_learn/update_learn_progress.py --write`；用 `--check` 检查统计一致性，运行 `python -m unittest quick_learn.test_learn_progress` 验证统计规则。
+- [学习进度统计](update_learn_progress.py)：按 [核心范围](LEARN.scope.json) 重算 [LEARN.md](../LEARN.md) 和 [方法清单](../LEARN.methods.md)。清单按核心阶段标记已读、推定已读和未读。在仓库根目录运行 `python quick_learn/update_learn_progress.py --write`；用 `--check` 检查统计一致性，运行 `python -m unittest quick_learn.test_learn_progress` 验证统计规则。
 - [学习总结视频](quick_summary/README.md)：把已学核心概念、代码和调用关系整理成逐页幻灯片、讲稿、中文配音、字幕与视频。
 - 学习范围以 [LEARN.md](../LEARN.md) 和当前对话为准；源码讲解与注释沿用 [快速学习.md](../快速学习.md)。
 - 下次可直接告诉 agent：**“阅读 `quick_learn/quick_summary/`，把这次学过的内容整理成总结视频。”**

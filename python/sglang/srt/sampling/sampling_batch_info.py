@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class SamplingBatchInfo:
+    """
+    采样参数
+    tip：核心参数是 向量 的原因是，单个请求类型是标量，但是批量请求入参放在了向量中
+    """
     # Basic batched sampling params
     temperatures: torch.Tensor
     top_ps: torch.Tensor
@@ -92,13 +96,14 @@ class SamplingBatchInfo:
         device = batch.device
         _pin = is_pin_memory_available(device)
         temperatures = (
+            # tip：获取批请求中的温度值组合成 tensor，形状是[2]
             torch.tensor(
                 [r.sampling_params.temperature for r in reqs],
                 dtype=torch.float,
                 pin_memory=_pin,
             )
             .to(device, non_blocking=True)
-            .view(-1, 1)
+            .view(-1, 1) # -1 表示程序自己计算具体值，结果是[2,1]
         )
         top_ps = torch.tensor(
             [r.sampling_params.top_p for r in reqs],

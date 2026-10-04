@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 
 
 class BaseTokenToKVPoolAllocator(abc.ABC):
+    """
+    NOTE 保存可分配的 KV Index，核心方法 alloc 在 TokenToKVPoolAllocator 中
+        分析文档：base.py.BaseTokenToKVPoolAllocator.md（同目录）
+    """
+
     @abc.abstractmethod
     def __init__(
         self,
@@ -36,13 +41,20 @@ class BaseTokenToKVPoolAllocator(abc.ABC):
         need_sort: bool,
     ):
         self.size = size
+        # page 是分配 KV 编号的最小单位
+        # page_size 个 KV编号组成了一个 page
+        # 一个kv编号对应一个 token 的KV值
         self.page_size = page_size
-        self.dtype = dtype
+        self.dtype = dtype # KV Cache 的数据类型，比如 bf16、fp8
         self.device = device
-        self._kvcache = kvcache
+        self._kvcache = kvcache # NOTE 真正保存 KV Cache的引用
         self.need_sort = need_sort
 
-        self.free_pages = None
+        # NOTE
+        #   逻辑 KV Cache Pool 共有三种类型：free_pages、release_pages、allocated_pages
+        #   free_pages -alloc/被分配占用 -> allocated_pages -free/被释放-> release_pages -整理-> free_pages
+        #   数据类型： free pages 和 release pages 都是一位 tensor，每个标量元素都是空闲的 page 编号
+        self.free_pages = None # 马上可以分配的 KV Index
         self.release_pages = None
         # None: free right away. A list: hold frees until free_group_end().
         self.free_group: list[torch.Tensor] | None = None
@@ -74,9 +86,13 @@ class BaseTokenToKVPoolAllocator(abc.ABC):
         return free_index.clone()
 
     def merge_and_sort_free(self):
+        # 如果有 release pages
         if len(self.release_pages) > 0:
+            # 把 release pages 拼接到 free pages 中
             self.free_pages = torch.cat((self.free_pages, self.release_pages))
+            # 对 free pages 排序，效果是将向量中的标量元素递增排序
             self.free_pages, _ = torch.sort(self.free_pages)
+            # 清空 release_pages
             self.release_pages = torch.empty(
                 (0,), dtype=self.release_pages.dtype, device=self.device
             )

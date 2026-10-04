@@ -52,13 +52,17 @@ class TokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
         return len(self.free_pages) + len(self.release_pages)
 
     def alloc(self, need_size: int):
+        # 如果空闲编号 free_pages 小于 need_size
         if self.need_sort and need_size > len(self.free_pages):
-            self.merge_and_sort_free()
+            self.merge_and_sort_free() # 整理 release_pages，将 release_pages -> free_pages
 
+        # 如果空间仍然不够用，则不反悔 KV Index
         if need_size > len(self.free_pages):
             return None
-
+        
+        # 返回前 need_size 个 KV Index
         select_index = self.free_pages[:need_size]
+        # tip 更新 free_pages
         self.free_pages = self.free_pages[need_size:]
         return select_index
 

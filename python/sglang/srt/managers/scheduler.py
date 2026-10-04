@@ -1216,7 +1216,9 @@ class Scheduler(
         self.waiting_queue: List[Req] = []
 
         # The running decoding batch for continuous batching
+        # tip running_batch 初始化值是个空对象
         self.running_batch: ScheduleBatch = ScheduleBatch(reqs=[], batch_is_full=False)
+
         # The current forward batch
         self.cur_batch_for_debug: Optional[ScheduleBatch] = None
         # The last forward batch
@@ -1842,7 +1844,8 @@ class Scheduler(
             # 从任务队列获取消息进行处理
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
-                running_batch=self.running_batch, last_batch=self.last_batch
+                running_batch=self.running_batch, 
+                last_batch=self.last_batch
             )
             # 更新调度器维护的运行批，供后续调度使用
             self.running_batch = plan.running_batch 
@@ -1912,7 +1915,10 @@ class Scheduler(
             # 组批进行处理：gpu利用率、调度优先级
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
-                running_batch=self.running_batch, # tips 标识请求集合，比如 今天天气 -> 阴天
+                # tips 标识请求集合，比如 今天天气 -> 阴天
+                # 刚开始在init_running_status()中初始化为空对象
+                # 后边设置该变量的代码见下一行
+                running_batch=self.running_batch, 
                 last_batch=self.last_batch # tips 标识上一轮跑的什么操作，比如 prefill(今天天气) 或者 decode(阴)
                 # 示例：只有请求 A「今天天气」，依次输出「阴」「天」，最后是 EOS（overlap 模式）
                 # 
@@ -1923,7 +1929,7 @@ class Scheduler(
                 # | N+3　　 | {A}　　　　　　　　      | decode(天)　　　    | decode(EOS)，多算一步　  | 追加 EOS，判定结束　　　　 |
                 # | N+4　　 | {A}，组批时移出变空      | decode(EOS)　　　　 | 无　　　　　             | 跳过已结束请求的结果　     |
             )
-            self.running_batch = plan.running_batch
+            self.running_batch = plan.running_batch # NOTE 更新 running_batch
             batch = plan.batch_to_run
             self.cur_batch_for_debug = batch
             disable_overlap_for_batch = self.is_disable_overlap_for_batch(
@@ -1943,9 +1949,9 @@ class Scheduler(
                     except Exception:
                         pass
 
-            # 【Step 3】执行本批，结果先放进 result_queue
             # Launch the current batch
             if batch:
+                # note 执行本批，结果先放进 result_queue
                 batch_result = self.run_batch(batch)
                 # Fence result processing behind this forward's shared reads.
                 self._apply_war_barrier()
@@ -3370,7 +3376,8 @@ class Scheduler(
         elif self._should_defer_prefill():
             new_batch = None
         else:
-            # NOTE 获取 prefill 任务
+            # NOTE 每次请求都有优先尝试 get_new_batch_prefill 获取 prefill 任务
+            #   获取不到才会继续 decode 任务
             prefill_plan = self.get_new_batch_prefill(running_batch)
             new_batch = prefill_plan.batch_to_run
             running_batch = prefill_plan.running_batch
@@ -3387,14 +3394,19 @@ class Scheduler(
             # 2. All new batches are some (prefill / idle) -> we do not need prepare mlp sync one more time.
             new_batch = self.dp_attn_adapter.maybe_prepare_mlp_sync_batch(new_batch)
             need_mlp_sync = new_batch is None
-        # 【Step 3】有可执行的新批次就优先执行；否则准备运行批的下一步解码。
+
+        # NOTE 这个 if-else 和里边的 running_batch 赋值给 ret（ret 又赋值给 batch_to_run 很有意思）
+        #   一定程度说明了 running_batch 保存了 prefill完成、要进行 decode的请求，如果没有prefill任务，则继续 decode
         if new_batch is not None:
-            # 常规路径下优先执行预填充；等待队列非空并不保证本轮能组出批次。
+            # tips 优先 prefill，所以如果有prefill则优先执行prefill，就是这个链路
             ret = new_batch
         else:
-            # 仅预填充的请求不走解码；运行批清理后为空时，本轮也可能没有任务。
+            # NOTE decode 链路
             if not running_batch.is_empty() and not running_batch.is_prefill_only:
+                # tip 跑 decode 任务： update_running_batch -> prepare_for_decode() 
+                #   running_batch 标识正在跑的 decode/完成 prefill的推理任务
                 running_batch = self.update_running_batch(running_batch)
+                # NOTE decode 链路的 running_batch 会赋值给 batch_to_run、用于本轮计算执行
                 ret = running_batch if not running_batch.is_empty() else None
             else:
                 ret = None
@@ -3423,7 +3435,6 @@ class Scheduler(
             set_schedule_time_batch(ret)
             if self.enable_fpm:
                 ret.fpm_start_time = self._fpm_batch_t0
-        # 返回两个状态：本轮交给 run_batch 的批次，以及主循环需要保存的运行批。
         return NextBatchPlan(batch_to_run=ret, running_batch=running_batch)
 
     def get_num_allocatable_reqs(
@@ -3460,6 +3471,7 @@ class Scheduler(
                 self.prefill_delayer, token_usage=max_pool_usage
             )
         # NOTE 获取 prefill 任务数据，ret 和 running batch都是 ScheduleBatch
+        #   get_new_batch_prefill() -> _get_new_batch_prefill_raw()
         ret, running_batch = self._get_new_batch_prefill_raw(
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             running_batch=running_batch,
@@ -3484,6 +3496,9 @@ class Scheduler(
         prefill_delayer_single_pass: Optional[PrefillDelayerSinglePassExecutor],
         running_batch: ScheduleBatch,
     ) -> Tuple[Optional[ScheduleBatch], ScheduleBatch]:
+        """
+            NOTE 获取 prefill 任务数据，ret 和 running batch都是 ScheduleBatch
+        """
         # Check if the grammar is ready in the grammar queue
         if self.grammar_manager.has_waiting_grammars():
             ready_grammar_requests = self.grammar_manager.get_ready_grammar_requests()
@@ -3497,6 +3512,14 @@ class Scheduler(
             # Reset batch_is_full to try preemption with a prefill adder.
             running_batch.batch_is_full = False
 
+        # NOTE 
+        #   （waiting_queue 为空 或 running_batch 已满） 且没有要续算的分块请求
+        # 也没有未完成的 chunked_req
+        # 
+        # tip
+        #   running_batch is full：槽位、max_running_requests 等资源被 running_batch 占满了
+        #   chunked_req：提示词太长的时候，按照 --chunked-prefill-size 分成多块做多轮 prefill
+        #            chunked_req 是在在前的chunk处理时已经锁定了槽位资源
         if (
             running_batch.batch_is_full or len(self.waiting_queue) == 0
         ) and self.chunked_req is None:
@@ -3510,7 +3533,8 @@ class Scheduler(
             and self.min_free_slots_delayer.should_delay(
                 running_bs=running_bs,
                 num_allocatable_reqs=self.get_num_allocatable_reqs(
-                    running_bs, running_batch=running_batch
+                    running_bs,
+                    running_batch=running_batch
                 ),
             )
         ):
@@ -3530,6 +3554,7 @@ class Scheduler(
             return None, running_batch
 
         # Get priority queue
+        # NOTE 按 --schedule-policy（默认 fcfs）给 waiting_queue 排序
         self.policy.calc_priority(self.waiting_queue, running_batch)
 
         if TEST_RETRACT and running_bs > TEST_RETRACT_NO_PREFILL_BS:
@@ -3554,18 +3579,22 @@ class Scheduler(
         else:
             prefill_tile_block_m = 64  # Fallback for non-Triton backends
 
+        # NOTE 建本轮预算：剩余 KV 编号、最多 prefill token 数、分块大小、最多请求数
         adder = PrefillAdder(
-            self.page_size,
-            self.tree_cache,
-            self.token_to_kv_pool_allocator,
-            running_batch,
-            self.new_token_ratio_tracker.current,
-            self.max_prefill_tokens,
-            chunked_prefill_size,
-            running_bs if self.is_mixed_chunk else 0,
-            self.priority_scheduling_preemption_threshold,
-            max_prefill_bs=int(self.max_prefill_bs),
-            max_running_requests=self.max_running_requests,
+            page_size=self.page_size,
+            tree_cache=self.tree_cache, # tree_cache 就是 前缀匹配，就是 RadixCache 实现的那套
+            token_to_kv_pool_allocator=self.token_to_kv_pool_allocator,
+            running_batch=running_batch, # 正在 decode 的请求：要给它们后续生成的 token 预留 KV 编号
+            new_token_ratio=self.new_token_ratio_tracker.current, # 预留比例：running 请求剩余最大生成数 × 这个比例 = 给它预留的 KV 编号
+            rem_input_tokens=self.max_prefill_tokens, # 本轮 prefill 最多处理多少个输入 token
+            # NOTE 这是本次组批 prefill 的 token上限
+            #   超过 rem_chunk_tokens 则Req 就会被切分，并将留下来的待处理数据保存到 Scheduler.chunked_req 中
+            rem_chunk_tokens=chunked_prefill_size,
+            # 混合批时给拼进来的 decode 请求预留 token，不开混合批为 0——就当是0吧
+            num_mixed_decode_tokens=running_bs if self.is_mixed_chunk else 0,
+            priority_scheduling_preemption_threshold=self.priority_scheduling_preemption_threshold,
+            max_prefill_bs=int(self.max_prefill_bs), # 本轮 prefill 批最多放几个请求
+            max_running_requests=self.max_running_requests, # 同时在跑的请求数上限，也就是槽位上限
             prefill_max_requests=get_schedule().prefill_max_requests,
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             dllm_config=self.dllm_config,
@@ -3573,7 +3602,8 @@ class Scheduler(
             prefill_tile_block_m=prefill_tile_block_m,
         )
 
-        if self.chunked_req is not None:
+        if self.chunked_req is not None: 
+            # NOTE 如果有未完成的 chunked_req，则直接调用 add_chunked_req 放到批处理中
             self.chunked_req.init_next_round_input()
             self.chunked_req = adder.add_chunked_req(self.chunked_req)
 
@@ -3594,6 +3624,7 @@ class Scheduler(
         if mamba_allocator is not None:
             mamba_allocator.alloc_group_begin(len(self.waiting_queue))
         # Get requests from the waiting queue to a new prefill batch
+        # NOTE 按排好的顺序遍历 waiting_queue，逐个判断能不能进本批
         for req in self.waiting_queue:
             if self.enable_lora and not self._can_schedule_lora_req(req, running_loras):
                 continue
@@ -3620,16 +3651,20 @@ class Scheduler(
                     or not adder.preempt_to_schedule(req, self.server_args)
                 ):
                     break
-
+            
+            # tip 分层缓存逻辑：GPU -> CPU -> 外部存储
             if self.enable_hicache_storage:
+                # tip 判断已经获取到了 分层缓存 
                 prefetch_done = self.tree_cache.check_prefetch_progress(req.rid)
                 if not prefetch_done:
                     # skip staging requests that are ongoing prefetch
+                    # tip 还没获取到分层缓存则跳过 waiting queue 中当前req的处理
                     continue
                 # Pop the number of tokens loaded from storage (L3 hits)
+                # NOTE 获取缓存的长度，是指前n个缓存
                 loaded_tokens = self.tree_cache.pop_prefetch_loaded_tokens(req.rid)
                 if loaded_tokens > 0:
-                    req.storage_hit_length = loaded_tokens
+                    req.storage_hit_length = loaded_tokens # NOTE 字段更新
 
             req.init_next_round_input(self.tree_cache)
             if (
@@ -3649,7 +3684,7 @@ class Scheduler(
                     req.swa_host_hit_length = (
                         self.tree_cache.staged_prefetch_swa_tokens(req.rid)
                     )
-            # NOTE 逐个尝试把请求加进本批，预算不够就停
+            # NOTE 尝试把请求加进本批，预算够就放进 adder.can_run_list 并扣预算
             res = adder.add_one_req(
                 req,
                 has_chunked_req=(self.chunked_req is not None),
@@ -3659,6 +3694,10 @@ class Scheduler(
             if self.enable_lora:
                 running_loras.add(req.lora_id)
 
+            # NOTE 
+            #   CONTINUE = auto()  # Continue to add requests
+            #   NO_TOKEN = auto()  # No token left
+            #   OTHER = auto()  # Other reasons to stop adding requests
             if res != AddReqResult.CONTINUE:
                 if res == AddReqResult.NO_TOKEN:
                     if self.enable_hierarchical_cache:
@@ -3695,6 +3734,7 @@ class Scheduler(
         if len(can_run_list) == 0:
             return None, running_batch
 
+        # NOTE 选中的请求移出 waiting_queue，没选中的留在队里等下一轮
         can_run_set = set(can_run_list)
         self.waiting_queue = [x for x in self.waiting_queue if x not in can_run_set]
         if adder.preempt_list:
@@ -3712,6 +3752,7 @@ class Scheduler(
         set_time_batch(can_run_list, "set_forward_entry_time")
 
         # Create a new batch
+        # NOTE 用选中的请求建 prefill 批（只记下 reqs 和各个池的引用）
         new_batch = ScheduleBatch.init_new(
             can_run_list,
             self.req_to_token_pool,
@@ -3733,6 +3774,7 @@ class Scheduler(
                 self.tree_cache.ready_to_load_host_cache()
             )
 
+        # NOTE 【重要】/TODO 1）分配槽位和 KV 编号；2）写 req_to_token；3）暂存提示词 token，forward_mode 设为 EXTEND（即Prefill）
         new_batch.prepare_for_extend()
 
         if self.tp_worker.model_runner.prefill_aware_swa:
@@ -3782,6 +3824,7 @@ class Scheduler(
     ) -> bool:
         """
         Check if a LoRA request can be scheduled.
+        判断 LoRA 请求是否可以被调度
 
         This method checks two conditions:
         1. The drainer allows scheduling (based on draining state)
@@ -3807,7 +3850,7 @@ class Scheduler(
 
     def update_running_batch(self, batch: ScheduleBatch) -> Optional[ScheduleBatch]:
         """Update the current running decoding batch.
-        每步给每个请求分配 1 个 KV 槽位；显存不够时把部分请求退回等待队列（retract）
+            每步给每个请求分配 1 个 KV 槽位；显存不够时把部分请求退回等待队列（retract）
         """
         initial_bs = batch.batch_size()
 
@@ -3887,6 +3930,7 @@ class Scheduler(
         if batch.is_empty():
             return batch
 
+        # NOTE 准备执行 decode 任务
         # Update batch tensors
         batch.prepare_for_decode()
         return batch

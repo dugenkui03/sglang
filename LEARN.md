@@ -275,7 +275,7 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 | `[python/sglang/srt/layers/radix_attention.py](python/sglang/srt/layers/radix_attention.py)`                   | 640  | 模型层怎么接到 attention backend         |
 
 
-再加 **一个** dense 模型（例如较小的 Llama / Qwen 实现）和 **一个** Attention backend（常见是 `[flashattention_backend.py](python/sglang/srt/layers/attention/flashattention_backend.py)`）。不要读 `[models/](python/sglang/srt/models/)` 下 220 个文件。
+再加 **一个** dense 模型（本清单选 Qwen 3.5 的文本前向主干）和 **一个**普通 Attention backend（本清单选 `[flashattention_backend.py](python/sglang/srt/layers/attention/flashattention_backend.py)`）；Qwen 3.5 的线性注意力分支跟到 GatedDeltaNet 与 RadixLinearAttention 接口。不要读 `[models/](python/sglang/srt/models/)` 下 220 个文件。
 
 ### P2 — 改配置、并行、调度策略时再读
 
@@ -327,13 +327,15 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 ### 8.1 固定分母：核心概念方法
 
-范围和链路保存在 [LEARN.scope.json](quick_learn/LEARN.scope.json)。v1 共 **137 个方法、26 个概念分支**，覆盖常规文本生成的启动、配置、请求、调度、执行、KV、采样与回包，包括 normal/overlap、chunked prefill 和基础 decode CUDA Graph。
+范围和链路保存在 [LEARN.scope.json](quick_learn/LEARN.scope.json)。v2 共 **140 个方法、26 个概念分支**，覆盖常规文本生成的启动、配置、请求、调度、执行、KV、采样与回包，包括 normal/overlap、chunked prefill、基础 decode CUDA Graph 和 Qwen 3.5 dense 文本主干。
 
 - 每个方法等权计 1，只归属一个分支；方法长短、注释多少、被调用次数不增加权重。
 - 保留承载 SGLang 核心状态、策略或数据转换的方法，例如组批、PrefillAdder、KV 槽位分配、前缀匹配、ForwardBatch、Attention 和采样。
 - 日志、通用序列化、socket 包装、字符串处理、简单 getter/setter 等基础操作不计入分母，也不要求逐个加注释。
-- 同类实现选一个代表：Llama、FlashAttention、基础 RadixCache、paged KV allocator。其它模型、后端和缓存变体不重复扩展分母。
-- 运维接口、权重更新、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑、多模态、Mamba/SWA、量化、硬件专用分支和底层 kernel 暂不计入。后续专题可单独统计。
+- 同类实现选一个代表：Qwen 3.5 dense、FlashAttention、基础 RadixCache、paged KV allocator。Qwen 3.5 同时列出普通 Attention 层与 GatedDeltaNet 线性注意力层；线性注意力跟到 RadixLinearAttention 接口。其它模型、后端和缓存变体不重复扩展分母。
+- 运维接口、权重更新、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑、视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化、硬件专用分支和底层 kernel 暂不计入。后续专题可单独统计。
+
+v2 调整（2026-10-04）：按当前学习目标，将 Llama 的 5 个前向方法替换为 Qwen 3.5 的 8 个方法，总数由 137 变为 140。实际入口为 `Qwen3_5ForConditionalGeneration`，其 `forward` 定义在父类 `Qwen3VLForConditionalGeneration`；内部文本主干使用 `qwen3_5.py` 的 `Qwen3_5ForCausalLM`。两类解码层复用 `Qwen2MoeMLP.forward` 的 dense 前馈实现。直接证据、链路补全、分支补全规则及固定基线沿用原口径。
 
 原来的约 5% 将点名文件中的所有方法纳入分母，共 1372 个，混入了大量非核心操作和变体；该口径停用。本节百分比仅对应上述核心范围。
 
@@ -353,7 +355,7 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 3. 分支以该文件的 `branches` 为准，按核心概念划分，不以整个源码文件为分支。例如一个分支有 6 个方法，其中 2 个 D、2 个 C，达到 4/6 后，其余 2 个记为 B；旁边另一个分支不受影响。
 4. 中文说明通过 Python 的 token/AST 识别，包含多行 docstring。普通业务字符串、错误消息、未改变的原有中文说明不算新增证据；同一方法中仅移动已有说明或只修改同行代码也不新增证据。嵌套函数/类的说明不算外层方法的直接证据。英文 `# NOTE` 本身不计分。
 5. 基线固定为 `6388b6cfb1d93c253714a408f1d66a093302acd7`（制定口径时的 main 提交），读取当前工作区，包含未提交修改。后续 main 移动不会改变对照基线。
-6. 每项 D 记录注释行号，C 记录链路和两个直接证据端点，B 记录分支及补全前覆盖数，详见 [LEARN.methods.txt](LEARN.methods.txt)。范围、阈值或代表实现调整时应递增范围版本，并说明变化；不为追求某个百分比改动分母。
+6. 每项 D 记录注释行号，C 记录链路和两个直接证据端点，B 记录分支及补全前覆盖数，详见 [LEARN.methods.md](LEARN.methods.md)，其中逐项标记已读、推定已读和未读。范围、阈值或代表实现调整时应递增范围版本，并说明变化；不为追求某个百分比改动分母。
 
 **学习进度 = (D + C + B) / 核心方法总数。** 这是双方约定的阅读覆盖统计；分支达到 100% 表示按该规则全部计入已读，不表示所有实现细节均已掌握。
 
@@ -361,9 +363,9 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 <!-- LEARN-PROGRESS:START -->
 
-**当前核心链路阅读覆盖：82/137（59.9%）。**
+**当前核心链路阅读覆盖：89/140（63.6%）。**
 
-其中：直接注释 **69** 个，链路补全 **6** 个，分支补全 **7** 个；待覆盖 **55** 个。该数值表示按约定视为已读的核心方法比例。
+其中：直接注释 **78** 个，链路补全 **5** 个，分支补全 **6** 个；待覆盖 **51** 个。该数值表示按约定视为已读的核心方法比例。
 
 | 核心阶段 | 直接注释 D | 链路补全 C | 分支补全 B | 已覆盖 / 总数 | 覆盖率 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -371,14 +373,14 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 | 2 配置发布 | 2 | 0 | 0 | 2/4 | 50.0% |
 | 3 API 与请求转换 | 3 | 0 | 0 | 3/6 | 50.0% |
 | 4 分词与请求提交 | 10 | 0 | 0 | 10/10 | 100.0% |
-| 5 调度与组批 | 12 | 1 | 2 | 15/29 | 51.7% |
+| 5 调度与组批 | 18 | 0 | 2 | 20/29 | 69.0% |
 | 6 执行桥接与 overlap 数据交接 | 5 | 0 | 2 | 7/7 | 100.0% |
-| 7 模型前向与 Attention | 4 | 1 | 0 | 5/18 | 27.8% |
-| 8 KV 分配与前缀缓存 | 4 | 0 | 2 | 6/24 | 25.0% |
+| 7 模型前向与 Attention | 5 | 1 | 0 | 6/21 | 28.6% |
+| 8 KV 分配与前缀缓存 | 6 | 0 | 1 | 7/24 | 29.2% |
 | 9 采样、结果处理与回包 | 14 | 4 | 1 | 19/24 | 79.2% |
 
-统计范围版本：v1，26 个分支，31 个源码文件中的白名单方法。读取当前工作区（含未提交修改），HEAD `a4d25296b1a2`，固定对照基线 `6388b6cfb1d9`。
-源码指纹 `9858ca18d92f6275`；范围指纹 `80157d7888b3ce30`。完整指纹和逐方法依据见 [LEARN.methods.txt](LEARN.methods.txt)。
+统计范围版本：v2，26 个分支，34 个源码文件中的白名单方法。读取当前工作区（含未提交修改），HEAD `62e36f639fa8`，固定对照基线 `6388b6cfb1d9`。
+源码指纹 `b8cd1f6931dcd7a2`；范围指纹 `d2f38b91a6ad05a3`。完整指纹和逐方法依据见 [LEARN.methods.md](LEARN.methods.md)。
 
 <!-- LEARN-PROGRESS:END -->
 

@@ -323,50 +323,100 @@ def render_methods(report):
     total = counts(rows)
     rule = scope["branch_threshold"]
     lines = [
-        "# SGLang 核心链路阅读覆盖清单；由 quick_learn/update_learn_progress.py --write 生成。",
-        f"# scope_version={scope['version']}; baseline_commit={scope['baseline_commit']}",
-        f"# source=current_worktree_including_uncommitted; HEAD={report['head']}",
-        f"# source_sha256={report['source_sha256']}",
-        f"# scope_sha256={report['scope_sha256']}",
-        f"# {scope['scope']}",
-        f"# {scope['representatives']}",
-        "# D=直接注释；C=两个 D 之间的链路补全；B=分支补全；U=待覆盖。",
+        "# SGLang 核心方法阅读清单",
+        "",
+        f"**已读 {total['learned']}/{total['total']}（{percentage(total)}），未读 {total['U']} 个。**",
+        "",
         (
-            f"# 分支规则：至少 {rule['min_direct']} 个 D，且补全前 (D+C)/N >= "
+            f"直接注释 {total['D']} 个；链路补全 {total['C']} 个；分支补全 {total['B']} 个。"
+            "方法按核心阶段和概念分支排列，可点击方法名跳转源码。"
+        ),
+        "",
+        "| 阅读标记 | 判定依据 | 含义 |",
+        "| --- | --- | --- |",
+        "| ✅ 已读 | D · 直接注释 | 方法已有新增中文学习说明。 |",
+        "| ✅ 已读（推定） | C · 链路补全 | 位于同一链路的两个直接证据点之间。 |",
+        "| ✅ 已读（推定） | B · 分支补全 | 所属分支满足覆盖阈值，按规则视为已读。 |",
+        "| ⬜ 未读 | U · 待覆盖 | 当前未找到直接证据，也未满足补全规则。 |",
+        "",
+        "这里的“未读”表示统计尚未覆盖；已读包含按约定推定的节点。每个方法等权计 1。",
+        (
+            f"分支补全要求至少 {rule['min_direct']} 个 D，且 (D+C)/分支方法数 ≥ "
             f"{rule['numerator']}/{rule['denominator']}；C/B 不作为新的链路端点。"
+            "完整规则见 [LEARN.md](LEARN.md)，固定范围见 "
+            "[LEARN.scope.json](quick_learn/LEARN.scope.json)。"
         ),
-        "# 每个方法只属于一个分支、等权计 1；learned=1 包含 D/C/B，不表示考试或能力认证。",
+        "",
         (
-            f"# 已覆盖={total['learned']}/{total['total']} ({percentage(total)}); "
-            f"D={total['D']}; C={total['C']}; B={total['B']}; U={total['U']}"
+            "本清单由 [统计脚本](quick_learn/update_learn_progress.py) 自动生成。"
+            "在源码保留学习注释后，运行 `python quick_learn/update_learn_progress.py --write` 更新；"
+            "手动修改本清单不会作为阅读证据，重算时会被覆盖。"
         ),
+        "",
+        "## 阶段总览",
+        "",
+        "| 核心阶段 | 已读 | 未读 | 覆盖率 |",
+        "| --- | ---: | ---: | ---: |",
     ]
-    for branch in scope["branches"]:
-        count = counts([row for row in rows if row["branch"] == branch["id"]])
+    for stage, label in scope["stages"].items():
+        count = counts([row for row in rows if row["stage"] == stage])
         lines.append(
-            f"# branch={branch['id']} ({branch['label']}): "
-            f"{count['learned']}/{count['total']}; "
-            f"D={count['D']},C={count['C']},B={count['B']},U={count['U']}"
+            f"| {stage} {label} | {count['learned']}/{count['total']} | "
+            f"{count['U']} | {percentage(count)} |"
         )
-    columns = [
-        "learned",
-        "status",
-        "stage",
-        "branch",
-        "id",
-        "file",
-        "qualname",
-        "line",
-        "concept",
-        "evidence",
+
+    labels = {
+        "D": ("✅ 已读", "D · 直接注释"),
+        "C": ("✅ 已读（推定）", "C · 链路补全"),
+        "B": ("✅ 已读（推定）", "B · 分支补全"),
+        "U": ("⬜ 未读", "U · 待覆盖"),
+    }
+    for stage, label in scope["stages"].items():
+        lines += ["", f"## {stage}. {label}", ""]
+        for branch in scope["branches"]:
+            if branch["stage"] != stage:
+                continue
+            branch_rows = [row for row in rows if row["branch"] == branch["id"]]
+            count = counts(branch_rows)
+            lines += [
+                f"### {branch['label']}",
+                "",
+                f"已读 **{count['learned']}/{count['total']}**，未读 **{count['U']}**。",
+                "",
+            ]
+            if branch.get("description"):
+                lines += [branch["description"], ""]
+            lines += [
+                "| 阅读状态 | 方法 | 核心概念 | 判定依据 |",
+                "| --- | --- | --- | --- |",
+            ]
+            for row in branch_rows:
+                status, reason = labels[row["status"]]
+                name = row["qualname"].replace("_", r"\_")
+                link = f"[{name}]({row['file']}#L{row['line']})"
+                # Multiple chain reasons contain pipes; keep them inside a cell.
+                evidence = row["evidence"].replace(" | ", "；").replace("|", r"\|")
+                evidence = evidence.replace("\n", "<br>")
+                concept = row["concept"].replace("|", r"\|").replace("\n", "<br>")
+                lines.append(
+                    f"| {status} | {link} | {concept} | {reason}：{evidence} |"
+                )
+            lines.append("")
+
+    lines += [
+        "## 统计范围与来源",
+        "",
+        scope["scope"],
+        "",
+        scope["representatives"],
+        "",
+        f"- 范围版本：v{scope['version']}。",
+        "- 统计对象：当前工作区，包含未提交修改。",
+        f"- HEAD：`{report['head']}`。",
+        f"- 固定对照基线：`{scope['baseline_commit']}`。",
+        f"- 源码指纹：`{report['source_sha256']}`。",
+        f"- 范围指纹：`{report['scope_sha256']}`。",
     ]
-    lines.append("\t".join(columns))
-    for row in rows:
-        lines.append(
-            "\t".join(
-                str(row[key]).replace("\t", " ").replace("\n", " ") for key in columns
-            )
-        )
     return "\n".join(lines) + "\n"
 
 
@@ -401,7 +451,7 @@ def render_summary(report):
         ),
         (
             f"源码指纹 `{report['source_sha256'][:16]}`；范围指纹 `{report['scope_sha256'][:16]}`。"
-            "完整指纹和逐方法依据见 [LEARN.methods.txt](LEARN.methods.txt)。"
+            "完整指纹和逐方法依据见 [LEARN.methods.md](LEARN.methods.md)。"
         ),
     ]
     return "\n".join(lines)
@@ -421,7 +471,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
-        "--write", action="store_true", help="Update LEARN.md and LEARN.methods.txt"
+        "--write", action="store_true", help="Update LEARN.md and LEARN.methods.md"
     )
     mode.add_argument(
         "--check", action="store_true", help="Fail if either generated report is stale"
@@ -434,7 +484,7 @@ def main():
         return 0
     learn = ROOT / "LEARN.md"
     outputs = {
-        ROOT / "LEARN.methods.txt": render_methods(report),
+        ROOT / "LEARN.methods.md": render_methods(report),
         learn: replace_summary(learn.read_text(encoding="utf-8"), summary),
     }
     stale = [

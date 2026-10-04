@@ -254,7 +254,10 @@ def _set_kv_buffer_prefix_valid_impl(
 
 
 class ReqToTokenPool:
-    """A memory pool that maps a request to its token locations."""
+    """A memory pool that maps a request to its token locations.
+       
+       映射请求到他的 KV Index
+    """
 
     enable_mamba_extra_buffer_lazy: bool = False
 
@@ -276,8 +279,12 @@ class ReqToTokenPool:
         self.max_context_len = max_context_len
         self.device = device
         with memory_saver_adapter.region(GPU_MEMORY_TYPE_KV_CACHE):
+            # NOTE req_to_token 保存了 token 到 KV Index的映射
             self.req_to_token = torch.zeros(
-                (self._alloc_size, max_context_len), dtype=torch.int32, device=device
+                # NOTE 形状是 [_alloc_size + 1, max_context_len]，_alloc_size 表示同时最多跑的请求数量
+                (self._alloc_size, max_context_len), 
+                dtype=torch.int32,
+                 device=device
             )
         self.free_slots = list(range(1, self._alloc_size))
         self.req_generation = torch.zeros(self._alloc_size, dtype=torch.int64)

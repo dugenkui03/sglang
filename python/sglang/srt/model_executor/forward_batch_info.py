@@ -102,15 +102,20 @@ def _elastic_should_preserve_local_token_counts(
 
 
 class ForwardMode(IntEnum):
+    """
+    NOTE 这次 forward 计算是什么类型，后边推理通过改参数判断是走哪种路径
+    """
+
     # Extend a sequence. The KV cache of the beginning part of the sequence is already computed (e.g., system prompt).
     # It is also called "prefill" in common terminology.
-    EXTEND = auto()
+    # tip auto 给 IntEnum 自动编号，从0开始递增
+    EXTEND = auto() 
     # Decode one token.
-    DECODE = auto()
+    DECODE = auto() # tip decode
     # Contains both EXTEND and DECODE when doing chunked prefill.
-    MIXED = auto()
+    MIXED = auto() # tip prefill + decode
     # No sequence to forward. For data parallel attention, some workers will be IDLE if no sequence are allocated.
-    IDLE = auto()
+    IDLE = auto() # tip 开 DP（Data Parallelism）attention 时，没活的卡也要陪其他卡跑一次
 
     # Used in speculative decoding: verify a batch in the target model.
     TARGET_VERIFY = auto()

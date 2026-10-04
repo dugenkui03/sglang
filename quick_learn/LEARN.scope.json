@@ -1,9 +1,9 @@
 {
-  "version": 1,
+  "version": 2,
   "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
-  "scope": "SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph。",
-  "representatives": "模型只取 Llama，Attention 后端只取 FlashAttention，前缀缓存只取基础 RadixCache，KV 槽位取 paged allocator；同类实现不重复扩展分母。",
-  "excluded": ["通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter", "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑", "多模态、Mamba/SWA、量化和硬件专用变体、底层算子实现", "AI 生成文档、图片及其文件数量不作为直接已读证据"],
+  "scope": "SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph，以及 Qwen 3.5 dense 文本主干的两类解码层。",
+  "representatives": "模型选 Qwen 3.5 dense：Qwen3_5ForConditionalGeneration 的文本路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。",
+  "excluded": ["通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter", "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑", "视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化和硬件专用变体、底层算子实现", "AI 生成文档、图片及其文件数量不作为直接已读证据"],
   "branch_threshold": {"numerator": 2, "denominator": 3, "min_direct": 2},
   "node_columns": ["id", "source", "qualname", "concept"],
   "sources": {
@@ -24,7 +24,10 @@
     "overlap": "python/sglang/srt/managers/overlap_utils.py",
     "eager": "python/sglang/srt/model_executor/runner/eager_runner.py",
     "graph": "python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py",
-    "llama": "python/sglang/srt/models/llama.py",
+    "qwen_entry": "python/sglang/srt/models/qwen3_vl.py",
+    "qwen_model": "python/sglang/srt/models/qwen3_5.py",
+    "qwen_mlp": "python/sglang/srt/models/qwen2_moe.py",
+    "linear_attention": "python/sglang/srt/layers/radix_linear_attention.py",
     "attention": "python/sglang/srt/layers/radix_attention.py",
     "flash": "python/sglang/srt/layers/attention/flashattention_backend.py",
     "pool": "python/sglang/srt/mem_cache/memory_pool.py",
@@ -160,12 +163,15 @@
       ["capture_graph", "graph", "DecodeCudaGraphRunner.capture", "捕获固定布局的执行图"],
       ["replay_graph", "graph", "DecodeCudaGraphRunner.execute", "重放已捕获的执行图"]
     ]},
-    {"id": "dense_model", "stage": "7", "label": "一个 dense 模型的前向主干", "nodes": [
-      ["causal_lm", "llama", "LlamaForCausalLM.forward", "模型前向与语言模型输出"],
-      ["llama_model", "llama", "LlamaModel.forward", "嵌入与多层执行"],
-      ["decoder_layer", "llama", "LlamaDecoderLayer.forward", "Attention、MLP 与残差连接"],
-      ["llama_attention", "llama", "LlamaAttention.forward", "QKV 投影与位置编码"],
-      ["llama_mlp", "llama", "LlamaMLP.forward", "前馈网络计算"]
+    {"id": "dense_model", "stage": "7", "label": "Qwen 3.5 dense 文本模型的前向主干", "description": "入口为 Qwen3_5ForConditionalGeneration，forward 继承自 Qwen3VLForConditionalGeneration；其内部文本模型是 qwen3_5.py 中的 Qwen3_5ForCausalLM。普通 Attention 层和 GatedDeltaNet 线性注意力层是按配置选择的两条分支；两类层复用 Qwen2MoeMLP 的 dense 前馈实现，类名中的 Moe 不表示本清单纳入了专家路由。", "nodes": [
+      ["causal_lm", "qwen_entry", "Qwen3VLForConditionalGeneration.forward", "Qwen 3.5 继承的入口：执行文本主干并产出 logits"],
+      ["qwen_model", "qwen_model", "Qwen3_5ForCausalLM.forward", "嵌入、混合类型解码层逐层执行与最终归一化"],
+      ["qwen_attention_layer", "qwen_model", "Qwen3_5AttentionDecoderLayer.forward", "普通 Attention 层的注意力、MLP 与残差连接"],
+      ["qwen_attention", "qwen_model", "Qwen3_5AttentionDecoderLayer.self_attention", "QKV 与位置编码准备、RadixAttention 和输出门控"],
+      ["qwen_linear_layer", "qwen_model", "Qwen3_5LinearDecoderLayer.forward", "线性注意力层的 GatedDeltaNet、MLP 与残差连接"],
+      ["qwen_gdn", "qwen_model", "Qwen3_5GatedDeltaNet.forward", "GatedDeltaNet 的输入投影、线性注意力调用与输出门控"],
+      ["radix_linear_attention", "linear_attention", "RadixLinearAttention.forward", "将 GatedDeltaNet 输入交给 SGLang 线性注意力后端"],
+      ["qwen_mlp", "qwen_mlp", "Qwen2MoeMLP.forward", "Qwen 3.5 dense 复用的门控前馈网络"]
     ]},
     {"id": "attention_backend", "stage": "7", "label": "Attention 与 KV 读写", "nodes": [
       ["radix_attention", "attention", "RadixAttention.forward", "模型层接入 SGLang 注意力后端"],
@@ -265,9 +271,12 @@
     {"id": "worker_model", "kind": "call", "label": "批次提交到模型前向", "nodes": ["run_batch", "worker_forward", "model_forward", "raw_forward", "eager_execute"]},
     {"id": "worker_batch", "kind": "call", "label": "构造 GPU 批次视图", "nodes": ["run_batch", "worker_forward", "forward_batch"]},
     {"id": "worker_sample", "kind": "call", "label": "Worker 的采样调用", "nodes": ["run_batch", "worker_forward", "model_sample", "sample"]},
-    {"id": "eager_extend_model", "kind": "call", "label": "Prefill 经 dense 模型进入 Attention", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "llama_model", "decoder_layer", "llama_attention", "radix_attention", "attention_extend", "store_kv"]},
-    {"id": "eager_decode_model", "kind": "call", "label": "Decode 经 dense 模型进入 Attention", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "llama_model", "decoder_layer", "llama_attention", "radix_attention", "attention_decode", "store_kv"]},
-    {"id": "model_mlp", "kind": "call", "label": "Dense 模型的前馈计算分支", "nodes": ["causal_lm", "llama_model", "decoder_layer", "llama_mlp"]},
+    {"id": "eager_extend_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 普通 Attention 层写入 KV", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_extend", "store_kv"]},
+    {"id": "eager_decode_model", "kind": "call", "label": "Decode 经 Qwen 3.5 普通 Attention 层写入 KV", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_decode", "store_kv"]},
+    {"id": "eager_extend_linear_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
+    {"id": "eager_decode_linear_model", "kind": "call", "label": "Decode 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
+    {"id": "model_mlp", "kind": "call", "label": "Qwen 3.5 普通 Attention 层的 dense 前馈分支", "nodes": ["causal_lm", "qwen_model", "qwen_attention_layer", "qwen_mlp"]},
+    {"id": "model_linear_mlp", "kind": "call", "label": "Qwen 3.5 线性注意力层的 dense 前馈分支", "nodes": ["causal_lm", "qwen_model", "qwen_linear_layer", "qwen_mlp"]},
     {"id": "model_logits", "kind": "call", "label": "模型隐藏状态进入词表投影", "nodes": ["causal_lm", "process_logits", "get_logits"]},
     {"id": "kv_init", "kind": "call", "label": "从调度器初始化执行器缓存资源", "nodes": ["init_memory", "init_target_memory", "worker_memory", "runner_memory"]},
     {"id": "prefix_lookup", "kind": "call", "label": "请求下一轮输入匹配前缀", "nodes": ["request_next_input", "match_prefix", "match_prefix_tree", "split_radix_node"]},

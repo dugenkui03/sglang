@@ -19,7 +19,7 @@ python quick_learn/quick_summary/scripts/setup_omnivoice.py
 
 ```bash
 python quick_learn/quick_summary/scripts/setup_omnivoice.py \
-  --reuse-runtime /home/tiger/.local/share/sglang-narration/omnivoice \
+  --reuse-runtime ~/.local/share/sglang-narration/omnivoice \
   --threads 8
 ```
 
@@ -32,7 +32,7 @@ python quick_learn/quick_summary/scripts/setup_omnivoice.py \
 ### 先试听选声，再生成全片
 
 - 用户已试听并确认采用成熟低音男声，后续总结直接沿用。用户希望更换声音时，先生成短句或少量页面，比较音色、语速、停顿和讲解感，再按反馈生成整课。
-- 声音配置位于运行目录的 `quick_summary_voice.json`，例如当前机器的 `/home/tiger/.local/share/sglang-narration/omnivoice/quick_summary_voice.json`。先读取现有配置，再修改需要的字段。
+- 声音配置位于运行目录的 `quick_summary_voice.json`，例如当前机器的 `~/.local/share/sglang-narration/omnivoice/quick_summary_voice.json`。先读取现有配置，再修改需要的字段。
 
 | 字段 | 作用 |
 |---|---|
@@ -44,9 +44,9 @@ python quick_learn/quick_summary/scripts/setup_omnivoice.py \
 - 先按下一节建立任务，使 `SUMMARY_TASK` 指向该任务；下面的试听文件也只保存在该任务中。其他机器应使用 `config.local.json` 中记录的解释器和运行目录：
 
 ```bash
-/home/tiger/.local/share/sglang-narration/omnivoice/.venv/bin/python \
+~/.local/share/sglang-narration/omnivoice/.venv/bin/python \
   quick_learn/quick_summary/scripts/speech.py \
-  --runtime-dir /home/tiger/.local/share/sglang-narration/omnivoice \
+  --runtime-dir ~/.local/share/sglang-narration/omnivoice \
   --threads 8 \
   --text "先抓住一个关键点：请求进入等待队列，只是获得调度资格，模型还没有开始计算。" \
   --output "$SUMMARY_TASK/outputs/voice-preview/sample.wav"

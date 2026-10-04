@@ -1013,21 +1013,29 @@ class Req(ReqDllmMixin):
 
         # Prefix info
         # The indices to kv cache for the shared prefix.
+        # tip 这个 Req 用到的前缀缓存的 KV index 编号列表
         self.prefix_indices: torch.Tensor = torch.empty((0,), dtype=torch.int64)
+
         # TODO(ispobock): rename to last_device_node
+        # NOTE 这个请求在前缀缓存（radix tree，基数树）里匹配到的最深那个节点，指的是 GPU 显存这一层的节点。从树根走到它的这条路径，就是这个请求已经命中的前缀
         self.last_node: Any = None
+
         self.last_host_node: Any = None
         self.best_match_node: Any = None
         # Per-component host hit lengths split off from host_hit_length:
         self.host_hit_length = 0
         self.swa_host_hit_length = 0
         self.mamba_host_hit_length = 0
+
         # Total cached prefix length (on-device prefix_indices + host_hit_length),
         # capped at the max allowed prefix. Set during prefix matching at schedule
         # time and used to estimate uncached tokens / sort by longest prefix for
         # load reporting.
+        # tip 前缀匹配命中的缓存长度
         self.num_matched_prefix_tokens = 0
+
         # Tokens loaded from storage backend (L3) during prefetch for this request
+        # tip L3 级别缓存的 token 长度
         self.storage_hit_length = 0
         # The node to lock until for swa radix tree lock ref
         self.swa_uuid_for_lock: Optional[int] = None
@@ -1294,6 +1302,7 @@ class Req(ReqDllmMixin):
         return self.finished_reason is not None
 
     def set_extend_range(self, start: int, end: int) -> None:
+        """extend_range 记录本轮要计算的 token 在 full_untruncated_fill_ids"""
         self.extend_range = Range(start, end)
 
     def get_fill_ids(self) -> array:
@@ -2054,16 +2063,17 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     """Store all information of a batch on the scheduler.
 
        NOTE 保存某一批次任务的所有的信息
-       分析文档：schedule_batch.py.ScheduleBatch.md（同目录）
+       分析文档：user_guide_zh/核心组件六：ScheduleBatch.md
     """
 
     # === Core: request list (ForwardBatch derives lora_ids / rids / grammars / positions from it) ===
+    # NOTE 核心请求对象
     reqs: List[Req]
 
     # === Global config and shared resources (engine-lifetime; identical across batches) ===
     # Memory pool and cache
-    req_to_token_pool: ReqToTokenPool = None # tip
-    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None # tip
+    req_to_token_pool: ReqToTokenPool = None # tip slot -> KV index
+    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None # tip KV index -> KV
     tree_cache: BasePrefixCache = None
 
     # Batch configs
@@ -2077,6 +2087,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     hisparse_coordinator: Optional[HiSparseCoordinator] = None
 
     # === Batch-variant scheduler state (per-batch; not read by ForwardBatch) ===
+
     # Tell whether the current running batch is full so that we can skip
     # the check of whether to prefill new requests.
     # This is an optimization to reduce the overhead of the prefill check.
@@ -2683,7 +2694,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         if self.model_config.is_encoder_decoder:
             self.prepare_encoder_info_extend(input_ids, seq_lens)
 
-        # Build sampling info
+        # tip Build sampling info 
         self.sampling_info = SamplingBatchInfo.from_schedule_batch(
             self,
             self.model_config.vocab_size,
@@ -3164,6 +3175,9 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         )
 
     def prepare_for_decode(self):
+        """
+        TODO
+        """
         self.forward_mode = ForwardMode.DECODE
         # Decode embeds the last output token via embed_tokens; clear the stale
         # prefill-time tensor so it doesn't leak into ForwardBatch.
@@ -3199,6 +3213,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
         # Allocate memory (DSV4-NPU c{4,128}_state alloc lens are computed inside
         # the allocator, triggered from mem_cache/common.py.)
+        # note 从预先分好的 KV 池里取空闲的 KV 编号
         self.out_cache_loc = alloc_for_decode(self, token_per_req=1)
 
         # Update req-level memory management fields
@@ -3543,7 +3558,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 class NextBatchPlan(msgspec.Struct):
     """批任务
     """
-    # 本轮准备执行的批次
+    # 本轮要计算的 batch，要么是 prefill（EXTEND），要么是 decode（DECODE）
     batch_to_run: Optional[ScheduleBatch]
-    # 调度器需要继续维护的运行批
+    # NOTE running_batch 是已经 prefill 完成，正在进行 decode 的请求
     running_batch: ScheduleBatch

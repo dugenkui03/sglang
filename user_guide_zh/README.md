@@ -9,6 +9,7 @@
 - [核心组件三：DetokenizerManager](核心组件三：DetokenizerManager.md)：增量解码 token ID、维护解码状态并回传文本。
 - [核心组件四：Scheduler](核心组件四：Scheduler.md)：主循环四步（收请求、组批、执行、处理结果）、prefill 与 decode 的选择、overlap 调度。
 - [核心组件五：TpModelWorker 与 ModelRunner](核心组件五：TpModelWorker与ModelRunner.md)：启动时加载权重、分配 KV 池、捕获 CUDA Graph；每轮构造 ForwardBatch、前向、采样。
+- [核心组件六：ScheduleBatch](核心组件六：ScheduleBatch.md)：Scheduler 组好的一批请求，组批时创建、前向时转成 ForwardBatch、处理结果时再读；继承关系与核心方法。
 
 ## 核心概念(Core Concepts)
 
@@ -22,6 +23,7 @@
 - [基础知识二：一次推理的全过程（启动、组批、前向与采样）](<基础知识二：一次推理的全过程（启动、组批、前向与采样）.md>)：启动时加载模型、建 KV 池；请求如何经 ZMQ 提交、`_wait_one_response` 如何等待结果；每轮组批、`run_batch` 前向、`lm_head` 打分、采样出下一个 token，以及 CUDA Graph 与 eager 路径和数据形状的变化。
 - [基础知识三：推理并行参数解释](<基础知识三：推理并行参数解释.md>)：每张卡一个 Scheduler 进程怎么启动、`gpu_id` 怎么算，TP、PP、DP、attn_cp、moe_dp、EP 各切什么，size 与 rank 的约束，以及一次前向里各种切法怎么配合。
 - [基础知识四：Python 中的进程、线程与协程](<基础知识四：Python 中的进程、线程与协程.md>)：三者的关系与区别、GIL、协程如何在 `await` 处轮流执行、`async`/`await`/`yield` 语法速查，以及 sglang 里多进程、后台线程和 TokenizerManager 协程的对应代码。
+- [基础知识五：大模型中的 GPU（显存与并行计算）](<基础知识五：大模型中的 GPU（显存与并行计算）.md>)：显存主要花在权重、KV Cache 和前向中间结果上；KV 编号从分配、使用、缓存保留到回收的生命周期；GPU 靠高显存带宽和矩阵分块并行适合大模型计算。
 
 ## 1. 服务与调优(Serving and Tuning)
 
