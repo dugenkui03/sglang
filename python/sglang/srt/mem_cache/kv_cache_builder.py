@@ -207,6 +207,7 @@ def build_kv_cache(
             tp_worker.get_tokens_per_layer_info()
         )
 
+    # NOTE 获取 在 ModelRunner 中创建的对象
     req_to_token_pool, token_to_kv_pool_allocator = tp_worker.get_memory_pool()
     mtp_draft_device_pools = tp_worker.model_runner.mtp_draft_device_pools
 

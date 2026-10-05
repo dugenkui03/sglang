@@ -256,18 +256,32 @@ def _set_kv_buffer_prefix_valid_impl(
 class ReqToTokenPool:
     """A memory pool that maps a request to its token locations.
        
-       映射请求到他的 KV Index
+       NOTE 映射请求到他的 KV Index，这里保存的只是 KV 编号/index，数据保存在 req_to_token 中
+        示例：size=3（最多 3 个请求同时跑，_alloc_size=4 行）、max_context_len=6 的 req_to_token
+
+        每行是一个槽位，每列是一个 token 位置：
+            槽位 0：[ 0,  0,  0,  0,  0,  0]  预留行，不分配给请求；CUDA Graph 补齐的假请求读写这里
+            槽位 1：[ 7,  8,  9,  0,  0,  0]  请求 A「你好啊」，刚做完 prefill、还没生成回答，长度 3，后 3 列还没用
+            槽位 2：[ 7,  8,  9, 31, 32, 33]  请求 B「你好啊，在吗」，前 3 个复用 A 已缓存的「你好啊」的 KV 编号
+            槽位 3：[ 0,  0,  0,  0,  0,  0]  空闲槽位（在 free_slots 中），内容无意义
+
+        - free_slots = [3]：槽位 1、2 已被占用，槽位 0 永远不在里面
+        - 每行的有效长度由请求的 seq_len 决定，后面的列不读；KV 编号 0 也是保留的，不会分配给 token
     """
 
     enable_mamba_extra_buffer_lazy: bool = False
 
     def __init__(
         self,
-        size: int,
-        max_context_len: int,
+        size: int, # 最大并行请求数量
+        max_context_len: int, # 每个请求预留的 token 数量
         device: str,
         enable_memory_saver: bool,
     ):
+        """
+            NOTE 形状是 形状是 [_alloc_size + 1, max_context_len] tensor 保存了每个请求到这个请求中所有token对应的 KV 编号
+                 NOTE - _alloc_size 是能同时执行的请求数量，+1 是因为第一行不保存数据
+        """
         memory_saver_adapter = TorchMemorySaverAdapter.create(
             enable=enable_memory_saver
         )
@@ -275,6 +289,7 @@ class ReqToTokenPool:
         self.size = size
         # +1 padding row at index 0: cuda-graph padded batches default
         # req_pool_indices to 0, so dummy reads/writes land here harmlessly.
+        # NOTE 同时执行请求的最大数量
         self._alloc_size = size + 1
         self.max_context_len = max_context_len
         self.device = device
@@ -1809,6 +1824,9 @@ class KVCache(abc.ABC):
 
 
 class MHATokenToKVPool(KVCache):
+    """
+        MHA multiple-head attention
+    """
     def __init__(
         self,
         size: int,
@@ -1816,7 +1834,7 @@ class MHATokenToKVPool(KVCache):
         dtype: torch.dtype,
         head_num: int,
         head_dim: int,
-        layer_num: int,
+        layer_num: int, # NOTE
         device: str,
         enable_memory_saver: bool,
         v_head_dim: Optional[int] = None,
@@ -1832,6 +1850,21 @@ class MHATokenToKVPool(KVCache):
         post_capture_active: bool = False,
         allocation_label: Optional[str] = None,
     ):
+        """
+            size: 总共的 kv index 数量
+            page_size: 分配 kv 编号的时候的最小单位
+            head_num: k/v 向量的 head num
+            head_dim: k 每个 head 的维度
+            v_head_dim：v 每个 head 的维度
+            dtype：向量每个元素占用的字节数量，比如 bf16 占 2 字节，fp8 占 1 字节
+            layer_num：跟模型层数一致
+
+            综上，一个 kv index 占用的容量：
+                (head_num × head_dim + head_num ×v_head_dim) × 字节数 × layer_num
+        """
+        # NOTE
+        #   一个 kv index 对应的各层 kv 向量就缓存在这两个变量
+        #   k_buffer[layer_num_x][index] 保存某个编号index、layer_num_x层的 k_buffer 的向量
         self.k_buffer = None
         self.v_buffer = None
         if post_capture_active:
@@ -2326,6 +2359,9 @@ class MHATokenToKVPool(KVCache):
         current_platform.synchronize()
 
     def _get_key_buffer(self, layer_id: int):
+        """
+        NOTE 读取 K 向量的方法
+        """
         # for internal use of referencing
         local_layer_id = layer_id - self.start_layer
         if (
@@ -2342,6 +2378,9 @@ class MHATokenToKVPool(KVCache):
         return self.k_buffer[local_layer_id]
 
     def get_key_buffer(self, layer_id: int):
+        """
+        NOTE 读取 V 向量的方法
+        """
         # note: get_key_buffer is hooked with synchronization for layer-wise KV cache loading
         # it is supposed to be used only by attention backend not for information purpose
         # same applies to get_value_buffer and get_kv_buffer
@@ -2383,14 +2422,17 @@ class MHATokenToKVPool(KVCache):
     def set_kv_buffer(
         self,
         layer: RadixAttention,
-        loc_info,
-        cache_k: torch.Tensor,
-        cache_v: torch.Tensor,
+        loc_info, # 要写的位置
+        cache_k: torch.Tensor, # k 向量
+        cache_v: torch.Tensor, # v 向量
         k_scale: Optional[float] = None,
         v_scale: Optional[float] = None,
         layer_id_override: Optional[int] = None,
         dcp_kv_mask: Optional[torch.Tensor] = None,
     ):
+        """
+        NOTE 写 KV 向量到缓存的地方
+        """
         loc, _, _ = unwrap_write_loc(loc_info)
         # Catch stale slot ids here instead of as illegal-addr / silent KV
         # corruption in the store_kvcache write (gated on SGLANG_ENABLE_ASYNC_ASSERT).

@@ -57,9 +57,15 @@ from sglang.srt.utils.common import (
 class MemoryPoolConfig:
     """Resolved memory pool config, shared between target and draft workers."""
 
-    max_total_num_tokens: int
+    # NOTE KV 池能保存多少个 token、也就是多少个KV编号
+    #   计算逻辑：显存总量 × mem_fraction_static − 已加载的权重
+    max_total_num_tokens: int 
+    # NOTE Scheudler 最多能同时跑多少个请求，也就是 ReqToTokenPool 的槽位数
+    #   --max-running-requests
     max_running_requests: Optional[int] = None
+
     full_max_total_num_tokens: Optional[int] = None
+    # swa(Sliding Window Attention)
     swa_max_total_num_tokens: Optional[int] = None
 
     # DSV4 compressed-attention pool sizes (target only; draft workers leave at 0).
@@ -68,6 +74,8 @@ class MemoryPoolConfig:
     c4_state_pool_size: int = 0
     c128_state_pool_size: int = 0
 
+    # NOTE 显存池给 权重和KV池使用的显存比例 
+    #   --mem-fraction-static
     mem_fraction_static: Optional[float] = None
 
     def __post_init__(self):

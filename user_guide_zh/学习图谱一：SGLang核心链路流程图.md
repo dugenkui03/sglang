@@ -17,6 +17,8 @@ git diff main...HEAD -- python/sglang user_guide_zh docs/learn
 
 - 节点写“动作 + 核心对象”；菱形是条件，边上的字说明选择原因。
 - `Fxx` 是图索引，不是运行时步骤号。总览是逻辑全景；涉及实际先后的地方由子图展开。
+- **连线序号在每张图内从 `01` 重新开始，图内唯一**。例如 `07 · 是` 表示第 07 条连线及其分支条件；数据传递、控制分支和虚线依赖都带序号，便于逐条定位。
+- 编号按主链路、分支和依赖的阅读顺序编排。一次执行只走满足条件的分支，可能跳过一些编号；回环会再次经过已有编号。并发链路的实际先后以箭头依赖和各条流的顺序为准。
 - 请求流、索引映射与 GPU 数据读写是不同关系。每图说明虚线含义，不能把所有箭头都理解为跨进程函数调用。
 - 源码链接以本次核对版本为准，代码继续修改后行号可能变化；方法名用于再次定位。
 
@@ -96,7 +98,9 @@ flowchart LR
         SPAWN["启动 Scheduler、Detokenizer；初始化主进程 TokenizerManager"]
         LOAD["F02 模型、权重、池、后端与可用计算图就绪"]
         READY["等待子进程就绪；HTTP 服务可接收请求"]
-        ARG --> SPAWN --> LOAD --> READY
+        ARG -->|"01"| SPAWN
+        SPAWN -->|"02"| LOAD
+        LOAD -->|"03"| READY
     end
     CLIENT["客户端请求，或直接调用 Engine"]
     subgraph FRONT["入口主进程：协议适配与请求状态"]
@@ -104,10 +108,11 @@ flowchart LR
         TOK["F04 登记 rid；复用 input_ids 或分词"]
         SEND["TokenizedGenerateReqInput 经 ZMQ 提交"]
         WAKE["F16 按 rid 唤醒等待协程；封装 SSE 或完整响应"]
-        API --> TOK --> SEND
+        API -->|"06"| TOK
+        TOK -->|"07"| SEND
     end
-    READY -.-> CLIENT
-    CLIENT --> API
+    READY -.->|"04"| CLIENT
+    CLIENT -->|"05"| API
     subgraph SCHED["Scheduler：批次选择与请求生命周期"]
         RECV["新请求构造 Req；已有回退 Req 直接加入 waiting_queue"]
         PLAN["F05 暂存未完 chunk；合并上轮可继续的 Prefill 请求"]
@@ -122,22 +127,26 @@ flowchart LR
         CHUNK["未完 chunk：保留进度，下一轮优先续算"]
         CLEAN["结束：缓存可复用前缀、解锁、释放请求槽位"]
         OUT["满足输出间隔或结束：BatchTokenIDOutput"]
-        RECV --> PLAN --> ADMIT --> PICK
-        PICK -->|"有"| EXT
-        PICK -->|"无或推迟 Prefill"| RUN
-        RUN -->|"有"| MEM --> LEFT{"过滤和回退后仍有请求？"}
-        LEFT -->|"有"| DEC
-        LEFT -->|"无"| IDLE
-        RUN -->|"无"| IDLE
-        MEM -.->|"回退请求重排队"| RECV
-        RESULT -->|"输入还未算完"| CHUNK --> PLAN
-        RESULT -->|"继续生成"| PLAN
-        RESULT -->|"已结束"| CLEAN
-        RESULT -->|"未结束且可输出"| OUT
-        CLEAN -->|"最后一次输出"| OUT
-        CLEAN -.->|"后续批中过滤"| PLAN
+        RECV -->|"09"| PLAN
+        PLAN -->|"10"| ADMIT
+        ADMIT -->|"11"| PICK
+        PICK -->|"12 · 有"| EXT
+        PICK -->|"13 · 无或推迟 Prefill"| RUN
+        RUN -->|"14 · 有"| MEM
+        MEM -->|"15"| LEFT{"过滤和回退后仍有请求？"}
+        LEFT -->|"16 · 有"| DEC
+        LEFT -->|"17 · 无"| IDLE
+        RUN -->|"18 · 无"| IDLE
+        MEM -.->|"19 · 回退请求重排队"| RECV
+        RESULT -->|"29 · 输入还未算完"| CHUNK
+        CHUNK -->|"30"| PLAN
+        RESULT -->|"31 · 继续生成"| PLAN
+        RESULT -->|"32 · 已结束"| CLEAN
+        RESULT -->|"33 · 未结束且可输出"| OUT
+        CLEAN -->|"34 · 最后一次输出"| OUT
+        CLEAN -.->|"35 · 后续批中过滤"| PLAN
     end
-    SEND --> RECV
+    SEND -->|"08"| RECV
     subgraph GPU["执行组件与设备计算"]
         BRIDGE["F10 输入就绪 → TpModelWorker → ForwardBatch"]
         PATH["ModelRunner 选择可用 Graph 或 Eager 路径"]
@@ -145,30 +154,35 @@ flowchart LR
         ATTN["F12 普通 Attention 读写 KV；线性层走独立状态后端"]
         SAMPLE["F13 hidden_states → logits → 采样 next_token_ids"]
         RELAY["F14 FutureMap 接力下一轮输入；异步拷回 CPU"]
-        BRIDGE --> PATH --> MODEL --> SAMPLE --> RELAY
-        MODEL -.-> ATTN
+        BRIDGE -->|"22"| PATH
+        PATH -->|"23"| MODEL
+        MODEL -->|"25"| SAMPLE
+        SAMPLE -->|"26"| RELAY
+        MODEL -.->|"24"| ATTN
     end
-    EXT --> BRIDGE
-    DEC --> BRIDGE
-    RELAY --> RESULT
-    RELAY -.->|"下一轮 Decode 输入"| BRIDGE
+    EXT -->|"20"| BRIDGE
+    DEC -->|"21"| BRIDGE
+    RELAY -->|"27"| RESULT
+    RELAY -.->|"28 · 下一轮 Decode 输入"| BRIDGE
     subgraph RESOURCE["共享资源：对象和编号与实际数据分开"]
         REQTAB["ReqToTokenPool：请求行 → KV 编号"]
         ALLOC["KV 分配器：管理空闲编号"]
         TREE["F08 前缀缓存：匹配、引用保护、写回与淘汰"]
         KV["设备内存：权重、K/V、线性层状态与工作区"]
-        REQTAB -.->|"按编号定位"| KV
-        TREE -.->|"缓存索引关联实际数据"| KV
-        ALLOC -.->|"管理池中可分配位置"| KV
+        REQTAB -.->|"44 · 按编号定位"| KV
+        TREE -.->|"45 · 缓存索引关联实际数据"| KV
+        ALLOC -.->|"46 · 管理池中可分配位置"| KV
     end
-    ADMIT -.-> TREE
-    EXT -.-> REQTAB
-    EXT -.-> ALLOC
-    MEM -.-> TREE
-    CLEAN -.-> TREE
-    ATTN -.-> KV
+    ADMIT -.->|"39"| TREE
+    EXT -.->|"40"| REQTAB
+    EXT -.->|"41"| ALLOC
+    MEM -.->|"42"| TREE
+    CLEAN -.->|"43"| TREE
+    ATTN -.->|"47"| KV
     DETOK["F16 Detokenizer：按 rid 增量解码 → BatchStrOutput"]
-    OUT --> DETOK --> WAKE --> RESPONSE["客户端收到文本"]
+    OUT -->|"36"| DETOK
+    DETOK -->|"37"| WAKE
+    WAKE -->|"38"| RESPONSE["客户端收到文本"]
 
     classDef startup fill:#E8EDF3,stroke:#475569,color:#111827,stroke-width:2px
     classDef api fill:#DBEAFE,stroke:#1D4ED8,color:#111827,stroke-width:2px
@@ -204,6 +218,8 @@ flowchart LR
 
 总览里的 F 编号对应下面可独立阅读的子图。请求槽位、KV 编号和采样得到的 token ID 是三种不同编号；前缀缓存节点记录索引，实际向量仍由设备内存池保存。F08/F12 以基础 RadixCache 和普通 MHA 为代表；Qwen 3.5 的混合层另见 F11，不把这些代表实现强加给所有模型。
 
+连线可分段阅读：`01—04` 启动与就绪，`05—11` 请求进入与准入准备，`12—21` 批次分支，`22—28` 执行与接力，`29—38` 结果处理与回包，`39—47` 资源和索引关系。最后一组关系会在前面的相应操作中使用，编号不表示它们要等回包后才发生。
+
 这里的“本轮能选出 Prefill 批”包含配置、容量和队列条件；只有普通生成的最后 Prefill 块才产生可追加的首个输出 token。返回给客户端也受流式/非流式模式和输出间隔控制。
 
 入口依据：[启动](../python/sglang/srt/entrypoints/engine.py#L1051)、[TokenizerManager](../python/sglang/srt/managers/tokenizer_manager.py#L845)、[调度](../python/sglang/srt/managers/scheduler.py#L3275)、[执行](../python/sglang/srt/managers/scheduler.py#L3995)、[结果](../python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L240)、[增量解码](../python/sglang/srt/managers/detokenizer_manager.py#L360)。
@@ -214,27 +230,29 @@ flowchart LR
 
 范围：普通 Python HTTP 路径、node 0、单 tokenizer worker。实线表示各链路的执行顺序，虚线表示启动子进程或报告就绪；子进程初始化可以与父进程后续工作并行。
 
+`01—09` 沿主进程读到等待就绪；`10—12` 展开 Scheduler 子进程与就绪通知，`13` 展开 Detokenizer 子进程；`14—18` 回到主进程完成服务启动。子进程分支从各自的启动节点开始，与主进程后续工作并行。
+
 <!-- mermaid:id=f01 -->
 ```mermaid
 flowchart LR
-    CLI["CLI：插件与原始 ServerArgs"] --> RUN["run_server：解析并选择服务路径"]
-    RUN --> HTTP["HTTP launch_server"]
-    HTTP --> ENG["Engine._launch_subprocesses"]
-    ENG --> CFG["检查配置并 publish 本进程上下文"]
-    CFG --> PORT["PortArgs：建立通信地址约定"]
-    PORT --> LS["发起 Scheduler 子进程启动"]
-    LS --> LD["发起 Detokenizer 子进程启动"]
-    LD --> TM["主进程初始化 TokenizerManager 与模板"]
-    TM --> WAIT["wait_for_ready：等待 Scheduler 就绪"]
-    LS -.-> SI["Scheduler 初始化：模型、池与执行后端"]
-    SI --> READY["Scheduler 报告 ready 并进入事件循环"]
-    READY -.-> WAIT
-    LD -.-> DI["Detokenizer 初始化并等待输出消息"]
-    WAIT --> INFO["同步输入长度上限并启动进程监控"]
-    INFO --> SERVER["设置 HTTP 全局组件并启动服务器"]
-    SERVER --> LIFE["lifespan：初始化 API 处理器"]
-    LIFE --> WARM["启动预热线程并进入 HTTP 服务"]
-    WARM --> SERVE["预热完成后报告可服务"]
+    CLI["CLI：插件与原始 ServerArgs"] -->|"01"| RUN["run_server：解析并选择服务路径"]
+    RUN -->|"02"| HTTP["HTTP launch_server"]
+    HTTP -->|"03"| ENG["Engine._launch_subprocesses"]
+    ENG -->|"04"| CFG["检查配置并 publish 本进程上下文"]
+    CFG -->|"05"| PORT["PortArgs：建立通信地址约定"]
+    PORT -->|"06"| LS["发起 Scheduler 子进程启动"]
+    LS -->|"07"| LD["发起 Detokenizer 子进程启动"]
+    LD -->|"08"| TM["主进程初始化 TokenizerManager 与模板"]
+    TM -->|"09"| WAIT["wait_for_ready：等待 Scheduler 就绪"]
+    LS -.->|"10"| SI["Scheduler 初始化：模型、池与执行后端"]
+    SI -->|"11"| READY["Scheduler 报告 ready 并进入事件循环"]
+    READY -.->|"12"| WAIT
+    LD -.->|"13"| DI["Detokenizer 初始化并等待输出消息"]
+    WAIT -->|"14"| INFO["同步输入长度上限并启动进程监控"]
+    INFO -->|"15"| SERVER["设置 HTTP 全局组件并启动服务器"]
+    SERVER -->|"16"| LIFE["lifespan：初始化 API 处理器"]
+    LIFE -->|"17"| WARM["启动预热线程并进入 HTTP 服务"]
+    WARM -->|"18"| SERVE["预热完成后报告可服务"]
 
     classDef startup fill:#E8EDF3,stroke:#475569,color:#111827,stroke-width:2px
     classDef api fill:#DBEAFE,stroke:#1D4ED8,color:#111827,stroke-width:2px
@@ -266,30 +284,30 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["Scheduler.init_model_worker"] --> B["TpModelWorker 先读取 ModelConfig"]
-    B --> C["创建 ModelRunner"]
-    C --> D["选择设备并初始化分布式通信"]
-    D --> E["创建 forward_stream 和采样器"]
-    E --> F{"启用启动权重重叠加载？"}
-    F -->|否| G["load_model 加载真实权重"]
-    F -->|是| H["load_model 建立模型与占位权重缓冲区"]
-    G --> I["确定本卡层范围和 KV dtype"]
-    H --> I
-    I --> J["Worker 构造完成并返回 Scheduler"]
-    J --> K{"启用启动权重重叠加载？"}
-    K -->|是| L["start_startup_weight_load 启动预取"]
-    L -.-> BG["后台预取 checkpoint"]
-    K -->|否| M["init_memory_pools 计算容量并创建池"]
-    L --> M
-    M --> N["请求行号池、KV 池、KV 分配器就绪"]
-    N --> O["init_all_attention_backends"]
-    O --> P["init_all_cuda_graphs 创建执行器并按配置捕获图"]
-    P --> Q["启用时执行捕获后的 KV 容量调整"]
-    Q --> R{"启用启动权重重叠加载？"}
-    R -->|是| S["finalize 提交真实权重并同步"]
-    BG -.->|预取完成后可提交| S
-    R -->|否| T["模型与资源就绪"]
-    S --> T
+    A["Scheduler.init_model_worker"] -->|"01"| B["TpModelWorker 先读取 ModelConfig"]
+    B -->|"02"| C["创建 ModelRunner"]
+    C -->|"03"| D["选择设备并初始化分布式通信"]
+    D -->|"04"| E["创建 forward_stream 和采样器"]
+    E -->|"05"| F{"启用启动权重重叠加载？"}
+    F -->|"06 · 否"| G["load_model 加载真实权重"]
+    F -->|"07 · 是"| H["load_model 建立模型与占位权重缓冲区"]
+    G -->|"08"| I["确定本卡层范围和 KV dtype"]
+    H -->|"09"| I
+    I -->|"10"| J["Worker 构造完成并返回 Scheduler"]
+    J -->|"11"| K{"启用启动权重重叠加载？"}
+    K -->|"12 · 是"| L["start_startup_weight_load 启动预取"]
+    L -.->|"13"| BG["后台预取 checkpoint"]
+    K -->|"14 · 否"| M["init_memory_pools 计算容量并创建池"]
+    L -->|"15"| M
+    M -->|"16"| N["请求行号池、KV 池、KV 分配器就绪"]
+    N -->|"17"| O["init_all_attention_backends"]
+    O -->|"18"| P["init_all_cuda_graphs 创建执行器并按配置捕获图"]
+    P -->|"19"| Q["启用时执行捕获后的 KV 容量调整"]
+    Q -->|"20"| R{"启用启动权重重叠加载？"}
+    R -->|"21 · 是"| S["finalize 提交真实权重并同步"]
+    BG -.->|"22 · 预取完成后可提交"| S
+    R -->|"23 · 否"| T["模型与资源就绪"]
+    S -->|"24"| T
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef memory fill:#CCFBF1,stroke:#0F766E,color:#111827,stroke-width:2px
@@ -316,21 +334,21 @@ flowchart LR
 <!-- mermaid:id=f03 -->
 ```mermaid
 flowchart LR
-    CHAT["POST /v1/chat/completions"] --> BASE["OpenAIServingBase.handle_request"]
-    BASE --> VALID{"接口参数是否合法"}
-    VALID -->|"否"| ERROR["返回接口错误"]
-    VALID -->|"是"| MSG["处理 messages 与聊天模板"]
-    MSG --> PARAM["构造 sampling_params"]
-    PARAM --> ADAPT["GenerateReqInput：text 或 input_ids"]
-    RAW["POST /generate"] --> ADAPT
-    ENG["Engine.generate：Python API"] --> ADAPT
-    ADAPT --> STREAM{"stream 是否开启"}
-    STREAM -->|"是"| ITER["接口持续消费异步生成器"]
-    STREAM -->|"否"| ONCE["接口等待一次完整结果"]
-    ITER --> TM["TokenizerManager.generate_request"]
-    ONCE --> TM
-    TM --> CORE["提交与推理：接 F04 至 F15"]
-    CORE --> BACK["接 F16：文本、元信息与协议回包"]
+    CHAT["POST /v1/chat/completions"] -->|"01"| BASE["OpenAIServingBase.handle_request"]
+    BASE -->|"02"| VALID{"接口参数是否合法"}
+    VALID -->|"03 · 否"| ERROR["返回接口错误"]
+    VALID -->|"04 · 是"| MSG["处理 messages 与聊天模板"]
+    MSG -->|"05"| PARAM["构造 sampling_params"]
+    PARAM -->|"06"| ADAPT["GenerateReqInput：text 或 input_ids"]
+    RAW["POST /generate"] -->|"07"| ADAPT
+    ENG["Engine.generate：Python API"] -->|"08"| ADAPT
+    ADAPT -->|"09"| STREAM{"stream 是否开启"}
+    STREAM -->|"10 · 是"| ITER["接口持续消费异步生成器"]
+    STREAM -->|"11 · 否"| ONCE["接口等待一次完整结果"]
+    ITER -->|"12"| TM["TokenizerManager.generate_request"]
+    ONCE -->|"13"| TM
+    TM -->|"14"| CORE["提交与推理：接 F04 至 F15"]
+    CORE -->|"15"| BACK["接 F16：文本、元信息与协议回包"]
 
     classDef api fill:#DBEAFE,stroke:#1D4ED8,color:#111827,stroke-width:2px
     classDef tokenizer fill:#CFFAFE,stroke:#0E7490,color:#111827,stroke-width:2px
@@ -359,30 +377,30 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph API["主进程：HTTP 与 TokenizerManager"]
-        IN["generate_request"] --> LOOP["首次请求启动共用 handle_loop"]
-        LOOP --> NORM["规范化参数与 rid"]
-        NORM --> STATE["rid_to_state 登记 ReqState"]
-        STATE --> IDS{"已有 input_ids"}
-        IDS -->|"否：text"| TOK["调用 tokenizer 编码"]
-        IDS -->|"是"| OBJ["构造 TokenizedGenerateReqInput"]
-        TOK --> OBJ
-        OBJ --> SEND["发送请求消息"]
-        SEND --> WAIT["本请求协程等待 state.event"]
-        RECV["共用 handle_loop 接收结果"] --> UPDATE["按 rid 写 ReqState 并设置 event"]
-        UPDATE --> WAIT
-        WAIT -->|"被唤醒"| YIELD["消费结果；输出条件见 F16"]
+        IN["generate_request"] -->|"01"| LOOP["首次请求启动共用 handle_loop"]
+        LOOP -->|"02"| NORM["规范化参数与 rid"]
+        NORM -->|"03"| STATE["rid_to_state 登记 ReqState"]
+        STATE -->|"04"| IDS{"已有 input_ids"}
+        IDS -->|"05 · 否：text"| TOK["调用 tokenizer 编码"]
+        IDS -->|"06 · 是"| OBJ["构造 TokenizedGenerateReqInput"]
+        TOK -->|"07"| OBJ
+        OBJ -->|"08"| SEND["发送请求消息"]
+        SEND -->|"09"| WAIT["本请求协程等待 state.event"]
+        RECV["共用 handle_loop 接收结果"] -->|"15"| UPDATE["按 rid 写 ReqState 并设置 event"]
+        UPDATE -->|"16"| WAIT
+        WAIT -->|"17 · 被唤醒"| YIELD["消费结果；输出条件见 F16"]
     end
     subgraph SCH["Scheduler 子进程"]
-        PULL["入口 rank 非阻塞收取请求"] --> BCAST["向并行组内其他 rank 广播"]
-        BCAST --> QUEUE["构造 Req 并入队：接 F05"]
+        PULL["入口 rank 非阻塞收取请求"] -->|"11"| BCAST["向并行组内其他 rank 广播"]
+        BCAST -->|"12"| QUEUE["构造 Req 并入队：接 F05"]
         RESULT["结果处理：接 F15"]
     end
     subgraph DET["Detokenizer 子进程"]
         DECODE["按 rid 增量解码：见 F16"]
     end
-    SEND -->|"ZMQ：TokenizedGenerateReqInput"| PULL
-    RESULT -->|"ZMQ：BatchTokenIDOutput"| DECODE
-    DECODE -->|"ZMQ：BatchStrOutput"| RECV
+    SEND -->|"10 · ZMQ：TokenizedGenerateReqInput"| PULL
+    RESULT -->|"13 · ZMQ：BatchTokenIDOutput"| DECODE
+    DECODE -->|"14 · ZMQ：BatchStrOutput"| RECV
 
     classDef tokenizer fill:#CFFAFE,stroke:#0E7490,color:#111827,stroke-width:2px
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
@@ -410,29 +428,29 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    ENTRY["进入本轮 get_next_batch_to_run"] --> CHUNK{"有尚未完成的 chunked_req？"}
-    CHUNK -->|"有新算出的 KV"| STASH["暂存上一块：cache_unfinished_req"]
-    CHUNK -->|"没有，或没有新 KV"| LAST{"last_batch 是上一轮 prefill 批？"}
-    STASH --> LAST
-    LAST -->|"是"| FILTER["过滤已结束请求；排除未完成 chunk"]
-    FILTER --> MERGE["剩余请求接管或合并进 running_batch"]
-    LAST -->|"否"| PICK["尝试 get_new_batch_prefill"]
-    MERGE --> PICK
-    PICK --> PREFILL["优先续算旧 chunk；再从 waiting_queue 挑选"]
-    PREFILL --> NEW{"本轮选出了 prefill 请求？"}
-    NEW -->|"是"| EXTEND["建 ScheduleBatch；prepare_for_extend"]
-    EXTEND --> RUNP["执行本轮 prefill 前向"]
-    NEW -->|"否"| RUNNING{"running_batch 非空？"}
-    RUNNING -->|"是"| UPDATE["update_running_batch：过滤、容量检查、必要时回退"]
-    UPDATE --> REMAIN{"还有可运行请求？"}
-    REMAIN -->|"是"| DECODE["prepare_for_decode；执行本轮 decode 前向"]
-    REMAIN -->|"否"| IDLE["本轮无批可执行"]
-    RUNNING -->|"否"| IDLE
-    RUNP --> RESULT["结果处理：追加输出、结束判定、缓存与回包"]
-    DECODE --> RESULT
-    RESULT --> NEXT["继续主循环；再次接收请求和选择批次"]
-    IDLE --> NEXT
-    NEXT --> ENTRY
+    ENTRY["进入本轮 get_next_batch_to_run"] -->|"01"| CHUNK{"有尚未完成的 chunked_req？"}
+    CHUNK -->|"02 · 有新算出的 KV"| STASH["暂存上一块：cache_unfinished_req"]
+    CHUNK -->|"03 · 没有，或没有新 KV"| LAST{"last_batch 是上一轮 prefill 批？"}
+    STASH -->|"04"| LAST
+    LAST -->|"05 · 是"| FILTER["过滤已结束请求；排除未完成 chunk"]
+    FILTER -->|"06"| MERGE["剩余请求接管或合并进 running_batch"]
+    LAST -->|"07 · 否"| PICK["尝试 get_new_batch_prefill"]
+    MERGE -->|"08"| PICK
+    PICK -->|"09"| PREFILL["优先续算旧 chunk；再从 waiting_queue 挑选"]
+    PREFILL -->|"10"| NEW{"本轮选出了 prefill 请求？"}
+    NEW -->|"11 · 是"| EXTEND["建 ScheduleBatch；prepare_for_extend"]
+    EXTEND -->|"12"| RUNP["执行本轮 prefill 前向"]
+    NEW -->|"13 · 否"| RUNNING{"running_batch 非空？"}
+    RUNNING -->|"14 · 是"| UPDATE["update_running_batch：过滤、容量检查、必要时回退"]
+    UPDATE -->|"15"| REMAIN{"还有可运行请求？"}
+    REMAIN -->|"16 · 是"| DECODE["prepare_for_decode；执行本轮 decode 前向"]
+    REMAIN -->|"17 · 否"| IDLE["本轮无批可执行"]
+    RUNNING -->|"18 · 否"| IDLE
+    RUNP -->|"19"| RESULT["结果处理：追加输出、结束判定、缓存与回包"]
+    DECODE -->|"20"| RESULT
+    RESULT -->|"21"| NEXT["继续主循环；再次接收请求和选择批次"]
+    IDLE -->|"22"| NEXT
+    NEXT -->|"23"| ENTRY
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -460,32 +478,32 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    BEGIN["创建 PrefillAdder：预留运行请求的 decode 预算"] --> OLD{"已有 chunked_req？"}
-    OLD -->|"有"| RESUME["add_chunked_req：先续算；裁切本轮区间并扣预算"]
-    OLD -->|"无"| QUEUE{"排序后还有等待请求？"}
-    RESUME --> QUEUE
-    QUEUE -->|"无"| BUILD
-    QUEUE -->|"有"| LIMIT{"取候选；请求数和槽位额度允许继续？"}
-    LIMIT -->|"否"| BUILD["can_run_list 非空才建批；移出已选等待请求"]
-    LIMIT -->|"是"| MATCH["init_next_round_input：匹配已有前缀"]
-    MATCH --> PRECHECK{"初步 KV 和输入预算可接纳？"}
-    PRECHECK -->|"否"| STOP["停止继续挑选；未接纳请求留在等待队列"]
-    PRECHECK -->|"是"| LOCK["临时 inc_lock_ref：保护命中路径"]
-    LOCK --> RECHECK{"加锁后的预算仍可接纳？"}
-    RECHECK -->|"否"| UNLOCKFAIL["释放临时锁；本请求未接纳"]
-    UNLOCKFAIL --> STOP
-    RECHECK -->|"是"| FIT{"剩余输入能在本轮分块额度内算完？"}
-    FIT -->|"是"| FULL["设置完整的 extend_range"]
-    FIT -->|"否"| CUT{"能切出一个有效的对齐 chunk？"}
-    CUT -->|"否"| UNLOCKFAIL
-    CUT -->|"是"| PART["设置当前 chunk 区间；记录 new_chunked_req"]
-    FULL --> ADMIT["append 到 can_run_list；加请求锁；扣减预算"]
-    PART --> ADMIT
-    ADMIT --> UNLOCK["退出 with：只释放临时锁"]
-    UNLOCK --> STATUS{"budget_state 允许继续挑选？"}
-    STATUS -->|"CONTINUE，且还有候选"| QUEUE
-    STATUS -->|"NO_TOKEN / OTHER，或已遍历完"| BUILD
-    STOP --> BUILD
+    BEGIN["创建 PrefillAdder：预留运行请求的 decode 预算"] -->|"01"| OLD{"已有 chunked_req？"}
+    OLD -->|"02 · 有"| RESUME["add_chunked_req：先续算；裁切本轮区间并扣预算"]
+    OLD -->|"03 · 无"| QUEUE{"排序后还有等待请求？"}
+    RESUME -->|"04"| QUEUE
+    QUEUE -->|"05 · 无"| BUILD
+    QUEUE -->|"06 · 有"| LIMIT{"取候选；请求数和槽位额度允许继续？"}
+    LIMIT -->|"07 · 否"| BUILD["can_run_list 非空才建批；移出已选等待请求"]
+    LIMIT -->|"08 · 是"| MATCH["init_next_round_input：匹配已有前缀"]
+    MATCH -->|"09"| PRECHECK{"初步 KV 和输入预算可接纳？"}
+    PRECHECK -->|"10 · 否"| STOP["停止继续挑选；未接纳请求留在等待队列"]
+    PRECHECK -->|"11 · 是"| LOCK["临时 inc_lock_ref：保护命中路径"]
+    LOCK -->|"12"| RECHECK{"加锁后的预算仍可接纳？"}
+    RECHECK -->|"13 · 否"| UNLOCKFAIL["释放临时锁；本请求未接纳"]
+    UNLOCKFAIL -->|"14"| STOP
+    RECHECK -->|"15 · 是"| FIT{"剩余输入能在本轮分块额度内算完？"}
+    FIT -->|"16 · 是"| FULL["设置完整的 extend_range"]
+    FIT -->|"17 · 否"| CUT{"能切出一个有效的对齐 chunk？"}
+    CUT -->|"18 · 否"| UNLOCKFAIL
+    CUT -->|"19 · 是"| PART["设置当前 chunk 区间；记录 new_chunked_req"]
+    FULL -->|"20"| ADMIT["append 到 can_run_list；加请求锁；扣减预算"]
+    PART -->|"21"| ADMIT
+    ADMIT -->|"22"| UNLOCK["退出 with：只释放临时锁"]
+    UNLOCK -->|"23"| STATUS{"budget_state 允许继续挑选？"}
+    STATUS -->|"24 · CONTINUE，且还有候选"| QUEUE
+    STATUS -->|"25 · NO_TOKEN / OTHER，或已遍历完"| BUILD
+    STOP -->|"26"| BUILD
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef policy fill:#FFEDD5,stroke:#C2410C,color:#111827,stroke-width:2px
@@ -517,27 +535,27 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    REQS["ScheduleBatch.reqs：本轮获准运行的请求"] --> SHAPES["prepare_for_extend：提取未命中输入及 prefix / extend / seq 长度"]
-    SHAPES --> FLAT["把各请求输入拼成扁平 input_ids；设置 EXTEND 模式"]
-    FLAT --> ALLOC["调用 alloc_for_extend"]
-    ALLOC --> SLOT["第一步：alloc_req_slots"]
-    SLOT --> REUSE{"Req 已有 req_pool_idx？"}
-    REUSE -->|"是，例如续算 chunk"| EXIST["复用原请求槽位"]
-    REUSE -->|"否"| NEWROW["从 ReqToTokenPool 获取空闲行号"]
-    EXIST --> SPACE["第二步：检查空闲 KV 编号；必要时淘汰未锁缓存"]
-    NEWROW --> SPACE
-    SPACE --> PAGE{"page_size 等于 1？"}
-    PAGE -->|"是"| TOKEN["alloc_token_slots：为新输入分配位置"]
-    PAGE -->|"否"| PAGED["alloc_paged_token_slots_extend：按页规则分配位置"]
-    TOKEN --> LOC["得到 out_cache_loc：本轮新 KV 写入位置"]
-    PAGED --> LOC
-    LOC --> MAP["第三步：write_cache_indices 写入 req_to_token"]
-    PREFIX["prefix_indices：命中前缀的已有 KV 编号"] --> MAP
-    MAP --> ROW["映射：请求槽位 + token 位置 → KV 编号"]
-    ROW --> FORWARD["前向计算 K/V；按 out_cache_loc 写入对应 KV buffer"]
-    SLOT -.->|"槽位不足"| ERROR["抛出分配异常；不是自动退回等待队列"]
-    TOKEN -.->|"分配失败"| ERROR
-    PAGED -.->|"分配失败"| ERROR
+    REQS["ScheduleBatch.reqs：本轮获准运行的请求"] -->|"01"| SHAPES["prepare_for_extend：提取未命中输入及 prefix / extend / seq 长度"]
+    SHAPES -->|"02"| FLAT["把各请求输入拼成扁平 input_ids；设置 EXTEND 模式"]
+    FLAT -->|"03"| ALLOC["调用 alloc_for_extend"]
+    ALLOC -->|"04"| SLOT["第一步：alloc_req_slots"]
+    SLOT -->|"05"| REUSE{"Req 已有 req_pool_idx？"}
+    REUSE -->|"06 · 是，例如续算 chunk"| EXIST["复用原请求槽位"]
+    REUSE -->|"07 · 否"| NEWROW["从 ReqToTokenPool 获取空闲行号"]
+    EXIST -->|"08"| SPACE["第二步：检查空闲 KV 编号；必要时淘汰未锁缓存"]
+    NEWROW -->|"09"| SPACE
+    SPACE -->|"10"| PAGE{"page_size 等于 1？"}
+    PAGE -->|"11 · 是"| TOKEN["alloc_token_slots：为新输入分配位置"]
+    PAGE -->|"12 · 否"| PAGED["alloc_paged_token_slots_extend：按页规则分配位置"]
+    TOKEN -->|"13"| LOC["得到 out_cache_loc：本轮新 KV 写入位置"]
+    PAGED -->|"14"| LOC
+    LOC -->|"15"| MAP["第三步：write_cache_indices 写入 req_to_token"]
+    PREFIX["prefix_indices：命中前缀的已有 KV 编号"] -->|"16"| MAP
+    MAP -->|"17"| ROW["映射：请求槽位 + token 位置 → KV 编号"]
+    ROW -->|"18"| FORWARD["前向计算 K/V；按 out_cache_loc 写入对应 KV buffer"]
+    SLOT -.->|"19 · 槽位不足"| ERROR["抛出分配异常；不是自动退回等待队列"]
+    TOKEN -.->|"20 · 分配失败"| ERROR
+    PAGED -.->|"21 · 分配失败"| ERROR
 
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
     classDef memory fill:#CCFBF1,stroke:#0F766E,color:#111827,stroke-width:2px
@@ -565,28 +583,28 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    KEY["请求的 token 前缀及缓存命名空间"] --> MATCH["match_prefix：逐段匹配；必要时分裂树节点"]
-    MATCH --> HIT["返回 prefix_indices 与 last_node"]
-    HIT --> LOCK["入批成功后：请求锁保护命中路径"]
-    LOCK --> FORWARD["分配新位置并前向计算；K/V 留在 KV 池"]
-    FORWARD --> WHEN{"到了哪个缓存处理时点？"}
-    WHEN -->|"prefill 完成但生成未结束，或暂存 chunk"| UNFIN["cache_unfinished_req：插入或复用已算前缀"]
-    UNFIN --> DUP["释放重复的新 KV；重新匹配树内的规范编号"]
-    DUP --> REMAP["更新 req_to_token 与 cache_protected_len"]
-    REMAP --> MOVE["释放旧锁并锁新路径；更新 prefix_indices 和 last_node"]
-    MOVE --> LIVE["请求继续运行；受保护前缀不可淘汰"]
-    LIVE --> FORWARD
-    WHEN -->|"普通 decode 尚未结束"| LIVE
-    WHEN -->|"正常结束"| FIN["release_kv_cache → cache_finished_req"]
-    FIN --> INSERT["可缓存且页对齐的前缀插入或复用树节点"]
-    INSERT --> TAIL["释放重复部分和不保留的尾部"]
-    TAIL --> UNLOCK["dec_lock_ref：释放这个请求的路径引用"]
-    UNLOCK --> FREE["释放额外预分配；ReqToTokenPool.free 归还请求槽位"]
-    FREE --> CACHED["可复用 KV 仍留池中；树保存它的编号"]
-    CACHED --> PRESSURE{"后续分配出现空间压力？"}
-    PRESSURE -->|"无需淘汰"| MATCH
-    PRESSURE -->|"需要腾空间"| EVICT["evict：选择未锁叶子，必要时继续向上淘汰"]
-    EVICT --> RETURN["移除树节点；KV 编号还给 allocator"]
+    KEY["请求的 token 前缀及缓存命名空间"] -->|"01"| MATCH["match_prefix：逐段匹配；必要时分裂树节点"]
+    MATCH -->|"02"| HIT["返回 prefix_indices 与 last_node"]
+    HIT -->|"03"| LOCK["入批成功后：请求锁保护命中路径"]
+    LOCK -->|"04"| FORWARD["分配新位置并前向计算；K/V 留在 KV 池"]
+    FORWARD -->|"05"| WHEN{"到了哪个缓存处理时点？"}
+    WHEN -->|"06 · prefill 完成但生成未结束，或暂存 chunk"| UNFIN["cache_unfinished_req：插入或复用已算前缀"]
+    UNFIN -->|"07"| DUP["释放重复的新 KV；重新匹配树内的规范编号"]
+    DUP -->|"08"| REMAP["更新 req_to_token 与 cache_protected_len"]
+    REMAP -->|"09"| MOVE["释放旧锁并锁新路径；更新 prefix_indices 和 last_node"]
+    MOVE -->|"10"| LIVE["请求继续运行；受保护前缀不可淘汰"]
+    LIVE -->|"11"| FORWARD
+    WHEN -->|"12 · 普通 decode 尚未结束"| LIVE
+    WHEN -->|"13 · 正常结束"| FIN["release_kv_cache → cache_finished_req"]
+    FIN -->|"14"| INSERT["可缓存且页对齐的前缀插入或复用树节点"]
+    INSERT -->|"15"| TAIL["释放重复部分和不保留的尾部"]
+    TAIL -->|"16"| UNLOCK["dec_lock_ref：释放这个请求的路径引用"]
+    UNLOCK -->|"17"| FREE["释放额外预分配；ReqToTokenPool.free 归还请求槽位"]
+    FREE -->|"18"| CACHED["可复用 KV 仍留池中；树保存它的编号"]
+    CACHED -->|"19"| PRESSURE{"后续分配出现空间压力？"}
+    PRESSURE -->|"20 · 无需淘汰"| MATCH
+    PRESSURE -->|"21 · 需要腾空间"| EVICT["evict：选择未锁叶子，必要时继续向上淘汰"]
+    EVICT -->|"22"| RETURN["移除树节点；KV 编号还给 allocator"]
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -620,31 +638,31 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    RUNNING["running_batch 进入 update_running_batch"] --> FILTER["filter_batch：移除已结束请求"]
-    FILTER --> NONEMPTY{"批次还非空？"}
-    NONEMPTY -->|"否"| BACK["返回 Scheduler，下一轮重新选择批次"]
-    NONEMPTY -->|"是"| NEED["估算下一步所需 KV 空间"]
-    NEED --> EVICT["check_decode_mem：先淘汰可淘汰缓存"]
-    EVICT --> FIT{"空闲空间足够？"}
-    FIT -->|"否"| MORE{"剩余批次还有多个请求？"}
-    MORE -->|"是"| VICTIM["retract_decode：选择需要退回的请求"]
-    MORE -->|"否"| ABORT["最后一个也放不下：释放资源并报告 OOM"]
-    VICTIM --> RELEASE["release_kv_cache，is_insert=False；释放私有 KV 和槽位"]
-    RELEASE --> RESET["解锁后按需淘汰；重置请求并记入回退列表"]
-    RESET --> NEED
-    FIT -->|"是"| REQUEUE["回退列表重新进入 waiting_queue；没有回退则直接继续"]
-    ABORT --> REQUEUE
-    REQUEUE --> LEFT{"仍有可运行请求？"}
-    LEFT -->|"无"| BACK
-    LEFT -->|"有"| PREP["prepare_for_decode：复用请求槽位；分配新增 KV 位置"]
-    PREP --> MAP["写入 req_to_token；更新序列长度"]
-    MAP --> FORWARD["处理上一步输出 token；写 K/V；采样下一个 token"]
-    FORWARD --> RESULT["追加 output_ids；更新结束状态"]
-    RESULT --> FIN{"请求结束？"}
-    FIN -->|"是"| CACHE["正常缓存和释放资源；输出结果"]
-    FIN -->|"否"| KEEP["保留在运行批；按发送条件输出"]
-    CACHE --> BACK
-    KEEP --> BACK
+    RUNNING["running_batch 进入 update_running_batch"] -->|"01"| FILTER["filter_batch：移除已结束请求"]
+    FILTER -->|"02"| NONEMPTY{"批次还非空？"}
+    NONEMPTY -->|"03 · 否"| BACK["返回 Scheduler，下一轮重新选择批次"]
+    NONEMPTY -->|"04 · 是"| NEED["估算下一步所需 KV 空间"]
+    NEED -->|"05"| EVICT["check_decode_mem：先淘汰可淘汰缓存"]
+    EVICT -->|"06"| FIT{"空闲空间足够？"}
+    FIT -->|"07 · 否"| MORE{"剩余批次还有多个请求？"}
+    MORE -->|"08 · 是"| VICTIM["retract_decode：选择需要退回的请求"]
+    MORE -->|"09 · 否"| ABORT["最后一个也放不下：释放资源并报告 OOM"]
+    VICTIM -->|"10"| RELEASE["release_kv_cache，is_insert=False；释放私有 KV 和槽位"]
+    RELEASE -->|"11"| RESET["解锁后按需淘汰；重置请求并记入回退列表"]
+    RESET -->|"12"| NEED
+    FIT -->|"13 · 是"| REQUEUE["回退列表重新进入 waiting_queue；没有回退则直接继续"]
+    ABORT -->|"14"| REQUEUE
+    REQUEUE -->|"15"| LEFT{"仍有可运行请求？"}
+    LEFT -->|"16 · 无"| BACK
+    LEFT -->|"17 · 有"| PREP["prepare_for_decode：复用请求槽位；分配新增 KV 位置"]
+    PREP -->|"18"| MAP["写入 req_to_token；更新序列长度"]
+    MAP -->|"19"| FORWARD["处理上一步输出 token；写 K/V；采样下一个 token"]
+    FORWARD -->|"20"| RESULT["追加 output_ids；更新结束状态"]
+    RESULT -->|"21"| FIN{"请求结束？"}
+    FIN -->|"22 · 是"| CACHE["正常缓存和释放资源；输出结果"]
+    FIN -->|"23 · 否"| KEEP["保留在运行批；按发送条件输出"]
+    CACHE -->|"24"| BACK
+    KEEP -->|"25"| BACK
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -674,24 +692,24 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["Scheduler.run_batch"] --> B["resolve_forward_inputs 补齐本轮 input_ids"]
-    B --> C["TpModelWorker.forward_batch_generation"]
-    C --> D["ForwardBatch.init_new 组织本轮模型输入"]
-    D --> E["ModelRunner.forward → _forward_raw"]
-    E --> F{"模式与批次满足 Decode Graph 条件？"}
-    F -->|是| G["DecodeCudaGraphRunner.execute"]
-    G --> H["load_batch 更新静态缓冲区与元数据"]
-    H --> I["replay 执行已捕获的模型计算"]
-    F -->|否| J["准备当前批次及必要的状态更新"]
-    J --> K{"本轮为 Extend 且 Prefill Graph 可运行？"}
-    K -->|是| L["Prefill Graph 执行器执行模型"]
-    K -->|否| M["EagerRunner.execute 按 ForwardMode 分派"]
-    M --> N["Decode 或 Extend：按需初始化 Attention 元数据"]
-    N --> O["model.forward 执行模型"]
-    I --> P["返回 ModelRunnerOutput 与 logits"]
-    L --> P
-    O --> P
-    P --> Q["Worker 进入采样并返回 GenerationBatchResult"]
+    A["Scheduler.run_batch"] -->|"01"| B["resolve_forward_inputs 补齐本轮 input_ids"]
+    B -->|"02"| C["TpModelWorker.forward_batch_generation"]
+    C -->|"03"| D["ForwardBatch.init_new 组织本轮模型输入"]
+    D -->|"04"| E["ModelRunner.forward → _forward_raw"]
+    E -->|"05"| F{"模式与批次满足 Decode Graph 条件？"}
+    F -->|"06 · 是"| G["DecodeCudaGraphRunner.execute"]
+    G -->|"07"| H["load_batch 更新静态缓冲区与元数据"]
+    H -->|"08"| I["replay 执行已捕获的模型计算"]
+    F -->|"09 · 否"| J["准备当前批次及必要的状态更新"]
+    J -->|"10"| K{"本轮为 Extend 且 Prefill Graph 可运行？"}
+    K -->|"11 · 是"| L["Prefill Graph 执行器执行模型"]
+    K -->|"12 · 否"| M["EagerRunner.execute 按 ForwardMode 分派"]
+    M -->|"13"| N["Decode 或 Extend：按需初始化 Attention 元数据"]
+    N -->|"14"| O["model.forward 执行模型"]
+    I -->|"15"| P["返回 ModelRunnerOutput 与 logits"]
+    L -->|"16"| P
+    O -->|"17"| P
+    P -->|"18"| Q["Worker 进入采样并返回 GenerationBatchResult"]
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -721,27 +739,27 @@ CUDA Graph 保存可重复执行的操作和依赖。回放前更新稳定地址
 
 ```mermaid
 flowchart LR
-    A["Qwen3_5ForConditionalGeneration"] --> B["继承的 Qwen3VLForConditionalGeneration.forward"]
-    B --> C["Qwen3_5ForCausalLM.forward 文本主干"]
-    C --> D["Embedding：token ID 变成 hidden_states"]
-    D --> E{"还有下一层？"}
-    E -->|是| F["取出按配置预建的层；准备归一化与残差"]
-    F --> G{"当前层类型？"}
-    G -->|attention| H["Qwen3_5AttentionDecoderLayer"]
-    H --> I["QKV 投影；Q/K 归一化与位置编码"]
-    I --> J["RadixAttention 调用全 Attention 后端"]
-    J --> K["按配置进行输出门控，再投影"]
-    G -->|linear_attention| L["Qwen3_5LinearDecoderLayer"]
-    L --> M["GatedDeltaNet 输入投影"]
-    M --> N["RadixLinearAttention 调用线性后端"]
-    N --> O["更新循环状态后归一化与输出投影"]
-    K --> P["prepare_mlp：处理残差与归一化"]
-    O --> P
-    P --> Q["dense MLP：复用 Qwen2MoeMLP"]
-    Q --> R["完成本层的输出与必要通信"]
-    R --> E
-    E -->|否| S["最终归一化得到 hidden_states"]
-    S --> T["外层 LogitsProcessor 投影为词表分数"]
+    A["Qwen3_5ForConditionalGeneration"] -->|"01"| B["继承的 Qwen3VLForConditionalGeneration.forward"]
+    B -->|"02"| C["Qwen3_5ForCausalLM.forward 文本主干"]
+    C -->|"03"| D["Embedding：token ID 变成 hidden_states"]
+    D -->|"04"| E{"还有下一层？"}
+    E -->|"05 · 是"| F["取出按配置预建的层；准备归一化与残差"]
+    F -->|"06"| G{"当前层类型？"}
+    G -->|"07 · attention"| H["Qwen3_5AttentionDecoderLayer"]
+    H -->|"08"| I["QKV 投影；Q/K 归一化与位置编码"]
+    I -->|"09"| J["RadixAttention 调用全 Attention 后端"]
+    J -->|"10"| K["按配置进行输出门控，再投影"]
+    G -->|"11 · linear_attention"| L["Qwen3_5LinearDecoderLayer"]
+    L -->|"12"| M["GatedDeltaNet 输入投影"]
+    M -->|"13"| N["RadixLinearAttention 调用线性后端"]
+    N -->|"14"| O["更新循环状态后归一化与输出投影"]
+    K -->|"15"| P["prepare_mlp：处理残差与归一化"]
+    O -->|"16"| P
+    P -->|"17"| Q["dense MLP：复用 Qwen2MoeMLP"]
+    Q -->|"18"| R["完成本层的输出与必要通信"]
+    R -->|"19"| E
+    E -->|"20 · 否"| S["最终归一化得到 hidden_states"]
+    S -->|"21"| T["外层 LogitsProcessor 投影为词表分数"]
 
     classDef model fill:#FCE7F3,stroke:#BE185D,color:#111827,stroke-width:2px
     classDef attention fill:#ECFCCB,stroke:#4D7C0F,color:#111827,stroke-width:2px
@@ -767,23 +785,23 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["ScheduleBatch 已分配位置并写好请求映射"] --> B["ForwardBatch 携带序列长度与位置索引"]
-    B --> C["Attention 后端准备批次元数据"]
-    R["ReqToTokenPool：请求行号和序列位置 → KV 编号"] -.-> C
-    C --> D["模型本层算出 Q、K、V"]
-    D --> E["RadixAttention.forward"]
-    E --> F{"ForwardMode？"}
-    F -->|Extend| G["FlashAttentionBackend.forward_extend"]
-    F -->|Decode| H["FlashAttentionBackend.forward_decode"]
-    G --> I["按 out_cache_loc 写入本层新 K/V"]
-    H --> I
-    I --> J["MHATokenToKVPool.set_kv_buffer"]
-    J --> K["本层 GPU KV 缓冲区已含新数据"]
-    K --> L["Attention 内核读取所需 K/V 并计算输出"]
-    C -.->|页表与长度| L
-    D -.->|当前 Q| L
-    OLD["此前缓存的历史 K/V"] -.-> L
-    L --> M["返回 Attention 输出给模型后续计算"]
+    A["ScheduleBatch 已分配位置并写好请求映射"] -->|"01"| B["ForwardBatch 携带序列长度与位置索引"]
+    B -->|"02"| C["Attention 后端准备批次元数据"]
+    R["ReqToTokenPool：请求行号和序列位置 → KV 编号"] -.->|"03"| C
+    C -->|"04"| D["模型本层算出 Q、K、V"]
+    D -->|"05"| E["RadixAttention.forward"]
+    E -->|"06"| F{"ForwardMode？"}
+    F -->|"07 · Extend"| G["FlashAttentionBackend.forward_extend"]
+    F -->|"08 · Decode"| H["FlashAttentionBackend.forward_decode"]
+    G -->|"09"| I["按 out_cache_loc 写入本层新 K/V"]
+    H -->|"10"| I
+    I -->|"11"| J["MHATokenToKVPool.set_kv_buffer"]
+    J -->|"12"| K["本层 GPU KV 缓冲区已含新数据"]
+    K -->|"13"| L["Attention 内核读取所需 K/V 并计算输出"]
+    C -.->|"14 · 页表与长度"| L
+    D -.->|"15 · 当前 Q"| L
+    OLD["此前缓存的历史 K/V"] -.->|"16"| L
+    L -->|"17"| M["返回 Attention 输出给模型后续计算"]
 
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
     classDef memory fill:#CCFBF1,stroke:#0F766E,color:#111827,stroke-width:2px
@@ -811,21 +829,21 @@ Prefill 对本轮未复用的后缀做计算，并结合命中前缀的缓存；
 
 ```mermaid
 flowchart LR
-    A["模型输出 hidden_states"] --> B["LogitsProcessor 选取各请求的预测位置"]
-    B --> C["LM head 投影到词表维度"]
-    C --> D["next_token_logits：每个请求一行分数"]
-    D --> E["ModelRunner.sample"]
-    E --> F["应用语法 mask、惩罚与 logits bias"]
-    F --> G["Sampler.forward 执行自定义处理与异常值处理"]
-    G --> H{"当前批全是贪心采样？"}
-    H -->|是| I["argmax 选择最高分 token"]
-    H -->|否| J["温度缩放并形成概率"]
-    J --> K["按请求应用 top-k、top-p、min-p 等约束"]
-    K --> L["按分布选取 token"]
-    I --> M["next_token_ids"]
-    L --> M
-    M --> N["Worker 返回 GenerationBatchResult"]
-    N --> O["下一轮输入接力与 CPU 结果处理"]
+    A["模型输出 hidden_states"] -->|"01"| B["LogitsProcessor 选取各请求的预测位置"]
+    B -->|"02"| C["LM head 投影到词表维度"]
+    C -->|"03"| D["next_token_logits：每个请求一行分数"]
+    D -->|"04"| E["ModelRunner.sample"]
+    E -->|"05"| F["应用语法 mask、惩罚与 logits bias"]
+    F -->|"06"| G["Sampler.forward 执行自定义处理与异常值处理"]
+    G -->|"07"| H{"当前批全是贪心采样？"}
+    H -->|"08 · 是"| I["argmax 选择最高分 token"]
+    H -->|"09 · 否"| J["温度缩放并形成概率"]
+    J -->|"10"| K["按请求应用 top-k、top-p、min-p 等约束"]
+    K -->|"11"| L["按分布选取 token"]
+    I -->|"12"| M["next_token_ids"]
+    L -->|"13"| M
+    M -->|"14"| N["Worker 返回 GenerationBatchResult"]
+    N -->|"15"| O["下一轮输入接力与 CPU 结果处理"]
 
     classDef runner fill:#E0E7FF,stroke:#4338CA,color:#111827,stroke-width:2px
     classDef model fill:#FCE7F3,stroke:#BE185D,color:#111827,stroke-width:2px
@@ -851,42 +869,44 @@ flowchart LR
 
 本图为 CUDA、普通生成、无需延迟采样且本轮允许 overlap 的稳态迭代；`n` 表示本轮，`n−1` 表示上一轮。设备流中的节点表示排队执行的工作，不是三个 Python 调度线程。实线是本条链路的顺序，虚线是跨链路数据或等待依赖。
 
+按链路读编号：`01—06` 是 CPU 主循环，`07—08` 是 schedule_stream，`09—12` 是 forward_stream，`13—14` 是 copy_stream；`15—26` 定位跨链路提交、数据和等待依赖。各条链路可重叠推进，跨流先后由对应依赖边约束。例如本轮的 `14` 记录完成事件，`25` 将其关联到下一轮 CPU 读取；本轮 CPU 的 `04` 等的是上一轮事件，来源见 `24`。
+
 ```mermaid
 flowchart LR
     subgraph HOST["CPU 主循环"]
-        A["第 n 轮收请求并选择 batch"] --> B["run_batch 提交第 n 轮工作"]
-        B --> C["向 schedule_stream 添加共享读等待；结果句柄入队"]
-        C --> D["取出第 n−1 轮结果"]
-        D --> E["等待第 n−1 轮 copy_done"]
-        E --> F["读取 CPU 结果并更新请求"]
-        F --> G["进入第 n+1 轮"]
+        A["第 n 轮收请求并选择 batch"] -->|"01"| B["run_batch 提交第 n 轮工作"]
+        B -->|"02"| C["向 schedule_stream 添加共享读等待；结果句柄入队"]
+        C -->|"03"| D["取出第 n−1 轮结果"]
+        D -->|"04"| E["等待第 n−1 轮 copy_done"]
+        E -->|"05"| F["读取 CPU 结果并更新请求"]
+        F -->|"06"| G["进入第 n+1 轮"]
     end
     subgraph SCHEDULE["schedule_stream"]
-        S0["按上轮共享读屏障保护本轮写入"] --> S1["本轮组批相关设备操作"]
-        S1 --> S2["后续共享写入等待本轮读完事件"]
+        S0["按上轮共享读屏障保护本轮写入"] -->|"07"| S1["本轮组批相关设备操作"]
+        S1 -->|"08"| S2["后续共享写入等待本轮读完事件"]
     end
     subgraph FORWARD["forward_stream"]
-        P0["等待本轮 schedule_stream 已提交工作"] --> P1["resolve_forward_inputs 补齐输入"]
-        P1 --> P2["第 n 轮模型计算和正常采样"]
-        P2 --> P3["publish 长度与 stash 新 token"]
-        P3 --> P4["同一流继续下一轮前向"]
+        P0["等待本轮 schedule_stream 已提交工作"] -->|"09"| P1["resolve_forward_inputs 补齐输入"]
+        P1 -->|"10"| P2["第 n 轮模型计算和正常采样"]
+        P2 -->|"11"| P3["publish 长度与 stash 新 token"]
+        P3 -->|"12"| P4["同一流继续下一轮前向"]
     end
     subgraph COPY["copy_stream"]
-        Q0["等待本轮 forward_stream 已提交工作"] --> Q1["第 n 轮结果异步拷到 CPU"]
-        Q1 --> Q2["记录第 n 轮 copy_done"]
+        Q0["等待本轮 forward_stream 已提交工作"] -->|"13"| Q1["第 n 轮结果异步拷到 CPU"]
+        Q1 -->|"14"| Q2["记录第 n 轮 copy_done"]
     end
-    A -.-> S1
-    B -.-> P0
-    S1 -.->|流依赖| P0
-    B -.-> Q0
-    P3 -.->|流依赖| Q0
-    P2 -.->|读完事件或整流等待| S2
-    FM["FutureMap：按 req_pool_idx 保存接力值"] -.->|上一轮 token| P1
-    P3 -.->|写入本轮 token| FM
-    P3 -.->|供下一轮 resolve| P4
-    PREV["上一轮 copy_done"] -.-> E
-    Q2 -.-> NEXT["第 n+1 轮 CPU 读取本轮结果前等待"]
-    G -.-> NEXT
+    A -.->|"15"| S1
+    B -.->|"16"| P0
+    S1 -.->|"17 · 流依赖"| P0
+    B -.->|"18"| Q0
+    P3 -.->|"19 · 流依赖"| Q0
+    P2 -.->|"20 · 读完事件或整流等待"| S2
+    FM["FutureMap：按 req_pool_idx 保存接力值"] -.->|"21 · 上一轮 token"| P1
+    P3 -.->|"22 · 写入本轮 token"| FM
+    P3 -.->|"23 · 供下一轮 resolve"| P4
+    PREV["上一轮 copy_done"] -.->|"24"| E
+    Q2 -.->|"25"| NEXT["第 n+1 轮 CPU 读取本轮结果前等待"]
+    G -.->|"26"| NEXT
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -921,29 +941,29 @@ flowchart LR
 <!-- mermaid:id=f15 -->
 ```mermaid
 flowchart LR
-    RESULT["取得本批 GenerationBatchResult"] --> COPY["有 copy_done 时先等待，再读 CPU 结果"]
-    COPY --> EACH{"还有待处理的有效 Req？"}
-    EACH -->|"有"| MODE{"Prefill 还是 Decode"}
-    MODE -->|"Prefill"| CHUNK{"是否中间 chunk"}
-    CHUNK -->|"是"| SKIP["仅更新本请求块计数；标记跳过它的输出"]
-    SKIP --> EACH
-    CHUNK -->|"否"| FIRST["追加第一个生成 token"]
-    MODE -->|"Decode"| NEXT["追加本轮生成 token"]
-    FIRST --> FINISH["update_finish_state：更新结束状态"]
-    NEXT --> FINISH
-    FINISH --> DONE{"请求是否结束"}
-    DONE -->|"是"| RELEASE["release_kv_cache：缓存或释放并归还请求行"]
-    DONE -->|"否"| PREFILL{"是否刚完成普通 Prefill"}
-    PREFILL -->|"是"| CACHE["缓存已计算前缀，保留请求继续生成"]
-    PREFILL -->|"否"| CONT["保留请求继续 Decode"]
-    RELEASE --> EACH
-    CACHE --> EACH
-    CONT --> EACH
-    EACH -->|"无"| OUTPUT["stream_output：按逐请求条件收集，跳过中间 chunk"]
-    OUTPUT --> CONDITIONS{"至少一个请求满足输出间隔或已经结束？"}
-    CONDITIONS -->|"是"| PAYLOAD["组装批消息：新增 token、元信息与结束原因"]
-    CONDITIONS -->|"否"| RETURN["返回调度循环"]
-    PAYLOAD --> RETURN
+    RESULT["取得本批 GenerationBatchResult"] -->|"01"| COPY["有 copy_done 时先等待，再读 CPU 结果"]
+    COPY -->|"02"| EACH{"还有待处理的有效 Req？"}
+    EACH -->|"03 · 有"| MODE{"Prefill 还是 Decode"}
+    MODE -->|"04 · Prefill"| CHUNK{"是否中间 chunk"}
+    CHUNK -->|"05 · 是"| SKIP["仅更新本请求块计数；标记跳过它的输出"]
+    SKIP -->|"06"| EACH
+    CHUNK -->|"07 · 否"| FIRST["追加第一个生成 token"]
+    MODE -->|"08 · Decode"| NEXT["追加本轮生成 token"]
+    FIRST -->|"09"| FINISH["update_finish_state：更新结束状态"]
+    NEXT -->|"10"| FINISH
+    FINISH -->|"11"| DONE{"请求是否结束"}
+    DONE -->|"12 · 是"| RELEASE["release_kv_cache：缓存或释放并归还请求行"]
+    DONE -->|"13 · 否"| PREFILL{"是否刚完成普通 Prefill"}
+    PREFILL -->|"14 · 是"| CACHE["缓存已计算前缀，保留请求继续生成"]
+    PREFILL -->|"15 · 否"| CONT["保留请求继续 Decode"]
+    RELEASE -->|"16"| EACH
+    CACHE -->|"17"| EACH
+    CONT -->|"18"| EACH
+    EACH -->|"19 · 无"| OUTPUT["stream_output：按逐请求条件收集，跳过中间 chunk"]
+    OUTPUT -->|"20"| CONDITIONS{"至少一个请求满足输出间隔或已经结束？"}
+    CONDITIONS -->|"21 · 是"| PAYLOAD["组装批消息：新增 token、元信息与结束原因"]
+    CONDITIONS -->|"22 · 否"| RETURN["返回调度循环"]
+    PAYLOAD -->|"23"| RETURN
 
     classDef scheduler fill:#FEF3C7,stroke:#A16207,color:#111827,stroke-width:2px
     classDef batch fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
@@ -974,26 +994,26 @@ flowchart LR
 <!-- mermaid:id=f16 -->
 ```mermaid
 flowchart LR
-    INPUT["Detokenizer 收到 BatchTokenIDOutput"] --> STATUS["按 rid 取建 DecodeStatus 并追加 token"]
-    STATUS --> DECODE["解码上下文窗口 surr_ids 与 read_ids"]
-    DECODE --> DELTA["去掉共有前缀得到新文本"]
-    DELTA --> FINISH{"该请求是否结束"}
-    FINISH -->|"否"| CLEAN{"新文本是否完整"}
-    CLEAN -->|"是"| COMMIT["提交文本并推进 token 偏移"]
-    CLEAN -->|"否"| PARTIAL["仅发可打印部分，保留偏移等待后续 token"]
-    FINISH -->|"是"| TAIL["裁剪停止串、输出尾部并删除解码状态"]
-    COMMIT --> STR["组装 BatchStrOutput"]
-    PARTIAL --> STR
-    TAIL --> STR
-    STR -->|"ZMQ"| HANDLE["TokenizerManager.handle_loop 收到结果"]
-    HANDLE --> STATE["按 rid 更新 ReqState 与 out_list"]
-    STATE --> EVENT["event.set 唤醒请求等待协程"]
-    EVENT --> WAIT["_wait_one_response 取出并合并待处理结果"]
-    WAIT --> CLIENT{"请求完成或开启 stream"}
-    CLIENT -->|"否"| MORE["继续等待后续结果"]
-    MORE -->|"下一次通知"| WAIT
-    CLIENT -->|"是"| YIELD["yield 结果给接口层"]
-    YIELD --> FORMAT["Chat JSON、SSE 或 Python 返回值"]
+    INPUT["Detokenizer 收到 BatchTokenIDOutput"] -->|"01"| STATUS["按 rid 取建 DecodeStatus 并追加 token"]
+    STATUS -->|"02"| DECODE["解码上下文窗口 surr_ids 与 read_ids"]
+    DECODE -->|"03"| DELTA["去掉共有前缀得到新文本"]
+    DELTA -->|"04"| FINISH{"该请求是否结束"}
+    FINISH -->|"05 · 否"| CLEAN{"新文本是否完整"}
+    CLEAN -->|"06 · 是"| COMMIT["提交文本并推进 token 偏移"]
+    CLEAN -->|"07 · 否"| PARTIAL["仅发可打印部分，保留偏移等待后续 token"]
+    FINISH -->|"08 · 是"| TAIL["裁剪停止串、输出尾部并删除解码状态"]
+    COMMIT -->|"09"| STR["组装 BatchStrOutput"]
+    PARTIAL -->|"10"| STR
+    TAIL -->|"11"| STR
+    STR -->|"12 · ZMQ"| HANDLE["TokenizerManager.handle_loop 收到结果"]
+    HANDLE -->|"13"| STATE["按 rid 更新 ReqState 与 out_list"]
+    STATE -->|"14"| EVENT["event.set 唤醒请求等待协程"]
+    EVENT -->|"15"| WAIT["_wait_one_response 取出并合并待处理结果"]
+    WAIT -->|"16"| CLIENT{"请求完成或开启 stream"}
+    CLIENT -->|"17 · 否"| MORE["继续等待后续结果"]
+    MORE -->|"18 · 下一次通知"| WAIT
+    CLIENT -->|"19 · 是"| YIELD["yield 结果给接口层"]
+    YIELD -->|"20"| FORMAT["Chat JSON、SSE 或 Python 返回值"]
 
     classDef api fill:#DBEAFE,stroke:#1D4ED8,color:#111827,stroke-width:2px
     classDef tokenizer fill:#CFFAFE,stroke:#0E7490,color:#111827,stroke-width:2px
@@ -1056,6 +1076,16 @@ flowchart LR
 | 数据模型文档总图 | `audit_entry_scope` | 通过 | ①—⑫唯一编号、分配先后、完整 Prefill 缓存与 chunk 复用 |
 | 数据模型文档缓存交互图（初版为时序图） | `audit_entry_scope` | 通过 | 再次匹配、临时/请求引用、槽位与编号先后 |
 
-统一 LR 与模块配色后，`audit_compute_images` 再次逐图交叉复核 F00—F16 及数据模型文档两图，19 图全部通过。380 个节点均恰好归属一个模块，各图使用相同配色；F00—F16 的标签、连线和分支保持不变。缓存时序图改成 LR 流程图后，另行核对了预算初判、临时引用释放、已接纳状态、分配先后与缓存收尾。
+统一 LR 与模块配色后，`audit_compute_images` 再次逐图交叉复核 F00—F16 及数据模型文档两图，19 图全部通过。380 个节点均恰好归属一个模块，各图使用相同配色；F00—F16 的标签、连线和分支在该次配色调整中保持不变。缓存时序图改成 LR 流程图后，另行核对了预算初判、临时引用释放、已接纳状态、分配先后与缓存收尾。
+
+本次为本图谱的 **17 张图、378 条连线**添加图内序号后，再由三位 subagent 独立逐图复核：
+
+| 复核范围 | 独立审阅 subagent | 结果 | 重点核对 |
+|---|---|---|---|
+| F00、F01、F03、F04、F15、F16 | `review_numbered_entry` | 6 图通过，共 140 条连线 | 主链路阅读顺序、进程并行、消息往返、结果循环 |
+| F05—F09 | `review_numbered_batching` | 5 图通过，共 117 条连线 | 准入分支、分配先后、锁迁移、回退与缓存回环 |
+| F02、F10—F14 | `review_numbered_compute` | 6 图通过，共 121 条连线 | 权重加载并发、模型分支、层循环、跨流与跨轮依赖 |
+
+每图的编号均从 `01` 起连续且唯一，所有实线与虚线均已覆盖。对修改前后分别进行 Mermaid 原生解析，再剥除新增编号比较：节点、分组、模块配色以及连线的端点、方向、线型和原标签全部一致。特别保留了 F14 中 `P3 → P4` 的两种关系：`12` 为流内顺序，`23` 为下一轮输入依赖。本图谱 17 图重新通过 canonical schema、静态检查和原生解析；此次未修改配套数据模型文档的两图。
 
 Mermaid 全部采用 `flowchart LR`，无远程资源、初始化脚本或 HTML 节点标签。19 张 Mermaid 图均通过 canonical schema、静态检查，以及本机现有 Cursor 扩展所附 Mermaid 解析器的纯解析校验。源码语义复核与解析通过不等同于布局渲染；本机未安装 `mmdc`，本轮没有做原生布局渲染或截图验收。

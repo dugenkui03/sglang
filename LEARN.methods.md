@@ -1,8 +1,8 @@
 # SGLang 核心方法阅读清单
 
-**已读 89/140（63.6%），未读 51 个。**
+**已读 93/140（66.4%），未读 47 个。**
 
-直接注释 78 个；链路补全 5 个；分支补全 6 个。方法按核心阶段和概念分支排列，可点击方法名跳转源码。
+直接注释 82 个；链路补全 5 个；分支补全 6 个。方法按核心阶段和概念分支排列，可点击方法名跳转源码。
 
 | 阅读标记 | 判定依据 | 含义 |
 | --- | --- | --- |
@@ -24,10 +24,10 @@
 | 2 配置发布 | 2/4 | 2 | 50.0% |
 | 3 API 与请求转换 | 3/6 | 3 | 50.0% |
 | 4 分词与请求提交 | 10/10 | 0 | 100.0% |
-| 5 调度与组批 | 20/29 | 9 | 69.0% |
+| 5 调度与组批 | 23/29 | 6 | 79.3% |
 | 6 执行桥接与 overlap 数据交接 | 7/7 | 0 | 100.0% |
 | 7 模型前向与 Attention | 6/21 | 15 | 28.6% |
-| 8 KV 分配与前缀缓存 | 7/24 | 17 | 29.2% |
+| 8 KV 分配与前缀缓存 | 8/24 | 16 | 33.3% |
 | 9 采样、结果处理与回包 | 19/24 | 5 | 79.2% |
 
 ## 1. 启动与进程
@@ -43,7 +43,7 @@
 | ✅ 已读 | [Engine.\_launch\_scheduler\_processes](python/sglang/srt/entrypoints/engine.py#L838) | 按 rank 拉起 GPU worker | D · 直接注释：新增中文说明 L875,876,878,879,880,886,887,888,894,896,900,914,960 |
 | ✅ 已读 | [Engine.\_launch\_detokenizer\_subprocesses](python/sglang/srt/entrypoints/engine.py#L964) | 拉起解码回包进程 | D · 直接注释：新增中文说明 L984,986 |
 | ✅ 已读 | [init\_tokenizer\_manager](python/sglang/srt/entrypoints/engine.py#L156) | 建立主进程请求入口 | D · 直接注释：新增中文说明 L159,161,162,163,164,168,170,171,173,174,175 |
-| ✅ 已读 | [run\_scheduler\_process](python/sglang/srt/managers/scheduler.py#L5540) | Scheduler 子进程入口 | D · 直接注释：新增中文说明 L5591,5608 |
+| ✅ 已读 | [run\_scheduler\_process](python/sglang/srt/managers/scheduler.py#L5557) | Scheduler 子进程入口 | D · 直接注释：新增中文说明 L5608,5625 |
 | ✅ 已读 | [run\_detokenizer\_process](python/sglang/srt/managers/detokenizer_manager.py#L610) | Detokenizer 子进程入口 | D · 直接注释：新增中文说明 L625 |
 | ✅ 已读 | [\_setup\_and\_run\_http\_server](python/sglang/srt/entrypoints/http_server.py#L2522) | 将 Engine 组件接入 HTTP 服务 | D · 直接注释：新增中文说明 L2533,2534,2535,2536,2542,2544,2557,2605 |
 
@@ -53,9 +53,9 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [Scheduler.\_\_init\_\_](python/sglang/srt/managers/scheduler.py#L413) | 调度器资源与组件初始化 | D · 直接注释：新增中文说明 L542,543,583,668 |
-| ✅ 已读 | [Scheduler.init\_model\_worker](python/sglang/srt/managers/scheduler.py#L1055) | 编排权重、缓存、后端和图初始化 | D · 直接注释：新增中文说明 L1056,1057,1058,1059,1060,1063,1071,1076,1134,1135 |
-| ✅ 已读 | [Scheduler.init\_tp\_model\_worker](python/sglang/srt/managers/scheduler.py#L942) | 建立调度到 GPU 的执行桥 | D · 直接注释：新增中文说明 L943,944,945,946,957,963 |
+| ✅ 已读 | [Scheduler.\_\_init\_\_](python/sglang/srt/managers/scheduler.py#L413) | 调度器资源与组件初始化 | D · 直接注释：新增中文说明 L542,543,550,551,585,670 |
+| ✅ 已读 | [Scheduler.init\_model\_worker](python/sglang/srt/managers/scheduler.py#L1057) | 编排权重、缓存、后端和图初始化 | D · 直接注释：新增中文说明 L1058,1059,1060,1061,1062,1065,1073,1078,1136,1137 |
+| ✅ 已读 | [Scheduler.init\_tp\_model\_worker](python/sglang/srt/managers/scheduler.py#L944) | 建立调度到 GPU 的执行桥 | D · 直接注释：新增中文说明 L945,946,947,948,959,965 |
 | ✅ 已读 | [TpModelWorker.\_\_init\_\_](python/sglang/srt/managers/tp_worker.py#L318) | 建立模型配置与 ModelRunner | D · 直接注释：新增中文说明 L353,354 |
 | ✅ 已读 | [ModelRunner.\_\_init\_\_](python/sglang/srt/model_executor/model_runner.py#L314) | GPU 执行状态与设备配置 | D · 直接注释：新增中文说明 L329,431,465 |
 | ✅ 已读 | [ModelRunner.initialize](python/sglang/srt/model_executor/model_runner.py#L649) | 模型执行环境初始化顺序 | D · 直接注释：新增中文说明 L650,659,661,678,679 |
@@ -130,10 +130,10 @@
 | ✅ 已读 | [SchedulerRequestReceiver.recv\_requests](python/sglang/srt/managers/scheduler_components/request_receiver.py#L88) | 接收本轮请求并做 rank 同步 | D · 直接注释：新增中文说明 L92,102,103,109,110,111,114,116,118 |
 | ✅ 已读 | [SchedulerRequestReceiver.\_pull\_raw\_reqs](python/sglang/srt/managers/scheduler_components/request_receiver.py#L125) | 从主进程管道接收消息 | D · 直接注释：新增中文说明 L127,131,148,158,167,168 |
 | ✅ 已读（推定） | [SchedulerRequestReceiver.\_broadcast\_reqs\_across\_ranks](python/sglang/srt/managers/scheduler_components/request_receiver.py#L183) | 将请求分发到参与执行的 rank | B · 分支补全：branch=scheduler_ingress;direct=6;covered_before_branch=6/7 |
-| ✅ 已读 | [Scheduler.process\_input\_requests](python/sglang/srt/managers/scheduler.py#L2032) | 按消息类型分派处理 | D · 直接注释：新增中文说明 L2034,2035,2036,2040,2045,2057,2058 |
-| ✅ 已读 | [Scheduler.handle\_generate\_request](python/sglang/srt/managers/scheduler.py#L2582) | 将 tokenized 输入变为调度请求 | D · 直接注释：新增中文说明 L2587,2594,2597,2602,2614,2616,2663,2676,2677,2678,2744,2746,2914 |
-| ✅ 已读 | [Req.\_\_init\_\_](python/sglang/srt/managers/schedule_batch.py#L830) | 建立请求、生成和缓存状态 | D · 直接注释：新增中文说明 L1016,1020,1034,1038 |
-| ✅ 已读 | [Scheduler.\_add\_request\_to\_queue](python/sglang/srt/managers/scheduler.py#L2974) | 进入等待队列 | D · 直接注释：新增中文说明 L2975,2983,2986 |
+| ✅ 已读 | [Scheduler.process\_input\_requests](python/sglang/srt/managers/scheduler.py#L2042) | 按消息类型分派处理 | D · 直接注释：新增中文说明 L2044,2045,2046,2050,2055,2067,2068 |
+| ✅ 已读 | [Scheduler.handle\_generate\_request](python/sglang/srt/managers/scheduler.py#L2592) | 将 tokenized 输入变为调度请求 | D · 直接注释：新增中文说明 L2597,2604,2607,2612,2624,2626,2673,2686,2687,2688,2754,2756,2924 |
+| ✅ 已读 | [Req.\_\_init\_\_](python/sglang/srt/managers/schedule_batch.py#L839) | 建立请求、生成和缓存状态 | D · 直接注释：新增中文说明 L1025,1029,1043,1047,1142 |
+| ✅ 已读 | [Scheduler.\_add\_request\_to\_queue](python/sglang/srt/managers/scheduler.py#L2984) | 进入等待队列 | D · 直接注释：新增中文说明 L2985,2993,2996 |
 
 ### 普通与重叠调度主循环
 
@@ -141,10 +141,10 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [dispatch\_event\_loop](python/sglang/srt/managers/scheduler.py#L5429) | 选择运行主循环 | D · 直接注释：新增中文说明 L5433,5437,5440,5443,5444,5445,5446,5449,5450,5451,5452,5455,5463 |
-| ✅ 已读 | [Scheduler.run\_event\_loop](python/sglang/srt/managers/scheduler.py#L1775) | 按服务模式选择事件循环 | D · 直接注释：新增中文说明 L1787,1812 |
-| ✅ 已读 | [Scheduler.event\_loop\_normal](python/sglang/srt/managers/scheduler.py#L1829) | 收请求、组批、前向、结果处理 | D · 直接注释：新增中文说明 L1836,1844,1850,1852 |
-| ✅ 已读 | [Scheduler.event\_loop\_overlap](python/sglang/srt/managers/scheduler.py#L1871) | CPU 调度和 GPU 执行交错推进 | D · 直接注释：新增中文说明 L1870,1873,1875,1876,1877,1878,1879,1883,1884,1890,1899,1905,1906,1909,1915,1918,1919,1920,1922,1923,1925,1926,1927,1928,1929,1930,1932,1954,1963 |
+| ✅ 已读 | [dispatch\_event\_loop](python/sglang/srt/managers/scheduler.py#L5446) | 选择运行主循环 | D · 直接注释：新增中文说明 L5450,5454,5457,5460,5461,5462,5463,5466,5467,5468,5469,5472,5480 |
+| ✅ 已读 | [Scheduler.run\_event\_loop](python/sglang/srt/managers/scheduler.py#L1785) | 按服务模式选择事件循环 | D · 直接注释：新增中文说明 L1797,1822 |
+| ✅ 已读 | [Scheduler.event\_loop\_normal](python/sglang/srt/managers/scheduler.py#L1839) | 收请求、组批、前向、结果处理 | D · 直接注释：新增中文说明 L1846,1854,1860,1862 |
+| ✅ 已读 | [Scheduler.event\_loop\_overlap](python/sglang/srt/managers/scheduler.py#L1881) | CPU 调度和 GPU 执行交错推进 | D · 直接注释：新增中文说明 L1880,1883,1885,1886,1887,1888,1889,1893,1894,1900,1909,1915,1916,1919,1925,1928,1929,1930,1932,1933,1935,1936,1937,1938,1939,1940,1942,1964,1973 |
 
 ### Prefill 选择与预算控制
 
@@ -152,9 +152,9 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [Scheduler.get\_next\_batch\_to\_run](python/sglang/srt/managers/scheduler.py#L3275) | 选择下一轮 prefill/decode 批次 | D · 直接注释：新增中文说明 L3281,3306,3307,3308,3321,3322,3323,3350,3356,3361,3373,3379,3380,3397,3401,3402,3404,3434 |
-| ✅ 已读 | [Scheduler.get\_new\_batch\_prefill](python/sglang/srt/managers/scheduler.py#L3457) | 建立 prefill 批次入口 | D · 直接注释：新增中文说明 L3470,3487,3488 |
-| ✅ 已读 | [Scheduler.\_get\_new\_batch\_prefill\_raw](python/sglang/srt/managers/scheduler.py#L3491) | 选择可接纳的等待请求 | D · 直接注释：新增中文说明 L3497,3513,3514,3517,3518,3519,3554,3579,3582,3584,3585,3586,3587,3588,3590,3593,3594,3603,3624,3652,3654,3658,3661,3664,3684,3734,3752,3774 |
+| ✅ 已读 | [Scheduler.get\_next\_batch\_to\_run](python/sglang/srt/managers/scheduler.py#L3285) | 选择下一轮 prefill/decode 批次 | D · 直接注释：新增中文说明 L3291,3316,3317,3318,3331,3332,3333,3360,3366,3371,3383,3389,3390,3408,3409,3411,3414,3416,3417,3419 |
+| ✅ 已读 | [Scheduler.get\_new\_batch\_prefill](python/sglang/srt/managers/scheduler.py#L3470) | 建立 prefill 批次入口 | D · 直接注释：新增中文说明 L3480,3488,3498,3499 |
+| ✅ 已读 | [Scheduler.\_get\_new\_batch\_prefill\_raw](python/sglang/srt/managers/scheduler.py#L3502) | 选择可接纳的等待请求 | D · 直接注释：新增中文说明 L3508,3524,3525,3528,3529,3530,3565,3577,3578,3591,3592,3595,3597,3598,3599,3600,3601,3603,3606,3607,3616,3637,3665,3667,3671,3674,3677,3697,3743,3747,3765,3767,3768,3777,3778,3779,3784,3791 |
 | ✅ 已读 | [SchedulePolicy.calc\_priority](python/sglang/srt/managers/schedule_policy.py#L242) | 确定等待队列处理顺序 | D · 直接注释：新增中文说明 L245,247,255,259 |
 | ✅ 已读 | [PrefillAdder.\_\_init\_\_](python/sglang/srt/managers/schedule_policy.py#L525) | 建立 token 与显存接纳预算 | D · 直接注释：新增中文说明 L534,544,545,549,555,556,569 |
 | ✅ 已读 | [PrefillAdder.add\_one\_req](python/sglang/srt/managers/schedule_policy.py#L1243) | 检查预算并接纳请求 | D · 直接注释：新增中文说明 L1247,1268,1269,1271,1272,1273,1274,1276,1277,1280,1289,1292,1296,1331,1334,1335,1388,1390,1391,1420,1421,1429,1436,1438,1440,1441,1442,1444,1445,1447,1452,1484,1503 |
@@ -163,17 +163,17 @@
 
 ### Prefill 与 decode 批次状态
 
-已读 **1/7**，未读 **6**。
+已读 **4/7**，未读 **3**。
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ⬜ 未读 | [Req.init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1332) | 按已缓存前缀准备下轮输入 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ScheduleBatch.init\_new](python/sglang/srt/managers/schedule_batch.py#L2259) | 从请求集合建立调度批次 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ScheduleBatch.prepare\_for\_extend](python/sglang/srt/managers/schedule_batch.py#L2438) | 准备 prefill token、长度和缓存位置 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ✅ 已读 | [Scheduler.update\_running\_batch](python/sglang/srt/managers/scheduler.py#L3848) | 维护继续生成的请求集合 | D · 直接注释：新增中文说明 L3850,3930 |
-| ⬜ 未读 | [ScheduleBatch.prepare\_for\_decode](python/sglang/srt/managers/schedule_batch.py#L3177) | 为每个请求准备下一 token 的执行状态 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ScheduleBatch.filter\_batch](python/sglang/srt/managers/schedule_batch.py#L3269) | 移除结束请求并对齐批次张量 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ScheduleBatch.merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3356) | 合并完成 prefill 的请求与运行批次 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [Req.init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1344) | 按已缓存前缀准备下轮输入 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ✅ 已读 | [ScheduleBatch.init\_new](python/sglang/srt/managers/schedule_batch.py#L2273) | 从请求集合建立调度批次 | D · 直接注释：新增中文说明 L2276,2278,2286,2288,2291,2292,2296,2299,2300,2303,2304,2305,2307,2308 |
+| ✅ 已读 | [ScheduleBatch.prepare\_for\_extend](python/sglang/srt/managers/schedule_batch.py#L2460) | 准备 prefill token、长度和缓存位置 | D · 直接注释：新增中文说明 L2461,2463,2472,2474,2476,2478,2480,2482,2484,2487,2488,2519,2539,2677,2738 |
+| ✅ 已读 | [Scheduler.update\_running\_batch](python/sglang/srt/managers/scheduler.py#L3865) | 维护继续生成的请求集合 | D · 直接注释：新增中文说明 L3867,3947 |
+| ✅ 已读 | [ScheduleBatch.prepare\_for\_decode](python/sglang/srt/managers/schedule_batch.py#L3218) | 为每个请求准备下一 token 的执行状态 | D · 直接注释：新增中文说明 L3257 |
+| ⬜ 未读 | [ScheduleBatch.filter\_batch](python/sglang/srt/managers/schedule_batch.py#L3314) | 移除结束请求并对齐批次张量 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [ScheduleBatch.merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3401) | 合并完成 prefill 的请求与运行批次 | U · 待覆盖：无直接证据，且未满足补全规则 |
 
 ### Decode 显存不足与回退
 
@@ -181,9 +181,9 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ⬜ 未读 | [ScheduleBatch.check\_decode\_mem](python/sglang/srt/managers/schedule_batch.py#L2914) | 检查下一轮 KV 容量 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ScheduleBatch.retract\_decode](python/sglang/srt/managers/schedule_batch.py#L2921) | 显存不足时撤回部分请求 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [Req.reset\_for\_retract](python/sglang/srt/managers/schedule_batch.py#L1705) | 重置被撤回请求以便重新调度 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [ScheduleBatch.check\_decode\_mem](python/sglang/srt/managers/schedule_batch.py#L2955) | 检查下一轮 KV 容量 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [ScheduleBatch.retract\_decode](python/sglang/srt/managers/schedule_batch.py#L2962) | 显存不足时撤回部分请求 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [Req.reset\_for\_retract](python/sglang/srt/managers/schedule_batch.py#L1717) | 重置被撤回请求以便重新调度 | U · 待覆盖：无直接证据，且未满足补全规则 |
 
 
 ## 6. 执行桥接与 overlap 数据交接
@@ -194,9 +194,9 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [Scheduler.run\_batch](python/sglang/srt/managers/scheduler.py#L3995) | 提交一轮模型计算并接收结果 | D · 直接注释：新增中文说明 L3997,4001,4012,4019,4029,4030,4032,4039,4040,4041,4042,4044,4051,4075,4076,4080 |
-| ✅ 已读 | [TpModelWorker.forward\_batch\_generation](python/sglang/srt/managers/tp_worker.py#L600) | 组织 ForwardBatch、前向与采样 | D · 直接注释：新增中文说明 L602,611,612,613,615,622,624,643,663,688,691 |
-| ✅ 已读（推定） | [ForwardBatch.init\_new](python/sglang/srt/model_executor/forward_batch_info.py#L728) | 调度视图转换为 GPU 批次视图 | B · 分支补全：branch=forward_bridge;direct=3;covered_before_branch=3/4 |
+| ✅ 已读 | [Scheduler.run\_batch](python/sglang/srt/managers/scheduler.py#L4012) | 提交一轮模型计算并接收结果 | D · 直接注释：新增中文说明 L4014,4018,4029,4036,4046,4047,4049,4056,4057,4058,4059,4061,4068,4092,4093,4097 |
+| ✅ 已读 | [TpModelWorker.forward\_batch\_generation](python/sglang/srt/managers/tp_worker.py#L601) | 组织 ForwardBatch、前向与采样 | D · 直接注释：新增中文说明 L603,612,613,614,616,623,625,644,664,689,692 |
+| ✅ 已读（推定） | [ForwardBatch.init\_new](python/sglang/srt/model_executor/forward_batch_info.py#L732) | 调度视图转换为 GPU 批次视图 | B · 分支补全：branch=forward_bridge;direct=3;covered_before_branch=3/4 |
 | ✅ 已读 | [resolve\_forward\_inputs](python/sglang/srt/managers/overlap_utils.py#L87) | 将 overlap 的未来 token 解析为实际输入 | D · 直接注释：新增中文说明 L96,110 |
 
 ### Overlap 结果与后续输入衔接
@@ -261,7 +261,7 @@
 | ⬜ 未读 | [FlashAttentionBackend.init\_forward\_metadata](python/sglang/srt/layers/attention/flashattention_backend.py#L683) | 准备批次和 KV 索引元数据 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [FlashAttentionBackend.forward\_extend](python/sglang/srt/layers/attention/flashattention_backend.py#L1228) | Prefill 注意力与 KV 写入 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [FlashAttentionBackend.forward\_decode](python/sglang/srt/layers/attention/flashattention_backend.py#L1804) | 读取历史 KV 并计算 decode 注意力 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [MHATokenToKVPool.set\_kv\_buffer](python/sglang/srt/mem_cache/memory_pool.py#L2383) | 将新 token 的 K/V 写入槽位 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [MHATokenToKVPool.set\_kv\_buffer](python/sglang/srt/mem_cache/memory_pool.py#L2388) | 将新 token 的 K/V 写入槽位 | U · 待覆盖：无直接证据，且未满足补全规则 |
 
 
 ## 8. KV 分配与前缀缓存
@@ -272,24 +272,24 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [Scheduler.init\_memory\_pools](python/sglang/srt/managers/scheduler.py#L1023) | 建立调度器持有的缓存池 | D · 直接注释：新增中文说明 L1025,1033 |
-| ✅ 已读 | [Scheduler.init\_target\_memory\_pool](python/sglang/srt/managers/scheduler.py#L999) | 连接模型执行器的目标缓存池 | D · 直接注释：新增中文说明 L1002,1006 |
+| ✅ 已读 | [Scheduler.init\_memory\_pools](python/sglang/srt/managers/scheduler.py#L1025) | 建立调度器持有的缓存池 | D · 直接注释：新增中文说明 L1027,1035 |
+| ✅ 已读 | [Scheduler.init\_target\_memory\_pool](python/sglang/srt/managers/scheduler.py#L1001) | 连接模型执行器的目标缓存池 | D · 直接注释：新增中文说明 L1004,1008,1022 |
 | ✅ 已读 | [TpModelWorker.alloc\_memory\_pool](python/sglang/srt/managers/tp_worker.py#L407) | 向执行器请求 KV 池 | D · 直接注释：新增中文说明 L420,421 |
 | ✅ 已读 | [ModelRunner.alloc\_memory\_pool](python/sglang/srt/model_executor/model_runner.py#L875) | 按容量创建并发布缓存资源 | D · 直接注释：新增中文说明 L878,884,888,890,892,894 |
-| ✅ 已读 | [ReqToTokenPool.\_\_init\_\_](python/sglang/srt/mem_cache/memory_pool.py#L264) | 建立请求槽位到 token 槽位的映射表 | D · 直接注释：新增中文说明 L282,284 |
-| ✅ 已读（推定） | [MHATokenToKVPool.\_\_init\_\_](python/sglang/srt/mem_cache/memory_pool.py#L1812) | 建立各层 K/V 的实际存储 | B · 分支补全：branch=kv_setup;direct=5;covered_before_branch=5/6 |
+| ✅ 已读 | [ReqToTokenPool.\_\_init\_\_](python/sglang/srt/mem_cache/memory_pool.py#L264) | 建立请求槽位到 token 槽位的映射表 | D · 直接注释：新增中文说明 L272,273,282,287,289 |
+| ✅ 已读（推定） | [MHATokenToKVPool.\_\_init\_\_](python/sglang/srt/mem_cache/memory_pool.py#L1817) | 建立各层 K/V 的实际存储 | B · 分支补全：branch=kv_setup;direct=5;covered_before_branch=5/6 |
 
 ### 请求与 KV 槽位分配
 
-已读 **0/8**，未读 **8**。
+已读 **1/8**，未读 **7**。
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ⬜ 未读 | [ReqToTokenPool.alloc](python/sglang/srt/mem_cache/memory_pool.py#L299) | 为活跃请求分配映射表行 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [ReqToTokenPool.free](python/sglang/srt/mem_cache/memory_pool.py#L347) | 归还请求映射表行 | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [alloc\_for\_extend](python/sglang/srt/mem_cache/allocation.py#L282) | 为新增 prefill token 分配 KV | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [alloc\_for\_decode](python/sglang/srt/mem_cache/allocation.py#L528) | 为下一轮 decode token 分配 KV | U · 待覆盖：无直接证据，且未满足补全规则 |
-| ⬜ 未读 | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L594) | 将逻辑 token 位置映射到 KV 槽位 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [ReqToTokenPool.alloc](python/sglang/srt/mem_cache/memory_pool.py#L304) | 为活跃请求分配映射表行 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [ReqToTokenPool.free](python/sglang/srt/mem_cache/memory_pool.py#L352) | 归还请求映射表行 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ✅ 已读 | [alloc\_for\_extend](python/sglang/srt/mem_cache/allocation.py#L282) | 为新增 prefill token 分配 KV | D · 直接注释：新增中文说明 L292,293,294,295,296,297,298,301,302,305,308,330,342,355,359,377,391,412 |
+| ⬜ 未读 | [alloc\_for\_decode](python/sglang/srt/mem_cache/allocation.py#L551) | 为下一轮 decode token 分配 KV | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L617) | 将逻辑 token 位置映射到 KV 槽位 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [PagedTokenToKVPoolAllocator.alloc\_extend](python/sglang/srt/mem_cache/allocator/paged.py#L172) | 按页接纳 prefill 的 KV 增量 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [PagedTokenToKVPoolAllocator.alloc\_decode](python/sglang/srt/mem_cache/allocator/paged.py#L222) | 处理 decode 跨页分配 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [PagedTokenToKVPoolAllocator.free](python/sglang/srt/mem_cache/allocator/paged.py#L261) | 归还 KV 页面 | U · 待覆盖：无直接证据，且未满足补全规则 |
@@ -340,10 +340,10 @@
 
 | 阅读状态 | 方法 | 核心概念 | 判定依据 |
 | --- | --- | --- | --- |
-| ✅ 已读 | [Scheduler.process\_batch\_result](python/sglang/srt/managers/scheduler.py#L4354) | 按批次类型处理前向结果 | D · 直接注释：新增中文说明 L4359 |
+| ✅ 已读 | [Scheduler.process\_batch\_result](python/sglang/srt/managers/scheduler.py#L4371) | 按批次类型处理前向结果 | D · 直接注释：新增中文说明 L4376 |
 | ✅ 已读 | [SchedulerBatchResultProcessor.process\_batch\_result\_prefill](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L240) | 处理 prefill 输出和请求状态 | D · 直接注释：新增中文说明 L245 |
 | ✅ 已读 | [SchedulerBatchResultProcessor.process\_batch\_result\_decode](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L870) | 接收新 token 并推进 decode 状态 | D · 直接注释：新增中文说明 L875 |
-| ⬜ 未读 | [Req.update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1663) | 判断长度、终止 token 和停止字符串 | U · 待覆盖：无直接证据，且未满足补全规则 |
+| ⬜ 未读 | [Req.update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1675) | 判断长度、终止 token 和停止字符串 | U · 待覆盖：无直接证据，且未满足补全规则 |
 | ⬜ 未读 | [release\_kv\_cache](python/sglang/srt/mem_cache/common.py#L202) | 结束请求时转交缓存并释放资源 | U · 待覆盖：无直接证据，且未满足补全规则 |
 
 ### Scheduler 输出 token 消息
@@ -388,7 +388,7 @@ SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向�
 
 - 范围版本：v2。
 - 统计对象：当前工作区，包含未提交修改。
-- HEAD：`62e36f639fa814ad25082d1b4357f5357550ad46`。
+- HEAD：`7191bda32a495b6617edbd47a3e50dfe018a9b7d`。
 - 固定对照基线：`6388b6cfb1d93c253714a408f1d66a093302acd7`。
-- 源码指纹：`b8cd1f6931dcd7a2fa59724a25a01b6575e022df135cbcde129aedce8d0ca3e9`。
+- 源码指纹：`f38eeffbcb567ab7b35093a9a9c2545fa14086f46aa433a6c5722c4e99b76b3c`。
 - 范围指纹：`d2f38b91a6ad05a3a74296db8e23690abb75471f254735a7e5c8862acc69e27f`。

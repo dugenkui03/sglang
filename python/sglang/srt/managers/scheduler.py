@@ -547,6 +547,8 @@ class Scheduler(
             time.sleep(t)
 
         # Init tree_cache and memory pool
+        # tips：从 ModelRunner 中获取 ReqToTokenPool、KV Pool 和 TokenToKVPoolAllocator 的引用
+        #       创建缓存对象/create_tree_cache：默认是 RadixCache；关掉前缀缓存时 ChunkCache；开 HiCache（Hierarchical Cache）时 HiRadixCache
         result = kv_cache_builder.build_kv_cache(
             server_args=self.server_args,
             model_config=self.model_config,
@@ -1017,7 +1019,7 @@ class Scheduler(
         if self.draft_worker is not None:
             preloaded_weights_bytes += self.draft_worker.preloaded_weights_bytes
         self.tp_worker.model_runner.account_preloaded_weights(preloaded_weights_bytes)
-        # NOTE
+        # NOTE 重要，后边调用到 ModelRunner 的内存分配方法，初始化 ReqToTokenPool、KV Pool、TokenToKVPoolAllocator 等方法
         self.tp_worker.alloc_memory_pool() 
 
     def init_memory_pools(self):
@@ -1262,6 +1264,14 @@ class Scheduler(
         )
 
         # Init the dynamic chunking predictor for PP
+        # tip 动态分块大小：
+        #   长上下文中，如果按照相同大小分块，越往后执行的越慢
+        #   动态分块就是越往后切分的越小，让每一块的 prefill 计算大致相同
+        #   predict_next_chunk_size(history_len) 计算下一块的大小
+        #
+        #   越往后执行时间越长，因为耗时分两块：
+        #       1）QKV 投影：和token数量有关
+        #       2）注意力计算，和当前token总长度有关
         self.enable_dynamic_chunking = (
             get_schedule().enable_dynamic_chunking and self.ps.pp_size > 1
         )
@@ -3475,10 +3485,11 @@ class Scheduler(
         )
 
         if self.prefill_delayer:
+            # tip --enable-prefill-delayer 时走到这个链路
             observed_prefill_bs = prefill_delayer_single_pass.finalize(
                 actual_prefill_bs=ret.batch_size() if ret is not None else 0
             )
-            if observed_prefill_bs > 0:
+            if observed_prefill_bs > 0: # bs batch_sizesssssssssssss
                 self.max_prefill_bs = self.prefill_bs_tracker.observe_attempt(
                     observed_prefill_bs
                 )
@@ -3563,7 +3574,8 @@ class Scheduler(
         # Determine chunked_prefill_size for this batch
         chunked_prefill_size = self.chunked_prefill_size
         if self.chunked_req is not None and self.enable_dynamic_chunking:
-            history_len = len(self.chunked_req.prefix_indices)
+            history_len = len(self.chunked_req.prefix_indices) # 入参是这个 req 已经缓存的kv的数量
+            # tip 动态 prefill size：获取本次的 prefill size，即要处理多少个 token
             dynamic_size = self.predict_next_chunk_size(history_len)
             if dynamic_size is not None:
                 chunked_prefill_size = dynamic_size
@@ -3577,6 +3589,7 @@ class Scheduler(
             prefill_tile_block_m = 64  # Fallback for non-Triton backends
 
         # NOTE 建本轮预算：剩余 KV 编号、最多 prefill token 数、分块大小、最多请求数
+        #   PrefillAdder 每一轮新建一个对象
         adder = PrefillAdder(
             page_size=self.page_size,
             tree_cache=self.tree_cache, # tree_cache 就是 前缀匹配，就是 RadixCache 实现的那套
@@ -3727,7 +3740,7 @@ class Scheduler(
             mamba_allocator.alloc_group_end()
 
         # Update waiting queue
-        can_run_list: List[Req] = adder.can_run_list
+        can_run_list: List[Req] = adder.can_run_list # NOTE 获取本批次执行的请求
         if len(can_run_list) == 0:
             return None, running_batch
 
@@ -3751,8 +3764,8 @@ class Scheduler(
         # Create a new batch
         # NOTE 用选中的请求建 prefill 批（只记下 reqs 和各个池的引用）
         new_batch = ScheduleBatch.init_new(
-            can_run_list,
-            self.req_to_token_pool,
+            can_run_list, # NOTE 重点参数，本批次
+            self.req_to_token_pool, # NOTE Scheduler 的 ReqToTokenPool
             self.token_to_kv_pool_allocator,
             self.tree_cache,
             self.model_config,
@@ -3761,10 +3774,14 @@ class Scheduler(
             chunked_req=self.chunked_req,
         )
 
+        # 【本批是否包含某个请求的最后一块】，分两种情况：
+        #   chunked_req is None 且 len(can_run_list) 为1的时候：是最后一个请求或者正好包含一个完整的请求
+        #   len(can_run_list)>1：肯定包含一个请求的末尾
         new_batch.contains_last_prefill_chunk = (
             self.chunked_req is None or len(can_run_list) != 1
         )
 
+        # tip 是否支持分层缓存
         if self.enable_hierarchical_cache:
             # todo (zhiqiang): disable cuda graph execution if hicache loading triggered
             new_batch.hicache_consumer_index = (

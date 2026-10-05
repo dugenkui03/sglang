@@ -191,6 +191,15 @@ def get_request_return_hidden_states_mode(
 
 
 def get_batch_return_hidden_states_mode(reqs: List[Req]) -> CaptureHiddenMode:
+    """
+    返回所有 req 中规格最高的 CaptureHiddenMode
+        # Do not capture anything.
+        NULL = 0
+        # Capture a hidden state of the last token.
+        LAST = 1
+        # Capture hidden states of all tokens.
+        FULL = 2
+    """
     mode = CaptureHiddenMode.NULL
     for req in reqs:
         mode = max(mode, req.return_hidden_states_mode)
@@ -1130,6 +1139,7 @@ class Req(ReqDllmMixin):
         self.embedding = None
 
         # Constrained decoding
+        # 受限制解码，即是否按照指定 json格式或者正则返回结果
         self.grammar_key: Optional[Tuple[str, str]] = None
         self.grammar: Optional[Union[BaseGrammarObject, Future[BaseGrammarObject]]] = (
             None
@@ -1306,6 +1316,8 @@ class Req(ReqDllmMixin):
         self.extend_range = Range(start, end)
 
     def get_fill_ids(self) -> array:
+        """ 返回本批次要计算的批次：肯定是从0开始、但是可能执行到某个阶段
+        """
         return self.full_untruncated_fill_ids[: self.extend_range.end]
 
     def _refresh_fill_ids(self) -> None:
@@ -2096,6 +2108,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     # For chunked prefill in PP
     chunked_req: Optional[Req] = None
     chunked_req_next_prompt_token: Optional[int] = None
+    #tip 【本批是否包含某个请求的最后一块】
     contains_last_prefill_chunk: bool = True
 
     # For DP attention
@@ -2198,6 +2211,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     spec_verify_tier_num_tokens: int = -1
 
     # For processing logprobs
+    # tip 是否返回结果token对应的 logprobs/对数概率
     return_logprob: bool = False
 
     # Whether this batch is prefill-only (no token generation needed)
@@ -2256,35 +2270,43 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     spec_info: Optional[SpecInput] = None
 
     @classmethod
-    def init_new(
+    def init_new( 
         cls,
         reqs: List[Req],
-        req_to_token_pool: ReqToTokenPool,
+        req_to_token_pool: ReqToTokenPool, # NOTE Scheduler 的 req_to_token_pool
         token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator,
-        tree_cache: BasePrefixCache,
+        tree_cache: BasePrefixCache, # tip 这里用的是 Scheduler 的 tree_cache、即 RadixCache
         model_config: ModelConfig,
         enable_overlap: bool,
         spec_algorithm: SpeculativeAlgorithm,
         chunked_req: Optional[Req] = None,
         dllm_config: Optional[DllmConfig] = None,
     ):
+        """
+            # tip scheduler.py 中有调用 ScheduleBatch.init_new，先重点看这条链路
+        """
+        # 是否返回批处理结果的 logprob/对数概率
         return_logprob = any(req.return_logprob for req in reqs)
 
+        # 对最后的 transformer 层的 hidden states 的保留策略: NULL, LAST, FULL
+        # 这里优先返回规格最高的 FULL -> LAST -> NULL
         return_hidden_states_mode = get_batch_return_hidden_states_mode(reqs)
 
         batch = cls(
-            reqs=reqs,
-            req_to_token_pool=req_to_token_pool,
-            token_to_kv_pool_allocator=token_to_kv_pool_allocator,
+            reqs=reqs, # 请求参数
+            req_to_token_pool=req_to_token_pool, # req slot -> kv index
+            token_to_kv_pool_allocator=token_to_kv_pool_allocator, # kv index -> kv value
+             # RadixCache（Scheduler、RadixCache、显卡、TpModelWorker、ModelRunner 是一一对应的；
+             #  每一轮组批都会创建一个 PrefillAdder 对象；
             tree_cache=tree_cache,
             model_config=model_config,
-            enable_overlap=enable_overlap,
-            return_logprob=return_logprob,
-            has_grammar=any(req.grammar for req in reqs),
+            enable_overlap=enable_overlap, # cpu 和 gpu 是否并行执行任务
+            return_logprob=return_logprob, # 结果是否返回对数概率
+            has_grammar=any(req.grammar for req in reqs), # 是否指定了返回格式
             device=req_to_token_pool.device,
-            spec_algorithm=spec_algorithm,
-            return_hidden_states=return_hidden_states_mode.need_capture(),
-            return_hidden_states_mode=return_hidden_states_mode,
+            spec_algorithm=spec_algorithm, # 投机函数
+            return_hidden_states=return_hidden_states_mode.need_capture(), # 是否要返回token的 hidden state
+            return_hidden_states_mode=return_hidden_states_mode, # FULL -> LAST -> NULL
             is_prefill_only=all(req.is_prefill_only for req in reqs),
             chunked_req=chunked_req,
             chunked_req_next_prompt_token=_compute_chunked_req_next_prompt_token(
@@ -2436,20 +2458,34 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             req.logprob_start_len = max(req.logprob_start_len, encoder_len)
 
     def prepare_for_extend(self):
-        self.forward_mode = ForwardMode.EXTEND
+        """为 prefill（EXTEND）批准备输入，并分配槽位和 KV 编号。
+
+        分析文档：schedule_batch.py.prepare_for_extend.md（同目录）
+        """
+        self.forward_mode = ForwardMode.EXTEND # Prefill
 
         if self.is_dllm():
             # For DLLM, we use a separate forward mode
             self.forward_mode = ForwardMode.DLLM_EXTEND
 
         # Init tensors
+        # NOTE 按请求算本轮输入：input_ids 只取命中前缀之后的 token，extend_num_tokens 是要分配的 KV 编号数
         reqs = self.reqs
+        # input ids 是个列表，里边每个列表是要计算的token、没有被前缀匹配缓存的 token
         input_ids = [r.get_fill_ids()[len(r.prefix_indices) :] for r in reqs]
+        # input ids  对应的 token 总数
         extend_num_tokens = sum(len(ids) for ids in input_ids)
+        # 每个请求的截止位置，也是本轮输入token（包括缓存要计算的）的总长度
         seq_lens = [r.extend_range.end for r in reqs]
+        # 在当前prefill token数量和输入数量，取最大的组合成 列表
         orig_seq_lens = [max(r.extend_range.end, len(r.origin_input_ids)) for r in reqs]
+        # 被前缀缓存缓存的 token 长度序列
         prefix_lens = [len(r.prefix_indices) for r in reqs]
+        # 本次要参与计算的 token 长度（和 input_ids 数据相同，但是后续使用不同）
         extend_lens = [r.extend_range.length for r in reqs]
+
+        # tip extend 的理解，比如 今天天气-> 阴天，
+        #   今天 已经 prefill 了，在对 天气进行 prefill 就是 extend
         extend_logprob_start_lens = [
             compute_extend_logprob_start_len(
                 logprob_start_len=r.logprob_start_len,
@@ -2480,9 +2516,12 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         self.extend_num_tokens = extend_num_tokens
 
         # Allocate memory
-        out_cache_loc, req_pool_indices_tensor, req_pool_indices_cpu = alloc_for_extend(
-            self
-        )
+        # NOTE 分配槽位和 KV 编号，并把命中编号和新编号写入 req_to_token，
+        (
+            out_cache_loc,
+            req_pool_indices_tensor,
+            req_pool_indices_cpu,
+        ) = alloc_for_extend(self)
 
         # Set fields
         input_embeds = []
@@ -2497,6 +2536,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         mamba_track_indices_cpu = []
         mamba_track_seqlens_cpu = []
 
+        # NOTE 【Step 4】逐个请求更新状态：已提交的 KV 长度、前缀命中统计等
         for i, (req, seq_len, pre_len) in enumerate(zip(reqs, seq_lens, prefix_lens)):
             assert seq_len - pre_len == req.extend_range.length
 
@@ -2634,6 +2674,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             replace_embeds_tensor = None
             replace_positions_tensor = None
 
+        # NOTE 【Step 5】写回批字段；input_ids 先留在 pinned CPU，前向时再拷到 GPU
         self.input_ids = None
         self.prefill_input_ids_cpu = pinned_input_ids
         self.req_pool_indices = req_pool_indices_tensor
@@ -2694,7 +2735,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         if self.model_config.is_encoder_decoder:
             self.prepare_encoder_info_extend(input_ids, seq_lens)
 
-        # tip Build sampling info 
+        # NOTE 【Step 6】Build sampling info：把各请求的温度、top_p 等采样参数打包成张量
         self.sampling_info = SamplingBatchInfo.from_schedule_batch(
             self,
             self.model_config.vocab_size,
@@ -3473,6 +3514,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         )
 
     def maybe_evict_swa(self):
+        # tip 反正 RadixCache 不支持 Slide Window Attention的KV淘汰策略，所以这里什么也不做
         if self.tree_cache.supports_swa():
             sliding_window_size = self.tree_cache.sliding_window_size
 

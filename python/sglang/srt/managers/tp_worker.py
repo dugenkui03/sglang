@@ -420,6 +420,7 @@ class TpModelWorker(BaseTpWorker):
         # NOTE 初始化 KV Cache 相关的显存池
         #   创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator 三个池
         self.model_runner.alloc_memory_pool(memory_pool_config)
+
         for mr in self.model_runner_list[1:]:
             mr.req_to_token_pool = self.req_to_token_pool
             mr.token_to_kv_pool_allocator = self.token_to_kv_pool_allocator

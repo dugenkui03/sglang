@@ -98,6 +98,7 @@ class AttentionType(Enum):
 class RadixAttention(nn.Module):
     """
     The attention layer implementation.
+    NOTE: HuggingFace 原生注意力的 KV 存储方式，和 SGLang 的 KV 池对不上。自定义这个类方便 forward 的时候使用自定义的 KV Pool.
     """
 
     def __init__(
@@ -119,6 +120,7 @@ class RadixAttention(nn.Module):
         prefix: str = "",
     ):
         super().__init__()
+        # NOTE 本卡的 Q / KV 头数，模型构造时已按 TP 切分好
         self.tp_q_head_num = num_heads
         self.tp_k_head_num = num_kv_heads
         self.tp_v_head_num = num_kv_heads
@@ -126,6 +128,7 @@ class RadixAttention(nn.Module):
         self.qk_head_dim = head_dim
         self.v_head_dim = v_head_dim if v_head_dim != -1 else head_dim
         self.scaling = scaling
+        # NOTE 本层序号：注意力后端据此读写 k_buffer[layer_id] / v_buffer[layer_id]
         self.layer_id = layer_id
         self.logit_cap = logit_cap
         self.sliding_window_size = sliding_window_size or -1
@@ -160,7 +163,7 @@ class RadixAttention(nn.Module):
         k,
         v,
         forward_batch: ForwardBatch,
-        save_kv_cache: bool = True,
+        save_kv_cache: bool = True, # NOTE 是否把本批新算的 K/V 写入 KV 池
         key_value_num_tokens: Optional[int] = None,
         **kwargs,
     ):
@@ -168,12 +171,14 @@ class RadixAttention(nn.Module):
             # For cross-layer sharing, kv can be None
             assert v is not None
             if "k_rope" not in kwargs:
+                # NOTE 整理成 [token 数, KV 头数, head_dim]，与 KV 池每一格的形状一致
                 k = k.view(-1, self.tp_k_head_num, self.qk_head_dim)
                 v = v.view(-1, self.tp_v_head_num, self.v_head_dim)
             else:
                 k = k.view(-1, self.tp_k_head_num, self.v_head_dim)
 
         context = get_tc_piecewise_forward_context()
+        # NOTE prefill 走分段 CUDA Graph（torch.compile）时，把注意力包成自定义算子调用，内部仍交给注意力后端
         if (
             forward_batch.forward_mode.is_extend()
             and context is not None
@@ -283,6 +288,7 @@ class RadixAttention(nn.Module):
                 return output.view(-1, self.tp_q_head_num, self.v_head_dim), lse
             return output
         else:
+            # NOTE 默认路径：交给注意力后端（FlashInfer / FA3 / Triton 等），先把本批 K/V 写到 out_cache_loc，再按 req_to_token 读历史 KV 算注意力
             return get_attn_backend().forward(
                 q,
                 k,

@@ -209,6 +209,10 @@ class ForwardMode(IntEnum):
 
 @total_ordering
 class CaptureHiddenMode(IntEnum):
+    """
+       对最后的 transformer 层的 hidden states 的保留策略，
+       分别是：不保留、保留最后一个 token 的 hidden states和最后一层的所有token的 hidden states
+    """
     # Do not capture anything.
     NULL = 0
     # Capture a hidden state of the last token.

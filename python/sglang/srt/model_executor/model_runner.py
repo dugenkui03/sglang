@@ -881,7 +881,7 @@ class ModelRunner:
             self.memory_pool_config = memory_pool_config
 
         self.init_kv_cache_configurator()
-        # NOTE 初始化 KV Cache 相关的显存池
+        # NOTE 重要，初始化 KV Cache 相关的显存池
         result = self.kv_cache_configurator.configure(
             pre_model_load_memory=self.pre_model_load_memory
         )
@@ -1140,7 +1140,7 @@ class ModelRunner:
         maybe_init_shared_mooncake_transfer_engine(gpu_id=self.gpu_id)
 
     def load_model(self):
-        """ 加载模型：
+        """ 加载模型
         """
         tic_total = time.perf_counter()
         before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id) # 返回闲置的显存大小

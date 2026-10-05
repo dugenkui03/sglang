@@ -190,6 +190,7 @@ class KVCacheConfigResult(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class _InitializedPools(msgspec.Struct, frozen=True, kw_only=True):
+    # tip 初始化缓存池的结果
     req_to_token_pool: ReqToTokenPool
     token_to_kv_pool: KVCache
     token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator
@@ -197,10 +198,16 @@ class _InitializedPools(msgspec.Struct, frozen=True, kw_only=True):
 
 
 class _PoolSizes(msgspec.Struct, frozen=True, kw_only=True):
+    """NOTE 本卡各个显存池的大小（个数，不是字节），传给 _init_pools() 按此创建各个池"""
+
+    # NOTE KV 池能存多少个 token，即 KV 编号总数（TokenToKVPoolAllocator 管理的范围）
     max_total_num_tokens: int
+    # NOTE 最多同时跑多少个请求，即 ReqToTokenPool 的槽位数（不含预留的第 0 行）
     max_running_requests: int
+    # tip 仅混合模型：全注意力层 / SWA(Slide Window Attention) 层各自的 KV 池容量；普通模型为 None
     full_max_total_num_tokens: Optional[int]
     swa_max_total_num_tokens: Optional[int]
+    # 以下仅 DeepSeek V4 压缩注意力使用，普通模型为 0 / None
     c4_max_total_num_tokens: int
     c128_max_total_num_tokens: int
     c4_state_pool_size: int
@@ -283,10 +290,12 @@ class KVCacheConfigurator:
             # NOTE 
             config = self._resolve_memory_pool_config(pre_model_load_memory)
 
-        # NOTE 
+        # NOTE 核心字段两个：缓存能使用的 kv index 数量；能同时跑的请求数量
         sizes = self._derive_pool_sizes(config=config)
 
-        # NOTE: 真正创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator
+        # NOTE: 重要
+        #       真正创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator
+        #       返回结果是 _InitializedPools，包括如上三个对象
         pools = self._init_pools(
             sizes=sizes,
             req_to_token_pool=self.req_to_token_pool,
@@ -303,11 +312,11 @@ class KVCacheConfigurator:
             max_running_requests=sizes.max_running_requests,
             full_max_total_num_tokens=sizes.full_max_total_num_tokens,
             swa_max_total_num_tokens=sizes.swa_max_total_num_tokens,
-            req_to_token_pool=pools.req_to_token_pool,
-            token_to_kv_pool=pools.token_to_kv_pool,
-            token_to_kv_pool_allocator=pools.token_to_kv_pool_allocator,
+            req_to_token_pool=pools.req_to_token_pool, # tip
+            token_to_kv_pool=pools.token_to_kv_pool, # tip
+            token_to_kv_pool_allocator=pools.token_to_kv_pool_allocator, # tip
             memory_pool_config=config,
-            unified_memory_pool=pools.unified_memory_pool,
+            unified_memory_pool=pools.unified_memory_pool, # tip
         )
 
     # Note(kpham-sgl):
@@ -324,7 +333,9 @@ class KVCacheConfigurator:
         return get_schedule().page_size * self.loc_space_scale
 
     def _derive_pool_sizes(self, *, config: MemoryPoolConfig) -> _PoolSizes:
+        # tips 总共能分配的 kv 编号，是通过 权重+kvCache 占用的显存占比 - 权重大小 来计算的
         max_total_num_tokens = config.max_total_num_tokens
+        # tip 能同时跑的请求数量
         max_running_requests = config.max_running_requests
         full_max_total_num_tokens = None
         swa_max_total_num_tokens = None
@@ -382,7 +393,9 @@ class KVCacheConfigurator:
         req_to_token_pool: Optional[ReqToTokenPool],
         token_to_kv_pool_allocator: Optional[BaseTokenToKVPoolAllocator],
     ) -> _InitializedPools:
-        """Initialize the memory pools."""
+        """Initialize the memory pools.
+          NOTE 初始化缓存池及其映射关系的核心方法，结果包括 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator 等
+        """
         token_to_kv_pool = None
 
         # Unified-pool fast path: build req_to_token + token_to_kv pool + allocator
@@ -467,11 +480,11 @@ class KVCacheConfigurator:
                 sizes = msgspec.structs.replace(
                     sizes, max_total_num_tokens=draft_virtual_id_space
                 )
-
+        # NOTE TODO
         # Initialize req_to_token_pool
         if req_to_token_pool is None:
             req_to_token_pool = self._build_req_to_token_pool(
-                max_num_reqs=sizes.max_running_requests
+                max_num_reqs=sizes.max_running_requests # tip 最大并行请求
             )
         else:
             # Draft worker shares req_to_token_pool with the target worker.
@@ -503,6 +516,7 @@ class KVCacheConfigurator:
             is_dsa_model, is_dsv4_model, current_platform
         )
 
+        # NOTE 初始化 req_to_token_pool：具体缓存 kv 向量的地方（有对应的 kv layer/index 信息）
         token_to_kv_pool = self._build_token_to_kv_pool(
             sizes=sizes,
             is_dsa_model=is_dsa_model,
@@ -519,12 +533,13 @@ class KVCacheConfigurator:
                 "bounds."
             )
 
+        # NOTE 创建 BaseTokenToKVPoolAllocator
         token_to_kv_pool_allocator = self._build_token_to_kv_pool_allocator(
-            sizes=sizes,
-            token_to_kv_pool=token_to_kv_pool,
+            sizes=sizes, # kv 可以使用的显存数量；最大并行请求数量
+            token_to_kv_pool=token_to_kv_pool, # kv index -> kv 向量
             is_dsv4_model=is_dsv4_model,
-            req_to_token_pool=req_to_token_pool,
-            token_to_kv_pool_allocator=token_to_kv_pool_allocator,
+            req_to_token_pool=req_to_token_pool,# req slot -> kv index
+            token_to_kv_pool_allocator=token_to_kv_pool_allocator, # 闲置的 kv index
         )
 
         # Defensive check: the explicit validation above should reject known
@@ -763,9 +778,14 @@ class KVCacheConfigurator:
             )
 
     def _build_req_to_token_pool(self, *, max_num_reqs: int) -> ReqToTokenPool:
+        """
+            NOTE 重要，通过最大并行请求初始化 ReqToTokenPool
+                入参：最大并行请求数量
+        """
+        # 每个请求槽位多预留的 token 位置
         extra_max_context_len = get_req_to_token_extra_context_len()
 
-        if get_disagg().disaggregation_mode == "decode":
+        if get_disagg().disaggregation_mode == "decode": # tip pd 分离 decode
             # Extra slots for pre-allocated requests
             pre_alloc_size = get_disagg().disaggregation_decode_extra_slots
             if self.mambaish_config:
@@ -786,9 +806,10 @@ class KVCacheConfigurator:
                 extra_max_context_len=extra_max_context_len,
             )
         else:
+            # NOTE 重要，默认创建 ReqToTokenPool 的代码
             req_to_token_pool = self._build_default_req_pool(
-                max_num_reqs=max_num_reqs,
-                extra_max_context_len=extra_max_context_len,
+                max_num_reqs=max_num_reqs, # tip 最大并行请求
+                extra_max_context_len=extra_max_context_len, # tip 每个请求额外多槽位预留的 token 位置
             )
         return req_to_token_pool
 
@@ -931,6 +952,9 @@ class KVCacheConfigurator:
         max_num_reqs: int,
         extra_max_context_len: int,
     ) -> ReqToTokenPool:
+        """
+            创建 request to token pool
+        """
         # DSV4 on NPU needs an extended ReqToTokenPool holding per-req
         # swa/c4/c128/c{4,128}_state tables; others stay on the stock one.
         req_to_token_pool_cls = ReqToTokenPool
@@ -941,9 +965,10 @@ class KVCacheConfigurator:
 
             req_to_token_pool_cls = DSV4NPUReqToTokenPool
 
+        # tip
         req_to_token_pool = req_to_token_pool_cls(
-            size=max_num_reqs,
-            max_context_len=self.model_config.context_len + extra_max_context_len,
+            size=max_num_reqs, # 最大并行请求数量
+            max_context_len=self.model_config.context_len + extra_max_context_len, # 每个槽位预留的 token 数量
             device=self.device,
             enable_memory_saver=get_exec().features.enable_memory_saver,
         )
@@ -952,11 +977,15 @@ class KVCacheConfigurator:
     def _build_token_to_kv_pool(
         self,
         *,
-        sizes: _PoolSizes,
+        sizes: _PoolSizes, # tip 包括分配给 cache 的 kv nidex 数量 和 同时最大并发请求的数量
         is_dsa_model: bool,
         is_dsv4_model: bool,
         req_to_token_pool: ReqToTokenPool,
     ) -> KVCache:
+        """
+            创建 token_to_kv_pool 
+                即 KVCache，默认实现是 MHATokenToKVPool
+        """
         # Page-granularity envelope layout for the MHA-shaped (full / SWA) pools,
         # selected by swapping in the PageMajorMHATokenToKVPool subclass. The
         # default keeps upstream's per-layer layout. The Mamba state pool is routed
@@ -1063,6 +1092,7 @@ class KVCacheConfigurator:
                     quant_method = self._build_fp4_quant_method(
                         num_layers=self.layer_info.num_effective_layers
                     )
+                # NOTE mha Multi-head Latent Attention，默认链路
                 token_to_kv_pool = self._build_mha_kv_pool(
                     max_total_num_tokens=sizes.max_total_num_tokens,
                     mha_pool_class=mha_pool_class,
@@ -1631,13 +1661,15 @@ class KVCacheConfigurator:
                 if get_schedule().prefill_only_disable_kv_cache
                 else mha_pool_class
             )
+        # tip 就当成 MHATokenToKVPool 处理
         pool_kwargs = {}
         if quant_method is not None:
             pool_kwargs["quant_method"] = quant_method
         else:
             pool_kwargs["post_capture_active"] = self.post_capture_kv_active
+        # NOTE 创建缓存
         token_to_kv_pool = pool_cls(
-            max_total_num_tokens,
+            max_total_num_tokens, # NOTE 总共的 kv index 数量
             page_size=self.pool_page_size,
             dtype=self.kv_cache_dtype,
             head_num=self.model_config.get_num_kv_heads(

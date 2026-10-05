@@ -288,10 +288,24 @@ def alloc_for_extend(
     Returns ``(out_cache_loc, req_pool_indices_device, req_pool_indices_cpu)``
     (the last is the host/CPU mirror). ``alloc_req_slots`` raises ``RuntimeError``
     if the pool can't satisfy the batch (fail-loud — see its docstring).
+
+    核心分配规则：
+        1. req slot 分配：新请求占 ReqToTokenPool 的一行；分块续算的请求复用原来的槽位
+        2. KV Index：只给本轮新算的 token 分配 KV、一一对应、共 extend_num_tokens 个
+            2.1. 空闲不够时：
+                a. 先从 RadixCache 淘汰 lock_ref = 0 的叶子补足缺口
+                b. 仍不够就报错（OOM）
+        3. 按页分配 KV Index，之前的缓存前缀最后一页没写满时新 token 先接着写这一页，再申请新页 // page_size > 1
+
+        note
+        - req_to_token[槽位, :prefix_len] 写前缀已有的 KV Index（复用）；[槽位, prefix_len:seq_len] 写本轮新分配的 KV Index
+        - 该方法只分配编号，K/V 在前向时才按 out_cache_loc 写进 KV 池
     """
     # free out-of-window swa tokens
+    # NOTE 仅 SWA（Sliding Window Attention）模型会释放窗口外的旧 KV，普通模型不做任何事
     batch.maybe_evict_swa()
 
+    # NOTE 每个请求的缓存数据对应的 prefix_indices 编号
     prefix_tensors = [r.prefix_indices for r in batch.reqs]
 
     reuse_kv = None
@@ -313,8 +327,11 @@ def alloc_for_extend(
     extend_lens_device = extend_lens_cpu.to(batch.device, non_blocking=True)
 
     # Allocate req slots (raises RuntimeError if the pool is exhausted)
+    # NOTE 每个请求一个槽位，写入 req.req_pool_idx；分块续算的请求复用原来的槽位
     req_pool_indices = alloc_req_slots(
-        batch.req_to_token_pool, batch.reqs, batch.tree_cache
+        batch.req_to_token_pool, 
+        batch.reqs, 
+        batch.tree_cache
     )
     req_pool_indices_cpu = torch.tensor(
         req_pool_indices, dtype=torch.int64, pin_memory=pin_memory
@@ -322,6 +339,7 @@ def alloc_for_extend(
     req_pool_indices_device = req_pool_indices_cpu.to(batch.device, non_blocking=True)
 
     # Allocate KV cache (throws exception on failure)
+    # NOTE 空闲编号不够时先淘汰 RadixCache 里未锁的叶子，再分配 extend_num_tokens 个 KV 编号（out_cache_loc）
     alloc_page_size = _alloc_page_size(batch)
     if reuse_kv is not None and any(reuse_kv):
         out_cache_loc = _alloc_extend_loc_with_kv_reuse(
@@ -334,9 +352,11 @@ def alloc_for_extend(
             alloc_page_size,
         )
     elif alloc_page_size == 1:
+        # NOTE 默认路径：按 token 分配 extend_num_tokens 个 KV 编号
         out_cache_loc = alloc_token_slots(batch.tree_cache, batch.extend_num_tokens)
     else:
         # Paged allocation - build last_loc
+        # NOTE last_loc 是前缀最后一个 KV 编号（没有前缀为 -1），新 token 从它所在的页接着写
         last_loc = [
             (t[-1:] if len(t) > 0 else torch.full((1,), -1, device=batch.device))
             for t in prefix_tensors
@@ -354,6 +374,7 @@ def alloc_for_extend(
         )
 
     # Write to req_to_token_pool
+    # NOTE req_to_token[槽位, :prefix_len] 写命中的编号，[prefix_len:seq_len] 写新分配的编号
     write_cache_indices(
         out_cache_loc,
         req_pool_indices_device,
@@ -367,6 +388,7 @@ def alloc_for_extend(
         prefix_tensors,
         batch.req_to_token_pool,
     )
+    # NOTE 有辅助缓存的模型按新长度补齐；失败时把刚分配的 KV 编号还给分配器
     try:
         batch.req_to_token_pool.alloc_aux_to_lengths(
             req_pool_indices_cpu=req_pool_indices_cpu,
@@ -387,6 +409,7 @@ def alloc_for_extend(
 
     from sglang.srt.managers.schedule_batch import ReqKvInfo
 
+    # NOTE 记下每个请求已分配到的 KV 长度
     for req, seq_len in zip(batch.reqs, batch.seq_lens_cpu.tolist()):
         if req.kv is None:
             req.kv = ReqKvInfo(kv_allocated_len=seq_len, swa_evicted_seqlen=0)

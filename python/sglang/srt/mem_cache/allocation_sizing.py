@@ -84,6 +84,7 @@ def get_req_to_token_extra_context_len() -> int:
     draft footprint can outgrow the default num_draft_tokens headroom. The row
     headroom and the pools it sits next to derive from the same bag leaves, so
     they cannot disagree after a post-publish override.
+    NOTE req_to_token 每一行、也就是一个请求多预留的 token 位置
     """
     # FIXME(lsyin): temporary fix for the context length issue under spec decoding
     extra = 4 + (max_speculative_num_draft_tokens() or 0)
