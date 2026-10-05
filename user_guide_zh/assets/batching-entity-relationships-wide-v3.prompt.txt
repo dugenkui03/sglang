@@ -1,0 +1,58 @@
+Generation mode: built-in image_gen
+Reference: user_guide_zh/assets/batching-entity-relationships-wide-v2.png
+User request: Focus on entity relationships; keep entity internals such as RadixCache very simple. No title, landscape, at the end of the article.
+
+Use case: infographic-diagram
+Asset type: A Chinese educational entity-relationship illustration at the end of an SGLang learning article.
+Input image: Image 1 is the existing illustration to redesign. Keep its correct conceptual entities, readable Simplified Chinese, title-free landscape format and clean flat style. Redesign to give still more prominence to RELATIONSHIPS and less prominence to entity internals.
+
+Primary request:
+Create a very clear, spacious static ENTITY RELATIONSHIP map, NOT a workflow or algorithm. The reader should immediately understand who manages what, which containers hold Req, and how references and KV indices connect requests to resources. No overall title, no headline banner. Wide landscape 3:2. White background, crisp thin outlines, modest pale semantic colors, dark readable text. Use simple flat diagrams rather than large decorative icons. Main request-membership connection runs left to right. Equal modest typography, ample whitespace.
+
+Composition and exact content:
+Top row has three compact cards, left SchedulePolicy, center Scheduler, right PrefillAdder.
+SchedulePolicy subtitle: "排序规则"
+Scheduler subtitle: "协调请求与批次"
+PrefillAdder subtitle: "本轮准入与预算"
+Scheduler arrow left to SchedulePolicy: "使用"
+Scheduler arrow right to PrefillAdder: "按轮创建"
+Scheduler branches downward to both request containers with the shared label "管理".
+
+Middle row: waiting_queue on the left, ScheduleBatch on the right.
+waiting_queue subtitle: "等待 Prefill"; contains only two small document cards each labelled "Req".
+ScheduleBatch subtitle: "本轮参与计算的请求"; contains two small document cards each labelled "Req". One Req should be slightly emphasized as the example whose resource references will be drawn. Small unobtrusive note inside the batch under its subtitle: "running_batch 是其一个实例".
+Containment shows REFERENCE MEMBERSHIP, not copying objects.
+A single bold horizontal arrow waiting_queue → ScheduleBatch: "选中请求组批".
+SchedulePolicy thin arrow down to waiting_queue: "排序".
+PrefillAdder thin connector to the middle of the selection arrow, not to the ScheduleBatch box: "筛选候选请求".
+No timelines, step numbers, chunk loops, decode loops, retractions or decision diamonds.
+
+Lower half: a spacious resources network, without a giant owning entity.
+ReqToTokenPool lower left. Subtitle: "请求行 → KV 编号". Only a tiny two-row table sketch, one row highlighted; no numeric example.
+RadixCache lower right. Subtitle: "前缀 → KV 编号". Its whole internal sketch is ONLY THREE small circular tree nodes (one parent, two leaves) linked by two strokes. Label one circle "TreeNode". Do not place TreeNode as a separate container or tree title. Do not fill the card with a large tree.
+KV 池 lower center. Subtitle: "存放实际 K/V". Only a tiny row of three cells marked "K/V".
+A very compact card "KV 分配器" immediately above the KV pool, with small secondary identifier "TokenToKVPoolAllocator" and role "管理空闲 KV 位置". No tickets or internal allocation diagram.
+Relationships:
+- Start at the emphasized Req card INSIDE ScheduleBatch, lead a thin blue arrow down and to the ReqToTokenPool highlighted row, label "请求行号 req_pool_idx".
+- From the same Req card lead a thin violet arrow to the representative small TreeNode inside RadixCache, label "引用节点 last_node". Arrow must reach the TREE NODE, not merely the RadixCache outer box.
+- ReqToTokenPool → KV 池: "按编号定位".
+- RadixCache → KV 池: "索引可复用 KV".
+- KV 分配器 → KV 池: "管理可用位置".
+- An optional single subtle dashed outer-margin dependency from the resource cards toward PrefillAdder labelled "读取资源状态". This is conceptual state dependency, not a strict method-call arrow. Do not introduce other edges just to fill space.
+Arrows must visibly touch the correct destinations. Route resource reference lines with clear spacing; no ambiguous merged arrows, crossings through text, or unlabelled joins. Request reference arrows may route around the central allocator.
+
+Constraints:
+At most one role line per entity besides identifiers. No bottom summary paragraphs or category banners. The chart itself communicates by containment and labelled connectors. Every entity internal sketch is an icon-size cue only. No bullet lists, fields lists, memory address numbers, method lists, token counts, budget formulas, lock_ref, split/evict logic, allocation steps, CPU/GPU stages.
+ReqToTokenPool and RadixCache store indices/metadata; actual K/V is in KV 池. Allocator manages positions in a preallocated pool, not newly creating tensors each round. PrefillAdder decides admission/budget, not generating or allocating K/V data. waiting_queue and ScheduleBatch are containers of references to Req. Req is NOT contained in the radix tree. running_batch is an instance of ScheduleBatch.
+Maintain simple consistent module colors: control blue, policy/admission amber, request containers cyan, memory/allocator teal, cache violet.
+Spell exactly: Scheduler, SchedulePolicy, PrefillAdder, waiting_queue, ScheduleBatch, running_batch, Req, ReqToTokenPool, RadixCache, TreeNode, TokenToKVPoolAllocator, req_pool_idx, last_node.
+No title, watermark, logo, invented text or extra algorithm panels.
+
+Final routing edit (built-in image_gen):
+Edit this entity-relationship illustration. Keep its title-free 3:2 landscape canvas, every entity, all accurate Chinese and English text, the two request containers, and the simple resource cards. Correct ONLY connection routing and simplify visual clutter:
+1. Move the small PrefillAdder card from the upper right into the central gap BETWEEN waiting_queue and ScheduleBatch, just ABOVE the horizontal "选中请求组批" arrow. Keep it compact (approximately x=620..900, y=270..365 on the 1536x1024 reference). It should have the two existing text lines but can drop the decorative funnel icon to fit.
+2. Draw a clean vertical "按轮创建" arrow from Scheduler bottom center down to this PrefillAdder card. From PrefillAdder bottom center draw a short vertical connector labelled "筛选" to the MIDDLE of the horizontal request-selection arrow. It must not touch the ScheduleBatch top border.
+3. Keep Scheduler managing both waiting_queue and ScheduleBatch, but draw TWO separate blue connectors leaving the lower left and lower right parts of Scheduler, routed outward above the two containers. Each is labelled "管理". They must NEVER merge with the central arrow to PrefillAdder.
+4. Remove the optional outer-margin dashed "读取资源状态" connection completely; it is not needed.
+5. Extend the purple "引用节点 last_node" line through whitespace inside the RadixCache card to end specifically at the rounded TreeNode node. Avoid crossing the RadixCache name/subtitle; enter from the left side at the TreeNode height, curving around the text. This is a reference from Req to a TreeNode.
+Do not add explanations, title, footer, new entities, steps or algorithms. Keep the 3-node cache tree, simple table and tiny K/V row. Preserve all other relationships and existing typography. The goal is an exceptionally clear small network of entities with unambiguous edges.
