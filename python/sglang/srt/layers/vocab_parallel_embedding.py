@@ -299,6 +299,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         if quant_config is not None:
             quant_method = quant_config.get_quant_method(self, prefix=prefix)
         if quant_method is None:
+            # NOTE
             quant_method = UnquantizedEmbeddingMethod()
 
         # If we are making an embedding layer, then our quantization linear
@@ -342,7 +343,7 @@ class VocabParallelEmbedding(torch.nn.Module):
             self.embedding_dim,
             self.num_embeddings_padded,
             params_dtype=params_dtype,
-            weight_loader=self.weight_loader,
+            weight_loader=self.weight_loader,  # create_weights()-> 给 VocabParallelEmbedding 创建 weight 权重空间(没数据)，weight_loader 将具体的权重数据拷贝到空间中
         )
 
     @classmethod
@@ -537,6 +538,7 @@ class VocabParallelEmbedding(torch.nn.Module):
         )
         if self.tp_size == 1:
             with symm_alloc:
+                # NOTE token -> embedding，调用到 UnquantizedEmbeddingMethod.embedding()
                 return self.quant_method.embedding(self, input_.long())
         if self._use_triton_embedding(input_):
             with symm_alloc:
@@ -564,11 +566,15 @@ class VocabParallelEmbedding(torch.nn.Module):
         return output_parallel
 
     def forward(self, input_):
+        """
+        NOTE：将输入 token 进行向量化
+        """
         # Surface a bad token id (>= vocab_size, or a negative / unmasked sentinel) as a
         # located async assert instead of a silent OOB embedding gather (tp=1 does not mask).
         maybe_detect_oob(
             input_, 0, self.num_embeddings, "VocabParallelEmbedding input id"
         )
+        # NOTE 将输入token进行向量
         output_parallel = self._embed_local_shard(input_)
         if self.tp_size > 1 and not get_attn_tp_context().input_scattered:
             if self.use_attn_tp_group:

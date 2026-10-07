@@ -97,6 +97,7 @@ class AttentionType(Enum):
 
 class RadixAttention(nn.Module):
     """
+    TODO
     The attention layer implementation.
     NOTE: HuggingFace 原生注意力的 KV 存储方式，和 SGLang 的 KV 池对不上。自定义这个类方便 forward 的时候使用自定义的 KV Pool.
     """
@@ -163,7 +164,7 @@ class RadixAttention(nn.Module):
         k,
         v,
         forward_batch: ForwardBatch,
-        save_kv_cache: bool = True, # NOTE 是否把本批新算的 K/V 写入 KV 池
+        save_kv_cache: bool = True,  # NOTE 是否把本批新算的 K/V 写入 KV 池
         key_value_num_tokens: Optional[int] = None,
         **kwargs,
     ):

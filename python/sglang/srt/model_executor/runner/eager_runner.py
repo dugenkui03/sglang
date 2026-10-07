@@ -82,8 +82,10 @@ if TYPE_CHECKING:
 
 
 class EagerRunner(BaseRunner):
-    """Eager 模式指不实用 CUDA Graph
     """
+    NOTE Eager 模式指不实用 CUDA Graph，也就是刚开始看代码的时候的普通推理链路
+    """
+
     def __init__(self, model_runner: ModelRunner) -> None:
         super().__init__(model_runner)
         mr = model_runner
@@ -212,8 +214,7 @@ class EagerRunner(BaseRunner):
         )
 
     def execute(
-        self, forward_batch: ForwardBatch,
-         pp_proxy_tensors=None, **kwargs
+        self, forward_batch: ForwardBatch, pp_proxy_tensors=None, **kwargs
     ) -> Any:
         mode = forward_batch.forward_mode
         if mode.is_mixed() and not is_npu() and get_cp_strategy() is None:
@@ -224,12 +225,12 @@ class EagerRunner(BaseRunner):
             mode = ForwardMode.EXTEND
         if mode.is_decode():
             # NOTE Decode
-            return self._execute_decode(forward_batch, pp_proxy_tensors) 
+            return self._execute_decode(forward_batch, pp_proxy_tensors)
         if mode.is_idle():
             return self._execute_idle(forward_batch, pp_proxy_tensors)
         if mode.is_extend(include_draft_extend_v2=True):
             # NOTE Prefill
-            return self._execute_extend(forward_batch, pp_proxy_tensors) 
+            return self._execute_extend(forward_batch, pp_proxy_tensors)
         raise ValueError(f"Invalid forward mode for eager runner: {mode}")
 
     def _resolve_decode_pdmux(
@@ -280,24 +281,25 @@ class EagerRunner(BaseRunner):
             #  model 是什么类型完全由模型卡的 config.json#architectures决定
             #  qwen3.8-27B 可以参考 Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration)#forward()方法
             return model_runner.model.forward(
-                forward_batch.input_ids, # 之前序列的 token id 列表
-                forward_batch.positions, 
+                forward_batch.input_ids,  # 之前序列的 token id 列表
+                forward_batch.positions,
                 forward_batch,
                 **kwargs,
             )
 
     def _execute_extend(
         self,
-        forward_batch: ForwardBatch, # 推理入参
+        forward_batch: ForwardBatch,  # 推理入参
         pp_proxy_tensors=None,
     ) -> Union[LogitsProcessorOutput, PPProxyTensors, EmbeddingPoolerOutput]:
+        """
+        NOTE Prefill 推理链路
+        """
         model_runner = self.model_runner
-        # 组装 Prefill 模型前向计算需要的额外参数
         kwargs = model_runner._extend_forward_kwargs(forward_batch, pp_proxy_tensors)
 
         if not self.enable_pdmux:
             forward_batch = self.load_batch(forward_batch, pp_proxy_tensors)
-        # 判断当前 batch 是否走 CP(Context Parallelism 上下文并行) V2 上下文并行的 Prefill 路径。
         cp_v2_active = is_cp_v2_active(forward_batch)
         if cp_v2_active:
             prepare_cp_forward(forward_batch)
@@ -384,8 +386,14 @@ class EagerRunner(BaseRunner):
                         **kwargs,
                     )
             elif cp_v2_active:
+                # TODO 后边看下 context parallelism
                 ret = self._execute_extend_cp_v2(forward_batch, kwargs)
             else:
+                # NOTE qwen 3.5 架构模型看 Qwen3_5ForConditionalGeneration
+                #   对应模型卡 config.json 配置：
+                #       "architectures": [
+                #            "Qwen3_5ForConditionalGeneration"
+                #       ]
                 ret = model_runner.model.forward(
                     forward_batch.input_ids,
                     forward_batch.positions,

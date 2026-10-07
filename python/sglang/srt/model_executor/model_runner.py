@@ -326,8 +326,7 @@ class ModelRunner:
         draft_model_idx: Optional[int] = None,
         draft_attention_backend: Optional[str] = None,
     ):
-        """加载模型、多卡通信、设置kv参数
-        """
+        """加载模型、多卡通信、设置kv参数"""
 
         # Parse args
         self.mem_fraction_static = mem_fraction_static
@@ -462,7 +461,29 @@ class ModelRunner:
         self.startup_weight_load = None
 
         # Load model weights and configure
-        # NOTE 下载和加载模型
+        # NOTE 下载和加载模型，研究下如下链路
+        #
+        # ModelRunner.__init__()
+        #   → ModelRunner.initialize()
+        #   → ModelRunner.load_model()
+        #   → load_model_with_memory_saver()
+        #   → DefaultModelLoader.load_model()
+        #       │
+        #       ├─ ① _initialize_model()：创建模型和参数
+        #       │    → Qwen3_5ForConditionalGeneration.__init__()
+        #       │    → Qwen3VLForConditionalGeneration.__init__()
+        #       │    → Qwen3_5ForCausalLM.__init__()
+        #       │    → VocabParallelEmbedding.__init__()
+        #       │    → UnquantizedEmbeddingMethod.create_weights()
+        #       │        ├─ 创建 weight，并注册到 embedding 层
+        #       │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+        #       │
+        #       └─ ② load_weights_and_postprocess()：加载实际权重
+        #            → Qwen3_5ForConditionalGeneration.load_weights()
+        #            → 根据参数名找到之前创建的 weight
+        #            → 取出 weight.weight_loader 并执行
+        #            → VocabParallelEmbedding.weight_loader()
+        #            → 把文件中的权重数据拷贝进 weight
         self.initialize()
         self.check_quantized_moe_compatibility()
 
@@ -874,8 +895,8 @@ class ModelRunner:
 
     def alloc_memory_pool(self, memory_pool_config: Optional[MemoryPoolConfig] = None):
         """Allocate KV cache memory pools only (no backends or cuda graphs).
-            
-           NOTE 初始化 KV Cache 相关的显存池
+
+        NOTE 初始化 KV Cache 相关的显存池
         """
         if memory_pool_config is not None:
             self.memory_pool_config = memory_pool_config
@@ -890,9 +911,9 @@ class ModelRunner:
         # NOTE 用户即使配置了 --max-running-requests，实际能接受的并发处理可能更小
         self.max_running_requests = result.max_running_requests
         # NOTE 显存池相关参数赋值
-        self.req_to_token_pool = result.req_to_token_pool # slot -> KV index
-        self.token_to_kv_pool = result.token_to_kv_pool # KV index -> KV 向量
-        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator # 
+        self.req_to_token_pool = result.req_to_token_pool  # slot -> KV index
+        self.token_to_kv_pool = result.token_to_kv_pool  # KV index -> KV 向量
+        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator  #
         self.memory_pool_config = result.memory_pool_config
         if self.is_hybrid_swa:
             self.full_max_total_num_tokens = result.full_max_total_num_tokens
@@ -1110,15 +1131,15 @@ class ModelRunner:
         )
 
     def init_torch_distributed(self):
-        """ 初始化多卡通信，多卡通信负责：
-            1. 当前 scheduler 应该加载哪一份模型权重：按 tp_rank / pp_rank 只保留自己那份切片，
-               各卡从磁盘各读各的，加载本身不通信（R-Fork 等远程加载除外）
-            2. 支持并行计算：
-               - TP（Tensor Parallelism）：每层 all-reduce，把各卡算出的部分结果相加
-               - PP（Pipeline Parallelism）：相邻两段之间 send/recv 隐藏向量
-               - EP（Expert Parallelism）：all-to-all，把 token 发到专家所在的卡再收回
-               - rank 0 用 broadcast_pyobj 把请求广播给其他卡
-            GPU 张量走 NCCL（NVIDIA Collective Communications Library），CPU 上的 Python 对象走 gloo
+        """初始化多卡通信，多卡通信负责：
+        1. 当前 scheduler 应该加载哪一份模型权重：按 tp_rank / pp_rank 只保留自己那份切片，
+           各卡从磁盘各读各的，加载本身不通信（R-Fork 等远程加载除外）
+        2. 支持并行计算：
+           - TP（Tensor Parallelism）：每层 all-reduce，把各卡算出的部分结果相加
+           - PP（Pipeline Parallelism）：相邻两段之间 send/recv 隐藏向量
+           - EP（Expert Parallelism）：all-to-all，把 token 发到专家所在的卡再收回
+           - rank 0 用 broadcast_pyobj 把请求广播给其他卡
+        GPU 张量走 NCCL（NVIDIA Collective Communications Library），CPU 上的 Python 对象走 gloo
         """
         result = bootstrap.init_torch_distributed(
             server_args=self.server_args,
@@ -1129,8 +1150,8 @@ class ModelRunner:
             is_draft_worker=self.is_draft_worker,
             local_omp_cpuid=self.local_omp_cpuid if self.device == "cpu" else None,
         )
-        self.tp_group = result.tp_group # tensor parallel
-        self.pp_group = result.pp_group # pipeline parallel
+        self.tp_group = result.tp_group  # tensor parallel
+        self.pp_group = result.pp_group  # pipeline parallel
         # attention tensor parallel，和 tp_group 区别是：只用于 attention 层的 TP 组，
         # 不开 DP（Data Parallelism）attention 和 CP（Context Parallelism）时，attention_tp_group 和 tp_group 相同
         self.attention_tp_group = result.attention_tp_group
@@ -1140,10 +1161,33 @@ class ModelRunner:
         maybe_init_shared_mooncake_transfer_engine(gpu_id=self.gpu_id)
 
     def load_model(self):
-        """ 加载模型
+        """加载模型
+        ModelRunner.__init__()
+        → ModelRunner.initialize()
+        → ModelRunner.load_model()  // 【当前方法】
+        → load_model_with_memory_saver()
+        → DefaultModelLoader.load_model()
+            │
+            ├─ ① _initialize_model()：创建模型和参数
+            │    → Qwen3_5ForConditionalGeneration.__init__()
+            │    → Qwen3VLForConditionalGeneration.__init__()
+            │    → Qwen3_5ForCausalLM.__init__()
+            │    → VocabParallelEmbedding.__init__()
+            │    → UnquantizedEmbeddingMethod.create_weights()
+            │        ├─ 创建 weight，并注册到 embedding 层
+            │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+            │
+            └─ ② load_weights_and_postprocess()：加载实际权重
+                → Qwen3_5ForConditionalGeneration.load_weights()
+                → 根据参数名找到之前创建的 weight
+                → 取出 weight.weight_loader 并执行
+                → VocabParallelEmbedding.weight_loader()
+                → 把文件中的权重数据拷贝进 weight
         """
         tic_total = time.perf_counter()
-        before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id) # 返回闲置的显存大小
+        before_avail_memory = get_available_gpu_memory(
+            self.device, self.gpu_id
+        )  # 返回闲置的显存大小
         logger.info(
             f"Load weight begin. avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
         )
@@ -1191,7 +1235,7 @@ class ModelRunner:
             # NOTE 下载和加载模型
             loaded = load_model_with_memory_saver(
                 server_args=self.server_args,
-                model_config=self.model_config,
+                model_config=self.model_config,  # 模型配置
                 load_config=self.load_config,
                 device=self.device,
                 gpu_id=self.gpu_id,
@@ -1236,8 +1280,12 @@ class ModelRunner:
 
         self.dtype = self.model_config.dtype
 
-        after_avail_memory = get_available_gpu_memory(self.device, self.gpu_id) # 当前闲置的显存大小
-        self.weight_load_mem_usage = before_avail_memory - after_avail_memory # 加载模型用了多大显存
+        after_avail_memory = get_available_gpu_memory(
+            self.device, self.gpu_id
+        )  # 当前闲置的显存大小
+        self.weight_load_mem_usage = (
+            before_avail_memory - after_avail_memory
+        )  # 加载模型用了多大显存
         self.weight_load_time = time.perf_counter() - tic_total
         # Get quantization config from ModelConfig
         # This handles both config.json (standard) and hf_quant_config.json (ModelOpt)
@@ -1550,9 +1598,9 @@ class ModelRunner:
         self, forward_batch: ForwardBatch, pp_proxy_tensors
     ) -> dict:
         """
-            Build the extend/prefill model.forward kwargs
-            (pp_proxy_tensors + input_embeds / replace_embeds overrides + get_embedding),
-            shared by the prefill cuda-graph path and the EagerRunner's eager extend path.
+        Build the extend/prefill model.forward kwargs
+        (pp_proxy_tensors + input_embeds / replace_embeds overrides + get_embedding),
+        shared by the prefill cuda-graph path and the EagerRunner's eager extend path.
         """
         kwargs = self._pp_kwargs(pp_proxy_tensors)
         if forward_batch.input_embeds is not None:
@@ -1596,14 +1644,41 @@ class ModelRunner:
 
     def forward(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # 输入
         skip_attn_backend_init: Optional[bool] = None,  # deprecated
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
-        """
-        NOTE 使用权重执行 forward
+        """NOTE 使用已加载的权重执行 forward。
+
+        普通 eager 执行链路（未走 CUDA Graph；prefill/decode 均调用模型 forward）：
+
+        ModelRunner.forward()
+            ↓
+        ModelRunner._forward_raw()
+            ↓
+        EagerRunner.execute()
+            ├─ prefill → _execute_extend()
+            └─ decode  → _execute_decode()
+                            ↓
+                model_runner.model.forward(...)
+
+        Qwen 3.5 dense 原生模型的调用关系：
+
+        ModelRunner.model
+            = Qwen3_5ForConditionalGeneration 对象
+                ↓ forward() 继承自父类
+        Qwen3VLForConditionalGeneration.forward()
+                ↓ 直接或经输入处理辅助函数调用内部文本模型
+        Qwen3_5ForCausalLM.forward()
+                ↓
+        token embedding → 逐层计算 → 最终归一化
+                ↓ 返回外层
+        logits_processor + lm_head → 得到 logits
+
+        加载时机：服务启动初始化 ModelRunner 时，load_model() 根据模型配置选择
+        Qwen3_5ForConditionalGeneration、创建实例并加载权重，然后保存到 self.model 供各轮 forward() 复用。
         """
         # Deprecated kwarg: pre-planners mark the batch themselves now.
         forward_batch.apply_deprecated_skip_attn_backend_init(skip_attn_backend_init)
@@ -1642,8 +1717,8 @@ class ModelRunner:
                 forward_batch,
             ) as recorder_outputs,
         ):
-            # NOTE 真正执行推理的地方
-            output = self._forward_raw( 
+            # NOTE 【核心】inference + sample
+            output = self._forward_raw(
                 forward_batch,
                 pp_proxy_tensors,
                 reinit_attn_backend,
@@ -1744,24 +1819,26 @@ class ModelRunner:
 
     def _forward_raw(
         self,
-        forward_batch: ForwardBatch, # 推理任务
+        forward_batch: ForwardBatch,  # 推理任务
         pp_proxy_tensors: Optional[PPProxyTensors],
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
-        """ 
-            NOTE 执行模型推理的地方
+        """
+        NOTE 执行模型推理的地方
         """
         if has_forward_context():
             ctx_mgr = contextlib.nullcontext()
         else:
             ctx_mgr = forward_context(ForwardContext(attn_backend=self.attn_backend))
         with ctx_mgr:
+            # tip
             mode_check = (
                 forward_batch.forward_mode.is_cpu_graph
                 if self.device == "cpu"
                 else forward_batch.forward_mode.is_cuda_graph
             )
+            # TODO 也是核心，判断能否进行 CUDA Graph 执行优化
             can_run_graph = bool(
                 mode_check()
                 and self.decode_cuda_graph_runner
@@ -1777,9 +1854,8 @@ class ModelRunner:
                 self.hisparse_coordinator.num_real_reqs.fill_(forward_batch.batch_size)
 
             # Replay cuda graph if applicable
-            # NOTE 核心分支，如果打开了 CUDA Graph 并且是 decode 推理，走这里
-            #   注意：CUDA Graph 是 Decode 的常用优化手段
             if can_run_graph:
+                # TODO 看下 CUDA Graph 链路
                 ret = self.decode_cuda_graph_runner.execute(
                     forward_batch,
                     pp_proxy_tensors=pp_proxy_tensors,
@@ -1803,8 +1879,7 @@ class ModelRunner:
                 dwdp_mgr.prefetch_first_layers()
 
             if forward_batch.forward_mode.is_split_prefill():
-                # Layer-split mode; stays on ModelRunner, not the eager runner. 
-                # tip 默认不走，忽略
+                # Layer-split mode; stays on ModelRunner, not the eager runner.
                 ret = self.forward_split_prefill(
                     forward_batch,
                     reinit_attn_backend=reinit_attn_backend,
@@ -1819,8 +1894,7 @@ class ModelRunner:
                     self.prefill_cuda_graph_runner, forward_batch
                 )
             ):
-                # Prefill cuda graph (piecewise). 
-                # tip 默认关闭，忽略
+                # Prefill cuda graph (piecewise).
                 kwargs = self._extend_forward_kwargs(forward_batch, pp_proxy_tensors)
                 category = (
                     "target_verify"
@@ -1832,16 +1906,14 @@ class ModelRunner:
                 # to capture only the model.forward part.
                 with device_timer_ctx(self.device_timer, category):
                     ret = self.prefill_cuda_graph_runner.execute(
-                        forward_batch, 
-                        **kwargs
+                        forward_batch, **kwargs
                     )
                 can_run_graph = True
             else:
                 # Eager: decode / extend / idle dispatched inside the runner.
-                # NOTE 不用 CUDA Graph 的推理链路
+                # NOTE 普通的 inference + sample链路
                 ret = self.eager_runner.execute(
-                    forward_batch, 
-                    pp_proxy_tensors=pp_proxy_tensors
+                    forward_batch, pp_proxy_tensors=pp_proxy_tensors
                 )
 
             if (

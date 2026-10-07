@@ -1,5 +1,9 @@
 # LEARN: SGLang 怎么读
 
+**当前默认学习路线：[Overlap 学习路线与现状](LEARN.overlap.md)。** 模型固定为 `Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration)`：先读模型初始化与权重加载，再从非流式请求出发，只沿 `event_loop_overlap` 阅读；不展示 `event_loop_normal` 独有路径。以后询问“学习路线”“学习现状”“学了多少”“接下来读什么”，先运行 `python quick_learn/update_overlap_progress.py` 从当前源码重算，再给出总进度、阶段进度和按阅读顺序排列的方法表。表格固定为 **序号｜状态｜类名｜方法名｜作用**，一个方法一行，已读、推定已读和未读都展示，方法名链接源码；优先说明下一步尚未覆盖的模型初始化、推理核心方法。需要同步文档时加 `--write`；只读查询不写文件。
+
+Overlap 路线 v3 使用独立的 **127 方法**范围和统计；下文第 8 节的 **160 方法**是全核心总览 v4，包含启动、配置和 normal/overlap，不用它代替当前路线进度。两者都已补入指定模型的初始化、推理路径，以及 QKV 投影与父类的核心方法。直接注释、链路补全、分支补全的判定原则沿用，只在各自范围内计算。
+
 这份文档回答一件事：**从哪里开始读代码，才能用最少时间摸到引擎的骨头。**
 
 仓库很大（约 225 万行真实代码）。不要通读。先把下面的**核心链路**和**核心文件**走通，再按任务下钻。
@@ -169,13 +173,76 @@ sglang serve
 | 9 采样回包  | 采下一个 token，增量解码，流式回 HTTP                  | `[sampler.py](python/sglang/srt/layers/sampler.py)`、`[detokenizer_manager.py](python/sglang/srt/managers/detokenizer_manager.py)`                                                                   | [核心组件五（采样）](user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md)、[DetokenizerManager](user_guide_zh/核心组件三：DetokenizerManager.md)、[增量解码](python/sglang/srt/managers/detokenizer_manager.py._decode_batch_token_id_output.md) |
 
 
-Scheduler 主循环的骨架（先读 `event_loop_normal`，默认跑的是 `event_loop_overlap`）：
+Scheduler 主循环的骨架（当前路线只沿 `event_loop_overlap` 阅读）：
 
 ```
 recv_requests → process_input_requests → get_next_batch_to_run → run_batch → process_batch_result
 ```
 
 overlap 版本把 `process_batch_result` 推迟一轮：先下发本批，再处理上一批的结果，让 CPU 处理和 GPU 计算重叠。PP、PD 分离等变体都是这个骨架的分支。IPC 消息类型全部在 `[io_struct.py](python/sglang/srt/managers/io_struct.py)`，改协议、加字段先看它。
+
+### 3.1 固定模型：Qwen3_5ForConditionalGeneration
+
+核心模型链路固定读 [qwen3_5.py](python/sglang/srt/models/qwen3_5.py) 中的 `Qwen3_5ForConditionalGeneration`，包括**初始化、权重加载、Prefill/Decode 推理**。它继承 [qwen3_vl.py](python/sglang/srt/models/qwen3_vl.py) 的 `Qwen3VLForConditionalGeneration.forward`；继承的是外层执行组织，文本计算由构造时注入的 Qwen 3.5 主干完成。
+
+| 对象 | 实际类型 / 来源 | 负责什么 |
+| --- | --- | --- |
+| `ModelRunner.model` | `qwen3_5.Qwen3_5ForConditionalGeneration` | 服务持有的外层模型；定义构造、权重加载，继承父类前向 |
+| 外层模型的 `self.model` | `qwen3_5.Qwen3_5ForCausalLM` | embedding → 按配置逐层执行 decoder → 最终归一化，返回 hidden states |
+| `self.model.layers[i]` | `Qwen3_5AttentionDecoderLayer` 或 `Qwen3_5LinearDecoderLayer` | 普通 Attention 或 GatedDeltaNet，加上各层的 dense MLP 与残差处理 |
+| 外层模型的 `self.lm_head` | `ParallelLMHead`，或满足条件时复用 embedding | 保存词表投影权重 |
+| 外层模型的 `self.logits_processor` | `LogitsProcessor` | 选取需要输出的位置，执行 LM head 投影，形成 logits |
+
+注意同名类：[qwen3_5_text.py](python/sglang/srt/models/qwen3_5_text.py) 也有 `Qwen3_5ForCausalLM`，它是另一个完整文本模型入口。本路线的 `self.model` 使用 **qwen3_5.py** 中的类；不因同名再绕进另一套外层封装。
+
+**初始化与权重加载：** 以常规 `DefaultModelLoader` 为代表，沿下面两个阶段读。这里的启动期准备只执行一次，后续请求复用创建好的模型。
+
+```text
+ModelRunner.load_model
+  → load_model_with_memory_saver
+    → DefaultModelLoader.load_model
+      ① _initialize_model → 解析模型架构 → Qwen3_5ForConditionalGeneration.__init__
+           → Qwen3VLForConditionalGeneration.__init__
+             → language_model_cls = qwen3_5.Qwen3_5ForCausalLM
+             → self.model：embedding + layers + final norm
+                  layers_block_type[i] == attention
+                    → Qwen3_5AttentionDecoderLayer.__init__
+                  layers_block_type[i] == linear_attention
+                    → Qwen3_5LinearDecoderLayer.__init__
+                      → Qwen3_5GatedDeltaNet.__init__
+                  两类 dense 层各自创建 Qwen2MoeMLP
+             → self.lm_head + self.logits_processor
+      ② load_weights_and_postprocess
+           → Qwen3_5ForConditionalGeneration.load_weights
+             → checkpoint 名称映射、合并投影分片加载、参数 weight_loader
+      → model.eval() → 保存到 ModelRunner.model
+```
+
+父类接收子类传入的 `language_model_cls`，用 `config.text_config` 创建文本主干；主干依据 `layers_block_type` 选择层类型。父类还按 `language_model_only` 决定是否创建视觉模块；**这不是“当前请求有没有图片”的判断**。dense 路线中的 `Qwen2MoeMLP` 是共用前馈实现，不因名字含 `Moe` 就进入专家路由。权重加载入口是外层子类的 `load_weights`，它遍历整棵参数树；不必再经过主干同名方法。
+
+**推理：** 先沿 Eager 看清张量流向，再看 CUDA Graph 重放的条件。Overlap 改变批次提交和结果处理的时序，模型内部仍沿相同的前向组织执行。
+
+```text
+TpModelWorker.forward_batch_generation → ForwardBatch.init_new
+  → ModelRunner.forward → _forward_raw
+    → EagerRunner.execute → _execute_extend / _execute_decode
+      → Qwen3VLForConditionalGeneration.forward（self 是 Qwen3_5 子类实例）
+        ├─ language_model_only=True：self.model(input_ids, ...)
+        └─ language_model_only=False：general_mm_embed_routine
+             → 纯文本路径：embed_tokens(input_ids) → self.model(input_embeds, ...)
+        → qwen3_5.Qwen3_5ForCausalLM.forward
+             → embedding / 已给定 input_embeds
+             → 逐层：普通 Attention → RadixAttention → 普通注意力后端
+                   或 GatedDeltaNet → RadixLinearAttention → 线性注意力后端
+             → 每层 dense MLP 与残差处理 → final norm → hidden states
+        → LogitsProcessor.forward → _get_logits → _compute_lm_head
+          → LogitsProcessorOutput
+  → ModelRunner.sample → Sampler.forward → next_token_ids
+```
+
+`general_mm_embed_routine` 的纯文本分支也在本路线内；只有满足多模态输入条件时才进入视觉编码/融合专题。普通 LM head 投影为 `hidden_states × lm_head.weight.T`。常规生成时，Prefill 通常取每个请求最后一个待采样位置，Decode 每个请求通常有一个新位置；输入 logprobs 等条件会改变需要保留的位置，不能把所有模式都写成“只取最后一个 token”。主干返回 hidden states，外层返回 logits，采样在 `ModelRunner` 中完成。
+
+上图按常规单卡文本生成理解；PP 非末 rank 会返回 `PPProxyTensors`，只有末 rank 做最终归一化与 logits。完整方法清单和实时状态见 [初始化与请求路线](LEARN.overlap.md)；视觉编码、MoE、GDN 状态池与底层算子后续另开专题。
 
 ---
 
@@ -275,7 +342,7 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 | `[python/sglang/srt/layers/radix_attention.py](python/sglang/srt/layers/radix_attention.py)`                   | 640  | 模型层怎么接到 attention backend         |
 
 
-再加 **一个** dense 模型（本清单选 Qwen 3.5 的文本前向主干）和 **一个**普通 Attention backend（本清单选 `[flashattention_backend.py](python/sglang/srt/layers/attention/flashattention_backend.py)`）；Qwen 3.5 的线性注意力分支跟到 GatedDeltaNet 与 RadixLinearAttention 接口。不要读 `[models/](python/sglang/srt/models/)` 下 220 个文件。
+再加 **一个** dense 模型：从 `Qwen3_5ForConditionalGeneration` 的初始化、权重加载读到继承的 `forward` 和文本主干，见第 3.1 节；以及 **一个**普通 Attention backend（本清单选 `[flashattention_backend.py](python/sglang/srt/layers/attention/flashattention_backend.py)`）。Qwen 3.5 的线性注意力分支跟到 GatedDeltaNet 与 RadixLinearAttention 接口。不要读 `[models/](python/sglang/srt/models/)` 下 220 个文件。
 
 ### P2 — 改配置、并行、调度策略时再读
 
@@ -315,7 +382,7 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 **不要一上来做的**：通读 `server_args.py`；通读 `layers/attention/`（约 6 万行）；通读 `models/`（220 个模型文件）；先学 NPU / MLX / XPU（`hardware_backend/`）、Diffusion 或 Gateway。
 
-**SRT 一级包**：约 42 个。必须认门的是 `managers/`、`model_executor/`、`mem_cache/`、`entrypoints/`、`layers/`（只读 `radix_attention.py`、`sampler.py` 和一个 attention backend）、`models/`（只读一个 dense 模型）、`sampling/`、`configs/`；`speculative/`、`disaggregation/`、`lora/` 等做对应特性时再打开；`hardware_backend/`、`debug_utils/`、`ray/` 等默认跳过。
+**SRT 一级包**：约 42 个。必须认门的是 `managers/`、`model_executor/`、`mem_cache/`、`entrypoints/`、`layers/`（重点读 `radix_attention.py`、`sampler.py`、一个 attention backend，以及 `linear.py` 和 `quantization/unquant.py` 中所列的 QKV 投影核心方法）、`models/`（只读一个 dense 模型）、`sampling/`、`configs/`；`speculative/`、`disaggregation/`、`lora/` 等做对应特性时再打开；`hardware_backend/`、`debug_utils/`、`ray/` 等默认跳过。
 
 ---
 
@@ -327,7 +394,7 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 
 ### 8.1 固定分母：核心概念方法
 
-范围和链路保存在 [LEARN.scope.json](quick_learn/LEARN.scope.json)。v2 共 **140 个方法、26 个概念分支**，覆盖常规文本生成的启动、配置、请求、调度、执行、KV、采样与回包，包括 normal/overlap、chunked prefill、基础 decode CUDA Graph 和 Qwen 3.5 dense 文本主干。
+范围和链路保存在 [LEARN.scope.json](quick_learn/LEARN.scope.json)。v4 共 **160 个方法、30 个概念分支**，覆盖常规文本生成的启动、配置、请求、调度、执行、KV、采样与回包，包括 normal/overlap、chunked prefill、基础 decode CUDA Graph 和指定 Qwen 3.5 dense 模型的初始化、权重加载与文本推理。
 
 - 每个方法等权计 1，只归属一个分支；方法长短、注释多少、被调用次数不增加权重。
 - 保留承载 SGLang 核心状态、策略或数据转换的方法，例如组批、PrefillAdder、KV 槽位分配、前缀匹配、ForwardBatch、Attention 和采样。
@@ -336,6 +403,10 @@ Scheduler 组批时用到的三个内存对象：`req_to_token_pool`（每个请
 - 运维接口、权重更新、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑、视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化、硬件专用分支和底层 kernel 暂不计入。后续专题可单独统计。
 
 v2 调整（2026-10-04）：按当前学习目标，将 Llama 的 5 个前向方法替换为 Qwen 3.5 的 8 个方法，总数由 137 变为 140。实际入口为 `Qwen3_5ForConditionalGeneration`，其 `forward` 定义在父类 `Qwen3VLForConditionalGeneration`；内部文本主干使用 `qwen3_5.py` 的 `Qwen3_5ForCausalLM`。两类解码层复用 `Qwen2MoeMLP.forward` 的 dense 前馈实现。直接证据、链路补全、分支补全规则及固定基线沿用原口径。
+
+v3 调整（2026-10-07）：继续固定上述模型，增加 **12 个模型构造/加载方法**（`ModelRunner.load_model` 原已在范围中）、`general_mm_embed_routine` 的文本入口和 `LogitsProcessor._compute_lm_head`，共新增 14 项，140 → 154。Overlap 路线同步升为 v2：原先没有启动期 `ModelRunner.load_model`，因此新增 15 项，106 → 121。新旧版本分母不同，百分比不能直接视为学习增减；新增文档本身不计为已读。
+
+v4 调整（2026-10-07）：补入 **6 个 QKV 线性投影核心方法**，全核心 154 → 160；Overlap 路线升为 v3，121 → 127。构造阶段包含 `QKVParallelLinear.__init__`、`ColumnParallelLinear.__init__`、`LinearBase.__init__`、`UnquantizedLinearMethod.create_weights`；前向阶段包含 `ColumnParallelLinear.forward`、`UnquantizedLinearMethod.apply`。继承方法按实际定义计数；`LinearBase.forward` 抽象占位、PyTorch 通用机制及量化/硬件变体不计入。父类初始化与权重创建、QKV 投影与 RadixAttention 分别按独立调用分支判定，原 D/C/B 规则和固定基线不变。
 
 原来的约 5% 将点名文件中的所有方法纳入分母，共 1372 个，混入了大量非核心操作和变体；该口径停用。本节百分比仅对应上述核心范围。
 
@@ -363,24 +434,24 @@ v2 调整（2026-10-04）：按当前学习目标，将 Llama 的 5 个前向方
 
 <!-- LEARN-PROGRESS:START -->
 
-**当前核心链路阅读覆盖：93/140（66.4%）。**
+**当前核心链路阅读覆盖：119/160（74.4%）。**
 
-其中：直接注释 **82** 个，链路补全 **5** 个，分支补全 **6** 个；待覆盖 **47** 个。该数值表示按约定视为已读的核心方法比例。
+其中：直接注释 **101** 个，链路补全 **11** 个，分支补全 **7** 个；待覆盖 **41** 个。该数值表示按约定视为已读的核心方法比例。
 
 | 核心阶段 | 直接注释 D | 链路补全 C | 分支补全 B | 已覆盖 / 总数 | 覆盖率 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 1 启动与进程 | 15 | 0 | 0 | 15/15 | 100.0% |
+| 1 启动与进程 | 23 | 3 | 1 | 27/31 | 87.1% |
 | 2 配置发布 | 2 | 0 | 0 | 2/4 | 50.0% |
-| 3 API 与请求转换 | 3 | 0 | 0 | 3/6 | 50.0% |
+| 3 API 与请求转换 | 4 | 0 | 2 | 6/6 | 100.0% |
 | 4 分词与请求提交 | 10 | 0 | 0 | 10/10 | 100.0% |
-| 5 调度与组批 | 21 | 0 | 2 | 23/29 | 79.3% |
-| 6 执行桥接与 overlap 数据交接 | 5 | 0 | 2 | 7/7 | 100.0% |
-| 7 模型前向与 Attention | 5 | 1 | 0 | 6/21 | 28.6% |
-| 8 KV 分配与前缀缓存 | 7 | 0 | 1 | 8/24 | 33.3% |
-| 9 采样、结果处理与回包 | 14 | 4 | 1 | 19/24 | 79.2% |
+| 5 调度与组批 | 22 | 0 | 1 | 23/29 | 79.3% |
+| 6 执行桥接与 overlap 数据交接 | 6 | 0 | 1 | 7/7 | 100.0% |
+| 7 模型前向与 Attention | 10 | 4 | 1 | 15/24 | 62.5% |
+| 8 KV 分配与前缀缓存 | 9 | 0 | 0 | 9/24 | 37.5% |
+| 9 采样、结果处理与回包 | 15 | 4 | 1 | 20/25 | 80.0% |
 
-统计范围版本：v2，26 个分支，34 个源码文件中的白名单方法。读取当前工作区（含未提交修改），HEAD `7191bda32a49`，固定对照基线 `6388b6cfb1d9`。
-源码指纹 `f38eeffbcb567ab7`；范围指纹 `d2f38b91a6ad05a3`。完整指纹和逐方法依据见 [LEARN.methods.md](LEARN.methods.md)。
+统计范围版本：v4，30 个分支，39 个源码文件中的白名单方法。读取当前工作区（含未提交修改），HEAD `81827dda8cfb`，固定对照基线 `6388b6cfb1d9`。
+源码指纹 `3d4616def05bfd13`；范围指纹 `7bf85107846c0057`。完整指纹和逐方法依据见 [LEARN.methods.md](LEARN.methods.md)。
 
 <!-- LEARN-PROGRESS:END -->
 
@@ -390,9 +461,10 @@ v2 调整（2026-10-04）：按当前学习目标，将 Llama 的 5 个前向方
 
 ```bash
 python quick_learn/update_learn_progress.py --write
+python quick_learn/update_overlap_progress.py --write
 ```
 
-不带参数只预览；`--check` 检查两份统计是否与当前源码一致。脚本发现白名单方法不存在或重名时会报错，不会悄悄减少分母。
+不带参数只预览；分别加 `--check` 检查三份文档是否与当前源码一致。脚本发现白名单方法不存在或重名时会报错，不会悄悄减少分母。
 
 以下文档保留为阅读导航，不参与计分：
 
@@ -413,7 +485,7 @@ python quick_learn/update_learn_progress.py --write
 
 ### 9.1 核心链路补全
 
-1. 第 7–8 步细读：`ForwardBatch` 全部字段、各模型的 `forward`、一个 attention backend、`memory_pool.py` 和 `radix_cache.py`。
+1. 优先跟通第 3.1 节的 `Qwen3_5ForConditionalGeneration`：构造与权重加载 → 继承的 `forward` → 两类解码层 → logits 与采样。再补 `ForwardBatch` 字段、一个普通 attention backend、`memory_pool.py` 和 `radix_cache.py`。
 2. 第 2、3 步补全：RuntimeContext 配置分组；`serving_chat` 如何把 HTTP 请求转成 `GenerateReqInput`。
 3. 动手练习：在 Scheduler 四步各打一条日志，跑一个请求验证主循环；对照 `test/registered/core/` 跑最小测试。
 

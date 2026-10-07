@@ -1163,6 +1163,8 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             hidden_states = _select_fused_ar_input_for_linear(
                 hidden_states, self.qkv_proj
             )
+        # NOTE 计算输入向量的 qkv：
+        #   1)输入向量有多个；2)每个输入向量分别和3个 q_weight/k_weight/v_weight 计算后得到每个token对应的 qkv
         qkv, _ = self.qkv_proj(hidden_states)
         if self.attn_output_gate:
             q_gate, k, v = qkv.split(
@@ -1235,10 +1237,12 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
     def self_attention(
         self,
         positions: torch.Tensor,
-        hidden_states: torch.Tensor,
+        hidden_states: torch.Tensor,  # 没缓存token对应的 embedding
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
-        """Full attention forward pass."""
+        """Full attention forward pass.
+        NOTE TODO: QKV 投影、Q/K 归一化与 RoPE、KV 缓存读写、可选门控和输出投影 ——核心逻辑
+        """
         if _is_cuda and self.attn_output_gate:
             q, k, v, gate = self.forward_prepare_cuda_fused(
                 positions=positions,
@@ -1254,6 +1258,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             or forward_batch.forward_mode.is_extend_or_draft_extend_or_mixed()
             or not self.attn_output_gate
         ):
+            # NOTE 默认链路
             q, k, v, gate = self.forward_prepare_native(
                 positions=positions,
                 hidden_states=hidden_states,
@@ -1280,12 +1285,16 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
     def forward(
         self,
         positions: torch.Tensor,
-        hidden_states: torch.Tensor,
+        hidden_states: torch.Tensor,  # 本轮输入token embedding 的结果
         residual: Optional[torch.Tensor],
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # 请求参数，更上层
         captured_last_layer_outputs: Optional[list[torch.Tensor]] = None,
         **kwargs,
     ):
+        """
+        TODO，都没看呢
+        """
+        # tip 衔接上一层残差，并执行输入归一化，为注意力计算准备 hidden_states。
         hidden_states, residual = (
             self.layer_communicator.prepare_attn_and_capture_last_layer_outputs(
                 hidden_states,
@@ -1296,13 +1305,14 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         )
 
         if not forward_batch.forward_mode.is_idle() and hidden_states.shape[0] > 0:
+            # NOTE 【重点】注意力主干：QKV 投影、Q/K 归一化与 RoPE、KV 缓存读写、可选门控和输出投影。
             hidden_states = self.self_attention(
                 positions=positions,
                 hidden_states=hidden_states,
                 forward_batch=forward_batch,
             )
 
-        # Fully Connected
+        # NOTE 3. 将注意力输出与残差相加，再归一化，为 MLP 准备输入。
         hidden_states, residual = self.layer_communicator.prepare_mlp(
             hidden_states, residual, forward_batch
         )
@@ -1319,6 +1329,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             fuse_mlp_allreduce=fuse_mlp_allreduce,
             mlp_reduce_scatter=mlp_reduce_scatter,
         ):
+            # NOTE 4. 执行前馈网络：Dense 使用普通 MLP，MoE 使用专家网络。
             if isinstance(self.mlp, Qwen2MoeSparseMoeBlock):
                 hidden_states = self.mlp(
                     hidden_states,
@@ -1326,6 +1337,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
                 )
             else:
                 hidden_states = self.mlp(hidden_states)
+        # NOTE 5. 处理输出通信或标记延后融合，保留 hidden_states、residual 供下一层或最终 norm 使用。
         if fuse_mlp_allreduce:
             hidden_states._sglang_needs_allreduce_fusion = True
         else:
@@ -1357,7 +1369,9 @@ QWEN3_5_KV_SCALE_MAPPER = WeightsMapper(
 
 
 class Qwen3_5ForCausalLM(nn.Module):
-    """Qwen3.5 Model with support for dense variant."""
+    """
+    NOTE Qwen3.5 Model with support for dense variant.
+    """
 
     packed_modules_mapping = {
         "qkv_proj": ["q_proj", "k_proj", "v_proj"],
@@ -1439,6 +1453,7 @@ class Qwen3_5ForCausalLM(nn.Module):
 
         alt_stream = get_stream("alt") if _is_cuda or _hip_use_alt_stream else None
 
+        # NOTE 第一部分
         # Embedding layer
         if self.pp_group.is_first_rank:
             self.embed_tokens = VocabParallelEmbedding(
@@ -1450,14 +1465,26 @@ class Qwen3_5ForCausalLM(nn.Module):
         else:
             self.embed_tokens = PPMissingLayer()
 
+        # NOTE 第二部分
+        # transformer layer，包括：QKV 计算和 MLP
         # Decoder layers
         def get_layer(idx: int, prefix: str):
+            # NOTE 当前 transformer layer 层的类型
+            #   layers_block_type 是个函数，将类型统一成了： attention(=full_attention) 和 linear_attention
             layer_type = config.layers_block_type[idx]
+            # tip
+            # 对应配置：text_config#full_attention_interval https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/config.json
+            #
+            # ALL_DECODER_LAYER_TYPES = {
+            #     "attention": Qwen3_5AttentionDecoderLayer, # 同 full_attention
+            #     "linear_attention": Qwen3_5LinearDecoderLayer,
+            # }
             layer_class = ALL_DECODER_LAYER_TYPES[layer_type]
             if layer_type == "attention":
                 prefix = add_prefix("self_attn", prefix)
             else:
                 prefix = add_prefix("linear_attn", prefix)
+            # NOTE 初始化 Qwen3_5AttentionDecoderLayer 或者 Qwen3_5LinearDecoderLayer
             return layer_class(
                 config=config,
                 layer_id=idx,
@@ -1467,16 +1494,20 @@ class Qwen3_5ForCausalLM(nn.Module):
                 is_nextn=is_nextn,
             )
 
+        # NOTE 创建所有的 transformer layer
         self.layers, self._start_layer, self._end_layer = make_layers(
             config.num_hidden_layers,
-            get_layer,
+            get_layer,  # tip
             pp_rank=self.pp_group.rank_in_group,
             pp_size=self.pp_group.world_size,
-            prefix=f"{prefix}.layers",
+            prefix=f"{prefix}.layers",  # 层数格式
         )
 
-        # Final normalization
+        # NOTE 第三部分
+        # Final normalization //  hidden state 归一化
         if self.pp_group.is_last_rank:
+            # NOTE 如果包含最后一层 transformer layer，则需要对 hidden states 进行归一化
+            #   输入是 [num_tokens, hidden_size] 的 hidden_state，输出形状同理，目的是控制给到  lm_head 的向量数值尺度
             self.norm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         else:
             self.norm = PPMissingLayer()
@@ -1509,9 +1540,14 @@ class Qwen3_5ForCausalLM(nn.Module):
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
         input_deepstack_embeds: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, PPProxyTensors]:
-        # Initialize hidden states
+        """这里仅仅 embedding 和 transformer 计算"""
+
+        # NOTE 第一步
+        #   embedding // 只有第一层 transformer 需要计算
+        #   Initialize hidden states
         if self.pp_group.is_first_rank:
             if input_embeds is None:
+                # NOTE
                 hidden_states = self.embed_tokens(input_ids)
             else:
                 hidden_states = input_embeds
@@ -1524,10 +1560,12 @@ class Qwen3_5ForCausalLM(nn.Module):
         aux_hidden_states = []
         # Pass through decoder layers
         for layer_idx in range(self.start_layer, self.end_layer):
+            # NOTE 遍历 每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer
             layer = self.layers[layer_idx]
             with get_global_expert_distribution_recorder().with_current_layer(
                 layer_idx
             ):
+                # todo 调用 Qwen3_5AttentionDecoderLayer 或 Qwen3_5LinearDecoderLayer的 forward()
                 hidden_states, residual = layer(
                     positions=positions,
                     hidden_states=hidden_states,
@@ -1865,8 +1903,9 @@ class Qwen3_5MoeForCausalLM(Qwen3_5ForCausalLM):
 
 class Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration):
     """
-        Qwen3_5ForConditionalGeneration 类型的模型
+    NOTE： init() 和 forward() 核心方法都在 Qwen3VLForConditionalGeneration 父类
     """
+
     packed_modules_mapping = Qwen3_5ForCausalLM.packed_modules_mapping
     hf_to_sglang_mapper = None
 
@@ -1877,7 +1916,7 @@ class Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration):
         config: Qwen3_5Config,
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
-        language_model_cls=Qwen3_5ForCausalLM,
+        language_model_cls=Qwen3_5ForCausalLM,  # NOTE 核心逻辑，父类 language_model_cls 是 Qwen3_5ForCausalLM
     ):
         super().__init__(config, quant_config, prefix, language_model_cls)
 

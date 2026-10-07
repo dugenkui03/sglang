@@ -88,6 +88,7 @@ def _print_diffusion_help(_request: ServeRequest) -> None:
 
 
 def _run_llm(request: ServeRequest) -> None:
+    """llm 模型 服务启动入口"""
     if any(arg in request.argv for arg in ("-h", "--help")):
         _print_llm_help(request)
         return
@@ -131,7 +132,7 @@ def _create_backend_registry() -> ServeBackendRegistry:
         {
             "llm": ServeBackend(
                 api_version=SERVE_BACKEND_API_VERSION,
-                run=_run_llm,
+                run=_run_llm,  # tip -> _run_llm()
             ),
             "diffusion": ServeBackend(
                 api_version=SERVE_BACKEND_API_VERSION,
@@ -175,6 +176,7 @@ def serve(args, extra_argv):
         model_path=try_get_model_path(dispatch_argv),
         model_path_is_positional=positional_model_path,
     )
+    # tip 获取包括两个服务启动方案的 registry
     registry = _create_backend_registry()
 
     if any(h in request.argv for h in ("-h", "--help")):
@@ -186,10 +188,12 @@ def serve(args, extra_argv):
 
     from sglang.srt.plugins import load_plugins
 
+    # tip 加载服务启动 plugin
     load_plugins()
 
     try:
         if backend_name == "auto":
+            # tip 判断选择哪种服务启动方案
             registered = registry.auto_detect(request)
             logger.info("Selected serve backend %r", registered.name)
         else:
@@ -202,6 +206,7 @@ def serve(args, extra_argv):
         if registered.backend.requires_model_path and request.model_path is None:
             get_model_path(request.argv)  # Raise the existing actionable CLI error.
 
+        # note 启动服务，llm 模型对应 _run_llm() 方法
         registered.backend.run(request)
     finally:
         kill_process_tree(os.getpid(), include_parent=False)

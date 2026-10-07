@@ -15,17 +15,21 @@ suppress_noisy_warnings()
 
 
 def run_server(server_args):
-    """ Run the server based on the gRPC flags and server_args.encoder_only.
-    NOTE 重点，服务启动入口
+    """
+    NOTE 服务启动入口，链路之一： cli.main() -> cli.serve() -> cli._run_llm() -> 这里
     调用示例：python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000
+
+    Run the server based on the gRPC flags and server_args.encoder_only.
     """
     # The flags dispatched on below are decided by resolution (`--grpc-mode`
     # folds into `smg_grpc_mode`), and `prepare_server_args` returns raw input.
-    server_args.resolve_once() #
+    server_args.resolve_once()  #
     cfg = resolving_view(server_args)
 
     if cfg.encoder_only:
         # For encoder disaggregation
+        # NOTE 是 EPD(Encode-Prefill-Decode) 分离链路启动一个单独的 encode 服务的链路
+        #       对应启动参数 --encoder-only
         if cfg.smg_grpc_mode or cfg.grpc_mode:
             from sglang.srt.disaggregation.encoder.grpc_server import (
                 serve_grpc_encoder,
@@ -57,7 +61,9 @@ def run_server(server_args):
         launch_server(server_args)
     else:
         from sglang.srt.entrypoints.http_server import launch_server
-        # NOTE Default mode: HTTP mode. 启动服务
+
+        # NOTE Default，重点
+        #   --disaggregation-mode prefill/decode PD 分离对应的逻辑在后续链路实现
         launch_server(server_args)
 
 

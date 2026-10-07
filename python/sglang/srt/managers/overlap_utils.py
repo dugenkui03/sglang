@@ -93,7 +93,6 @@ def resolve_forward_inputs(batch: ScheduleBatch, future_map: FutureMap) -> None:
     if batch.prefill_input_ids_cpu is not None:
         prefill_gpu = batch.prefill_input_ids_cpu.to(batch.device, non_blocking=True)
         if batch.mix_running_indices is not None:
-            # NOTE 读取 output_tokens_buf数组下标对应的tokenID
             decode_gpu = future_map.output_tokens_buf[batch.mix_running_indices]
             if _DEBUG_ASSERT:
                 _assert_nonneg_and_invalidate(
@@ -107,7 +106,9 @@ def resolve_forward_inputs(batch: ScheduleBatch, future_map: FutureMap) -> None:
         batch.prefill_input_ids_cpu = None
         batch.mix_running_indices = None
     elif batch.input_ids is None and future_map.spec_algo.is_none():
-        # NOTE 读取 output_tokens_buf 数组下标对应的tokenID
+        # NOTE 从 FutureMap 中取出 req_pool_indices 这批请求上次推理结果 tokenID 列表
+        #   decode 链路
+        #   这个 tensor 计算是：以 req_pool_indices 具体值为索引，从 output_tokens_buf 中取出对应的 tokenID
         batch.input_ids = future_map.output_tokens_buf[batch.req_pool_indices]
         if _DEBUG_ASSERT:
             _assert_nonneg_and_invalidate(
@@ -248,7 +249,7 @@ class ConfidenceRelay(msgspec.Struct):
 
 
 class FutureMap:
-    """Always-on(常驻) pool-indexed(按照请求池下标索引) relay(中转站) for cross-iter(跨迭代) values. 
+    """Always-on(常驻) pool-indexed(按照请求池下标索引) relay(中转站) for cross-iter(跨迭代) values.
     Forward writes via publish/stash; next iter reads via resolve_forward_inputs / resolve_seq_lens_cpu.
 
     FutureMap 是一个常驻、按请求池下标索引的中转站，用来在迭代之间传值。
@@ -285,15 +286,13 @@ class FutureMap:
         else:
             # NOTE
             # output_tokens_buf：上一轮采样出的 token
-            # 取值方式：output_tokens_buf[1] 就是格子 1 的 token
+            # 取值方式：output_tokens_buf[1] 就是格子 req_slot_1 的 token
             # 形状为 [req_pool_size]，类似数组
-            #【注意】
+            # 【注意】
             #   output_tokens_buf[x] 始终保存某一次推理的token、每一轮推理这个索引的具体值都会被覆盖(是个int64)
             # FutureMap.stash() 写output_tokens_buf
             self.output_tokens_buf = torch.empty(
-                (self.req_pool_size,),
-                 dtype=torch.int64, 
-                 device=self.device
+                (self.req_pool_size,), dtype=torch.int64, device=self.device
             )
             # new_seq_lens_buf 保存 原始输入加上已经生成的全部 token 的长度
             # 比如 "今天天气怎样 -> 阴"，如果一个字一个token则到这里 new_seq_lens_buf 是7
@@ -301,9 +300,7 @@ class FutureMap:
             # utureMap.publish()写这个值
             # speculative decoding 特性打开后才会使用这个字段
             self.new_seq_lens_buf = torch.empty(
-                (self.req_pool_size,), 
-                dtype=torch.int64, 
-                device=self.device
+                (self.req_pool_size,), dtype=torch.int64, device=self.device
             )
         # Pinned host copy of new_seq_lens_buf + private stream for fwd-prepare
         # D2H pulls (gated only on publish, off the schedule stream). CUDA-only:
@@ -496,7 +493,7 @@ class FutureMap:
                 self.publish_ready.synchronize()
             else:
                 self.publish_ready.wait()
-        batch.seq_lens = self.new_seq_lens_buf[fi] # 读 new_seq_lens_buf
+        batch.seq_lens = self.new_seq_lens_buf[fi]  # 读 new_seq_lens_buf
 
         if not self.needs_cpu_seq_lens:
             # GPU gather above is kept (SB.seq_lens must advance each verify);
@@ -558,8 +555,7 @@ class FutureMap:
             )
 
     def stash(self, future_indices: torch.Tensor, payload: RelayPayload) -> None:
-        """ 写output_tokens_buf，数组下边及其对应的tokenID
-        """
+        """写output_tokens_buf，数组下边及其对应的tokenID"""
         indices = future_indices
         if indices.shape[0] == 0:
             # DP idle: payload is empty stub; lazy-init shape peek would IndexError.

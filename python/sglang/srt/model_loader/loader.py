@@ -273,7 +273,34 @@ def _initialize_model(
     load_config: LoadConfig,
     quant_config: Optional[QuantizationConfig] = None,
 ) -> nn.Module:
-    """Initialize a model with the given configurations."""
+    """Initialize a model with the given configurations.
+    创建模型参数，参考
+
+        ModelRunner.__init__()
+        → ModelRunner.initialize()
+        → ModelRunner.load_model()
+        → load_model_with_memory_saver()
+        → DefaultModelLoader.load_model()
+            │
+            ├─ ① _initialize_model()：创建模型和参数                // NOTE 这里
+            │    → Qwen3_5ForConditionalGeneration.__init__()
+            │    → Qwen3VLForConditionalGeneration.__init__()
+            │    → Qwen3_5ForCausalLM.__init__()
+            │    → VocabParallelEmbedding.__init__()
+            │    → UnquantizedEmbeddingMethod.create_weights()
+            │        ├─ 创建 weight，并注册到 embedding 层
+            │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+            │
+            └─ ② load_weights_and_postprocess()：加载实际权重
+                → Qwen3_5ForConditionalGeneration.load_weights()
+                → 根据参数名找到之前创建的 weight
+                → 取出 weight.weight_loader 并执行
+                → VocabParallelEmbedding.weight_loader()
+                → 把文件中的权重数据拷贝进 weight
+    """
+
+    # NOTE 从模型配置中获取模型架构
+    #   比如 qwen3.8-27B 是 Qwen3_5ForConditionalGeneration
     model_class, _ = get_model_architecture(model_config)
     # Decide the shared-experts-fusion question here, once per runner, before any
     # layer exists: this is the only place a model class is instantiated, and it
@@ -295,6 +322,17 @@ def _initialize_model(
     if load_config.draft_model_idx is not None:
         kwargs["draft_model_idx"] = load_config.draft_model_idx
 
+    # NOTE 创建模型架构类
+    #
+    # 比如 qwen3.8-27B 是 Qwen3_5ForConditionalGeneration
+    #
+    # │    → Qwen3_5ForConditionalGeneration.__init__()
+    # │    → Qwen3VLForConditionalGeneration.__init__()
+    # │    → Qwen3_5ForCausalLM.__init__()
+    # │    → VocabParallelEmbedding.__init__()
+    # │    → UnquantizedEmbeddingMethod.create_weights()
+    # │        ├─ 创建 weight，并注册到 embedding 层
+    # │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
     return model_class(**kwargs)
 
 
@@ -334,8 +372,7 @@ class BaseModelLoader(ABC):
 
 
 class DefaultModelLoader(BaseModelLoader):
-    """Model loader that can load different file types from disk.
-    """
+    """Model loader that can load different file types from disk."""
 
     # default number of thread when enable multithread weight loading
     DEFAULT_NUM_THREADS = 8
@@ -928,7 +965,9 @@ class DefaultModelLoader(BaseModelLoader):
         model_config: ModelConfig,
         device_config: DeviceConfig,
     ) -> nn.Module:
-
+        """
+        NOTE 加载模型权重的核心方法
+        """
         if hasattr(model_config, "modelopt_quant") and model_config.modelopt_quant:
             # Load base model using shared method
             model = self._load_modelopt_base_model(model_config)
@@ -940,14 +979,32 @@ class DefaultModelLoader(BaseModelLoader):
         quant_config = _get_quantization_config(model_config, self.load_config)
         with set_default_torch_dtype(model_config.dtype):
             with target_device:
+                # NOTE 重点，init 模型相关类，比如 Qwen3_5ForConditionalGeneration.__init()__()
                 model = _initialize_model(
-                    model_config,
+                    model_config,  # tip 模型配置
                     self.load_config,
                     quant_config,
                 )
-
+            # NOTE 加载实际权重数据
+            #
+            #   1）_get_all_weights()   // 下载所有模型权重
+            #
+            #   2）load_weights_and_postprocess()：// 加载实际权重
+            #        → Qwen3_5ForConditionalGeneration.load_weights()
+            #        → 根据参数名找到之前创建的 weight
+            #        → 取出 weight.weight_loader 并执行
+            #        → VocabParallelEmbedding.weight_loader()
+            #        → 把文件中的权重数据拷贝进 weight
             self.load_weights_and_postprocess(
-                model, self._get_all_weights(model_config, model), target_device
+                model,  # tip 模型架构类，具体权重数据还没加载
+                # NOTE 模型下载链路
+                # _get_all_weights(...)
+                #   → _get_weights_iterator(...)
+                #   → _prepare_weights(...)
+                #   → download_weights_from_hf(...)
+                #   → huggingface_hub.snapshot_download(...)
+                self._get_all_weights(model_config, model),
+                target_device,
             )
 
         self.counter_after_loading_weights = time.perf_counter()
@@ -998,6 +1055,7 @@ class DefaultModelLoader(BaseModelLoader):
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
         else:
+            # NOTE 加载模型权重
             model.load_weights(weights)
 
         # Used in tests to verify memory savings when using online quantization.
@@ -4233,7 +4291,9 @@ class RunaiModelStreamerLoader(BaseModelLoader):
 def get_model_loader(
     load_config: LoadConfig, model_config: Optional[ModelConfig] = None
 ) -> BaseModelLoader:
-    """Get a model loader based on the load format."""
+    """Get a model loader based on the load format.
+    tip 一般都低到最后一行的 DefaultModelLoader
+    """
 
     if load_config.load_format == LoadFormat.DUMMY:
         return DummyModelLoader(load_config)
@@ -4376,4 +4436,5 @@ def get_model_loader(
             fallback_load_format=load_config.fallback_load_format,
         )
 
+    # NOTE 默认配置
     return DefaultModelLoader(load_config)

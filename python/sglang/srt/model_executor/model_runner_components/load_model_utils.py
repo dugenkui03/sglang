@@ -272,6 +272,29 @@ def load_model_with_memory_saver(
     memory_saver_adapter: Any,
     is_draft_worker: bool,
 ) -> LoadedModel:
+    """
+    ModelRunner.__init__()
+    → ModelRunner.initialize()
+    → ModelRunner.load_model()
+    → load_model_with_memory_saver() // 【当前方法】
+    → DefaultModelLoader.load_model()
+        │
+        ├─ ① _initialize_model()：创建模型和参数
+        │    → Qwen3_5ForConditionalGeneration.__init__()
+        │    → Qwen3VLForConditionalGeneration.__init__()
+        │    → Qwen3_5ForCausalLM.__init__()
+        │    → VocabParallelEmbedding.__init__()
+        │    → UnquantizedEmbeddingMethod.create_weights()
+        │        ├─ 创建 weight，并注册到 embedding 层
+        │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+        │
+        └─ ② load_weights_and_postprocess()：加载实际权重
+            → Qwen3_5ForConditionalGeneration.load_weights()
+            → 根据参数名找到之前创建的 weight
+            → 取出 weight.weight_loader 并执行
+            → VocabParallelEmbedding.weight_loader()
+            → 把文件中的权重数据拷贝进 weight
+    """
     # Remove monkey_patch when linear.py quant remove dependencies with vllm
     monkey_patch_vllm_parallel_state()
 
@@ -295,6 +318,7 @@ def load_model_with_memory_saver(
         GPU_MEMORY_TYPE_WEIGHTS,
         enable_cpu_backup=enable_cpu_backup,
     ):
+        # tip 一般使用默认 DefaultModelLoader
         loader = get_model_loader(
             load_config=load_config,
             model_config=model_config,
@@ -314,6 +338,7 @@ def load_model_with_memory_saver(
             )
             model = startup_weight_load.prepare()
         else:
+            # NOTE 核心方法
             model = loader.load_model(
                 model_config=model_config,
                 device_config=device_config,

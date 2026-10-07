@@ -402,8 +402,8 @@ class Scheduler(
     SchedulerMlxOverlapMixin,
 ):
     """A scheduler that manages a tensor parallel GPU worker(TpModelWorker).
-        - Tensor Parallel，TP/张量并行：把同一个模型中的计算拆分到多张 GPU 上，由它们协作完成推理
-        详见 ../../../../user_guide_zh/核心组件四：Scheduler.md
+    - Tensor Parallel，TP/张量并行：把同一个模型中的计算拆分到多张 GPU 上，由它们协作完成推理
+    详见 ../../../../user_guide_zh/核心组件四：Scheduler.md
     """
 
     # Class-level default so on_idle's stall gate works even if a fork
@@ -580,9 +580,11 @@ class Scheduler(
         self.sliding_window_size = result.sliding_window_size
         self.full_tokens_per_layer = result.full_tokens_per_layer
         self.swa_tokens_per_layer = result.swa_tokens_per_layer
-        
-        self.req_to_token_pool = result.req_to_token_pool # slot ->  KV index
-        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator # 空闲的 KV index
+
+        self.req_to_token_pool = result.req_to_token_pool  # slot ->  KV index
+        self.token_to_kv_pool_allocator = (
+            result.token_to_kv_pool_allocator
+        )  # 空闲的 KV index
         self.disable_radix_cache = result.disable_radix_cache
         self.tree_cache = result.tree_cache
         self.emit_metrics_constants()
@@ -942,10 +944,10 @@ class Scheduler(
         self.require_mlp_sync = require_mlp_sync()
 
     def init_tp_model_worker(self):
-        """ 初始化 TpModelWorker
-         1. 初始化 ModelRunner：
-              下载和加载模型
-              初始化多卡通信：支持各种并行计算策略
+        """初始化 TpModelWorker
+        1. 初始化 ModelRunner：
+             下载和加载模型
+             初始化多卡通信：支持各种并行计算策略
         """
         worker_kwargs = dict(
             server_args=self.server_args,
@@ -962,6 +964,7 @@ class Scheduler(
             self.tp_worker = MlxTpModelWorker(**worker_kwargs)
         else:
             from sglang.srt.managers.tp_worker import TpModelWorker
+
             # NOTE 初始化 TpModelWorker
             self.tp_worker = TpModelWorker(**worker_kwargs)
 
@@ -1000,7 +1003,7 @@ class Scheduler(
 
     def init_target_memory_pool(self):
         """Allocate target KV cache pools if they have not been allocated yet.
-        
+
         初始化 KV Cache 相关GPU显存池，核心链路：
             Scheduler.__init__()
             -> init_model_worker()
@@ -1020,11 +1023,11 @@ class Scheduler(
             preloaded_weights_bytes += self.draft_worker.preloaded_weights_bytes
         self.tp_worker.model_runner.account_preloaded_weights(preloaded_weights_bytes)
         # NOTE 重要，后边调用到 ModelRunner 的内存分配方法，初始化 ReqToTokenPool、KV Pool、TokenToKVPoolAllocator 等方法
-        self.tp_worker.alloc_memory_pool() 
+        self.tp_worker.alloc_memory_pool()
 
     def init_memory_pools(self):
         """Allocate KV cache pools for target and draft workers.
-         NOTE 初始化 KV Cache 相关的显存池
+        NOTE 初始化 KV Cache 相关的显存池
         """
         self.init_target_memory_pool()
         # Lands the retraction backend on the disagg bag before the draft
@@ -1055,15 +1058,15 @@ class Scheduler(
             self.draft_worker.init_cuda_graphs()
 
     def init_model_worker(self):
-        """ 初始化 TpModelWorker
-            1. 初始化 TpModelWorker
-                1.1 初始化 ModelRunner：
-                    下载和加载模型
-                    初始化多卡通信：支持各种并行计算策略
+        """初始化 TpModelWorker
+        1. 初始化 TpModelWorker
+            1.1 初始化 ModelRunner：
+                下载和加载模型
+                初始化多卡通信：支持各种并行计算策略
         """
         # Load model weights.
         # NOTE 初始化 TpModelWorker
-        self.init_tp_model_worker() 
+        self.init_tp_model_worker()
         if self.server_args.is_startup_weight_load_overlap:
             self.tp_worker.start_startup_weight_load()
         self.maybe_init_draft_worker()
@@ -1075,7 +1078,7 @@ class Scheduler(
         self.kv_cache_allocation_time = time.perf_counter() - tic
 
         self.init_all_attention_backends()
-        self.init_all_cuda_graphs() # NOTE 支持 cuda graph 加速策略的初始化
+        self.init_all_cuda_graphs()  # NOTE 支持 cuda graph 加速策略的初始化
 
         model_runner = self.tp_worker.model_runner
         if model_runner.token_to_kv_pool.post_capture_active:
@@ -1644,7 +1647,10 @@ class Scheduler(
         # 调用到了 TypeBasedDispatcher.__init__() 方法
         self._request_dispatcher = TypeBasedDispatcher(
             [
-                (TokenizedGenerateReqInput, self.handle_generate_request), # NOTE 每个类型的输入及其对应的 handler
+                (
+                    TokenizedGenerateReqInput,
+                    self.handle_generate_request,
+                ),  # NOTE 每个类型的输入及其对应的 handler
                 (TokenizedEmbeddingReqInput, self.handle_embedding_request),
                 (BatchTokenizedGenerateReqInput, self.handle_batch_generate_request),
                 (BatchTokenizedEmbeddingReqInput, self.handle_batch_embedding_request),
@@ -1785,6 +1791,9 @@ class Scheduler(
     def run_event_loop(self) -> None:
         """Run the scheduler's event loop.
 
+        tip： event 可以理解为 新的推理请求、组批执行 prefill/decode、收到结果给到 detokenizer_manager
+              这个方法没有 while true，但是调用了 while true 的方法
+
         Sets up the schedule stream and dispatches to the appropriate event loop.
         The event loop blocks until shutdown.
         """
@@ -1794,7 +1803,7 @@ class Scheduler(
         triton_load_watch.mark_serving_started()
 
         if use_mlx():
-            # Apple 芯片 链路
+            # tip Apple 芯片 链路
             # MLX overlap uses mx.async_eval for CPU/GPU overlap,
             # not PyTorch MPS streams.
             dispatch_event_loop(self)
@@ -1819,8 +1828,8 @@ class Scheduler(
         # on the previous forward's read of the unified memory pool.
         self._war_barrier_enabled = is_cuda() or envs.SGLANG_ENABLE_WAR_BARRIER.get()
         with self.device_module.StreamContext(self.schedule_stream):
-            # NOTE ，走到核心方法 event_loop_overlap，实现 收请求 → 组批 → 执行 → 回包
-            dispatch_event_loop(self) 
+            # NOTE 核心方法
+            dispatch_event_loop(self)
 
     def _apply_war_barrier(self):
         # WAR: keep later schedule_stream writes behind this forward's shared reads.
@@ -1854,13 +1863,12 @@ class Scheduler(
             # 从任务队列获取消息进行处理
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
-                running_batch=self.running_batch, 
-                last_batch=self.last_batch
+                running_batch=self.running_batch, last_batch=self.last_batch
             )
             # 更新调度器维护的运行批，供后续调度使用
-            self.running_batch = plan.running_batch 
+            self.running_batch = plan.running_batch
             # NOTE 取出本轮待执行的批次，可能为 None
-            batch = plan.batch_to_run 
+            batch = plan.batch_to_run
             self.cur_batch_for_debug = batch
 
             # Launch the current batch
@@ -1880,24 +1888,21 @@ class Scheduler(
     @DynamicGradMode()  # tip 让整个主循环运行时关闭梯度计算
     def event_loop_overlap(self):
         """A scheduler loop that overlaps the CPU processing and GPU computation.
-            - overlaps a and b：让 a 和 b 同时进行
+        - overlaps a and b：让 a 和 b 同时进行
 
-            1. RequestReceiver.recv_request()：接收并广播 TokenizerManager的请求
-            2. 任务入队（即加入到 waiting_queue)， waiting_queue 的作用：
-                2.1 支持 批处理：任务在 waiting_queue 中攒着，组批后交给 GPU，批处理比单个处理 gpu 资源利用更高
-                2.2 槽位或者 KV 编号不够用的时候，请求在 waiting_queue 中排队
-                2.3 从 waiting_queue中选择组批的请求的时候也可以按照指定优先级处理
+        1. RequestReceiver.recv_request()：接收并广播 TokenizerManager的请求
+        2. 任务入队（即加入到 waiting_queue)， waiting_queue 的作用：
+            2.1 支持 批处理：任务在 waiting_queue 中攒着，组批后交给 GPU，批处理比单个处理 gpu 资源利用更高
+            2.2 槽位或者 KV 编号不够用的时候，请求在 waiting_queue 中排队
+            2.3 从 waiting_queue中选择组批的请求的时候也可以按照指定优先级处理
 
         """
 
         # Deque：双端队列，两端都能添加、取出元素。这里用来暂存各个 batch 及其执行结果。
         # Tuple：元组，按顺序组合多个元素，创建后不能增删或替换元素。这里每个元组包含两个元素：ScheduleBatch 和对应的结果
         self.result_queue: Deque[
-            Tuple[
-                    ScheduleBatch,
-                    Union[GenerationBatchResult, EmbeddingBatchResult]
-                 ]
-        ] = deque() # deque() 创建空队列
+            Tuple[ScheduleBatch, Union[GenerationBatchResult, EmbeddingBatchResult]]
+        ] = deque()  # deque() 创建空队列
 
         def pop_and_process():
             # Process the results of the last batch
@@ -1906,32 +1911,41 @@ class Scheduler(
             # 处理这组结果 【TODO】待分析
             self.process_batch_result(tmp_batch, tmp_result)
 
-        while True: # tip 后续代码的 next batch 啥的，每一个batch都是只 while true 执行了一轮
+        while (
+            True
+        ):  # tip 后续代码的 next batch 啥的，每一个batch都是只 while true 执行了一轮
             if self.gracefully_exit:
                 break
 
-            # NOTE step 1
+            # NOTE 【step 1】
             # Receive requests
             #   recv_requests：1）使用 tp_rank=0 的节点收到请求；2）广播给其他 tp_rank 的节点
             # tip recv_reqs 格式是 List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]
             recv_reqs = self.request_receiver.recv_requests()
-            # NOTE step 2：
+            # NOTE 【step 2】
             #   任务入队、即加入到 waiting queue
             self.process_input_requests(recv_reqs)
             if self._engine_paused:
                 continue
 
-            # NOTE step 3:
+            # NOTE 【step 3】
             # 组批进行处理：gpu利用率、调度优先级
+            #
+            # plan 核心变量
+            # 1）本轮要计算的 batch，要么是 prefill（EXTEND），要么是 decode（DECODE）
+            # batch_to_run: Optional[ScheduleBatch]
+            # 2）NOTE running_batch 是已经 prefill 完成，正在进行 decode 的请求
+            # running_batch: ScheduleBatch
+            #
             # Get the next batch to run
             plan = self.get_next_batch_to_run(
                 # tips 标识请求集合，比如 今天天气 -> 阴天
                 # 刚开始在init_running_status()中初始化为空对象
                 # 后边设置该变量的代码见下一行
-                running_batch=self.running_batch, 
-                last_batch=self.last_batch # tips 标识上一轮跑的什么操作，比如 prefill(今天天气) 或者 decode(阴)
+                running_batch=self.running_batch,
+                last_batch=self.last_batch,  # tips 标识上一轮跑的什么操作，比如 prefill(今天天气) 或者 decode(阴)
                 # 示例：只有请求 A「今天天气」，依次输出「阴」「天」，最后是 EOS（overlap 模式）
-                # 
+                #
                 # | 轮次    | 进入时 running_batch　　| 进入时 last_batch　 | 本轮执行（GPU）          | 本轮处理上一轮结果（CPU）  |
                 # | N　　   | 空　　　　　　　         | None　　　　        | prefill(今天天气) -> 阴　| 无　　　　　　　　　　     |
                 # | N+1　　 | 空，组批时并入 A　       | prefill(今天天气)   | decode(阴) -> 天　　　　 | 追加「阴」　　　　　　     |
@@ -1939,7 +1953,7 @@ class Scheduler(
                 # | N+3　　 | {A}　　　　　　　　      | decode(天)　　　    | decode(EOS)，多算一步　  | 追加 EOS，判定结束　　　　 |
                 # | N+4　　 | {A}，组批时移出变空      | decode(EOS)　　　　 | 无　　　　　             | 跳过已结束请求的结果　     |
             )
-            self.running_batch = plan.running_batch # NOTE 更新 running_batch
+            self.running_batch = plan.running_batch  # NOTE 更新 running_batch
             batch = plan.batch_to_run
             self.cur_batch_for_debug = batch
             disable_overlap_for_batch = self.is_disable_overlap_for_batch(
@@ -1961,7 +1975,8 @@ class Scheduler(
 
             # Launch the current batch
             if batch:
-                # note 执行本批，结果先放进 result_queue
+                # note 【step 4】执行本批，结果先放进 result_queue
+                #   batch.forward_mode = EXTEND/DECODE/MIXED 决定走 prefill、decode还是混合
                 batch_result = self.run_batch(batch)
                 # Fence result processing behind this forward's shared reads.
                 self._apply_war_barrier()
@@ -2053,7 +2068,7 @@ class Scheduler(
                 self._materialize_cuda_vmm_inputs(recv_req)
 
         # NOTE 遍历收到的请求
-        for recv_req in recv_reqs: 
+        for recv_req in recv_reqs:
             # Skip health check when server is busy — ongoing requests already carry health info.
             if is_health_check_generate_req(recv_req) and not self.is_fully_idle(
                 for_health_check=True
@@ -2085,8 +2100,8 @@ class Scheduler(
 
     def _materialize_cuda_vmm_inputs(self, recv_req):
         """
-         Release VMM(Virtual Memory Management，虚拟内存管理) slices before request handling can reject the request.
-         把收到的多模态输入，整理成 Scheduler 可以使用的数据
+        Release VMM(Virtual Memory Management，虚拟内存管理) slices before request handling can reject the request.
+        把收到的多模态输入，整理成 Scheduler 可以使用的数据
         """
         if isinstance(
             recv_req, (TokenizedGenerateReqInput, TokenizedEmbeddingReqInput)
@@ -2394,8 +2409,8 @@ class Scheduler(
 
     def init_req_max_new_tokens(self, req):
         """根据输入长度和服务端容量限制，设置请求最多可生成的 token 数，并同步约束最少生成数量。"""
-        input_len = len(req.origin_input_ids) # 输入 token 长度
-        max_new_tokens = ( # 输出最大长度
+        input_len = len(req.origin_input_ids)  # 输入 token 长度
+        max_new_tokens = (  # 输出最大长度
             req.sampling_params.max_new_tokens
             if req.sampling_params.max_new_tokens is not None
             else 1 << 30
@@ -2550,12 +2565,13 @@ class Scheduler(
 
     def _maybe_namespace_elastic_radix_cache(self, req: Req) -> None:
         """
-            ?给请求的缓存键加上当前 EP 规模的标记，让不同并行规模的 KV Cache 分开使用?
+        ?给请求的缓存键加上当前 EP 规模的标记，让不同并行规模的 KV Cache 分开使用?
         """
         if (
-            get_exec().moe.elastic_ep_backend is None # ?未配置弹性专家并行后端，即没有启用 Elastic EP?
-            or self.disable_radix_cache # 已禁用 RadixCache。
-            or not self.tree_cache.is_tree_cache() # 当前使用的缓存实现不是树形缓存
+            get_exec().moe.elastic_ep_backend
+            is None  # ?未配置弹性专家并行后端，即没有启用 Elastic EP?
+            or self.disable_radix_cache  # 已禁用 RadixCache。
+            or not self.tree_cache.is_tree_cache()  # 当前使用的缓存实现不是树形缓存
         ):
             return
 
@@ -2596,20 +2612,18 @@ class Scheduler(
         # Route: normal request / session request / session-not-found
         # session_params.id：传统会话 ID，用于查找已有 Session、衔接请求上下文。
         session_id = (
-            recv_req.session_params.id
-            if recv_req.session_params is not None
-            else None
+            recv_req.session_params.id if recv_req.session_params is not None else None
         )
         # Radix-native sessions use only the top-level session_id.
         # 顶层 session_id：RadixCache 原生会话 ID，配合服务端开关关联会话与 KV Cache 引用。
         radix_native_session = (
             recv_req.session_id is not None
-            and self.enable_session_radix_cache # 【note】服务端开启了会话 RadixCache 功能
+            and self.enable_session_radix_cache  # 【note】服务端开启了会话 RadixCache 功能
         )
 
         if session_id is None or radix_native_session:
             """
-              未指定传统会话 ID（session_params.id），或请求携带 session_id 且服务端开启会话 RadixCache 功能时，构造新的 Req。
+            未指定传统会话 ID（session_params.id），或请求携带 session_id 且服务端开启会话 RadixCache 功能时，构造新的 Req。
             """
             # Normal non-session request, or a radix-native session request
             if recv_req.input_embeds is not None:
@@ -2670,7 +2684,7 @@ class Scheduler(
             )
             req.tokenizer = self.tokenizer
 
-            if radix_native_session: # 如果使用了 radix 的原生session
+            if radix_native_session:  # 如果使用了 radix 的原生session
                 req.session_generation = self.tree_cache.ensure_session_generation(
                     recv_req.session_id
                 )
@@ -2683,7 +2697,9 @@ class Scheduler(
                     self.output_streamer.stream_output([req], req.return_logprob)
                     return
 
-            if self.disaggregation_mode != DisaggregationMode.NULL: # 如果启动了分离模式
+            if (
+                self.disaggregation_mode != DisaggregationMode.NULL
+            ):  # 如果启动了分离模式
                 # Invalid request for disaggregated mode。aggregated-聚合的；
                 # disaggregated mode 是“分离部署模式”，这里具体指 Prefill / Decode 分离（PD 分离）
                 if (
@@ -2921,7 +2937,7 @@ class Scheduler(
 
         added_to_grammar_queue = self.grammar_manager.process_req_with_grammar(req)
         if not added_to_grammar_queue:
-            # NOTE 推理任务放进 
+            # NOTE 推理任务放进
             self._add_request_to_queue(req)
 
     def handle_batch_generate_request(
@@ -2982,8 +2998,7 @@ class Scheduler(
                 )
 
     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
-        """推理任务入队逻辑/waiting_queue
-        """
+        """推理任务入队逻辑/waiting_queue"""
         if not self._set_or_validate_priority(req):
             return
         if self.disaggregation_mode == DisaggregationMode.NULL:
@@ -3283,12 +3298,31 @@ class Scheduler(
 
     @scheduler_nvtx_method("scheduler.get_next_batch_to_run")
     def get_next_batch_to_run(
-        self, 
-        running_batch: ScheduleBatch,
-        last_batch: Optional[ScheduleBatch]
+        self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
     ) -> NextBatchPlan:
         """
-            NOTE 决定本轮执行哪个批次
+        NOTE 决定本轮执行哪个批次，并返回更新后的运行批。
+
+        - Prefill（预填充）：处理提示词中尚未缓存的 token 并建立 KV 缓存，
+          本方法尝试为新请求或尚未完成预填充的请求组织批次。
+        - Decode（解码）：利用已有 KV 缓存继续生成后续 token，
+          普通自回归模式下每个请求每步通常生成一个 token。
+        - Chunked Prefill（分块预填充）：把长提示词分多轮计算，
+          chunked_req 表示尚需续算的请求，避免将它提前并入普通 decode 批。
+        - KV Cache（Key–Value Cache，键值缓存）：保存注意力层已计算的 Key/Value，
+          让后续 token 的计算复用历史上下文。
+        - FPM（Forward Pass Metrics，前向计算指标）：记录批次耗时和请求统计，
+          本方法保存调度起始时间，供后续指标上报使用。
+        - tip dLLM / DLLM（Diffusion Large Language Model，扩散式大语言模型）：
+          通过多轮去噪逐步确定一块 token，本方法使用专门的管理器和组批路径调度。
+        - HiSparse（Hierarchical Sparse Attention，分层稀疏注意力）：将完整 KV
+          存在 CPU 侧、GPU 按需缓存和读取热点 KV，本方法收集准备好进入 decode 的请求。
+        - DP Attention（Data Parallel Attention，数据并行注意力）：不同注意力副本
+          处理不同请求，同时在需要协同的模型计算阶段协调各副本的批次信息。
+        - MLP Sync（Multi-Layer Perceptron Synchronization，多层感知机计算同步）：
+          为后续前馈层协同计算对齐各副本的 token 数和前向模式等信息，必要时补空批。
+        - Spec（Speculative Decoding，推测解码）：先提出候选 token，再由目标模型
+          批量验证，本方法结合其配置协调 DP Attention 下的 prefill/decode 模式。
         """
         self.process_pending_chunked_abort()
 
@@ -3380,7 +3414,6 @@ class Scheduler(
             running_batch.filter_batch()
             if running_batch.is_empty():
                 running_batch.batch_is_full = False
-        # 【Step 2】尝试组预填充批：续算未完成的分块，或从等待队列按预算选请求；也可能推迟。
         if self.dllm_config is not None:
             new_batch = self.get_new_batch_dllm(running_batch)
         elif self._should_defer_prefill():
@@ -3413,7 +3446,7 @@ class Scheduler(
         else:
             # NOTE decode 链路
             if not running_batch.is_empty() and not running_batch.is_prefill_only:
-                # tip 跑 decode 任务： update_running_batch -> prepare_for_decode() 
+                # tip 跑 decode 任务： update_running_batch -> prepare_for_decode()
                 #   running_batch 标识正在跑的 decode/完成 prefill的推理任务
                 running_batch = self.update_running_batch(running_batch)
                 # NOTE decode 链路的 running_batch 会赋值给 batch_to_run、用于本轮计算执行
@@ -3489,14 +3522,14 @@ class Scheduler(
             observed_prefill_bs = prefill_delayer_single_pass.finalize(
                 actual_prefill_bs=ret.batch_size() if ret is not None else 0
             )
-            if observed_prefill_bs > 0: # bs batch_sizesssssssssssss
+            if observed_prefill_bs > 0:  # bs batch_sizesssssssssssss
                 self.max_prefill_bs = self.prefill_bs_tracker.observe_attempt(
                     observed_prefill_bs
                 )
 
         return NextBatchPlan(
             batch_to_run=ret,  # tip 执行的推理任务
-            running_batch=running_batch # tip 上一轮的推理请求
+            running_batch=running_batch,  # tip 上一轮的推理请求
         )
 
     def _get_new_batch_prefill_raw(
@@ -3505,7 +3538,7 @@ class Scheduler(
         running_batch: ScheduleBatch,
     ) -> Tuple[Optional[ScheduleBatch], ScheduleBatch]:
         """
-            NOTE 获取 prefill 任务数据，ret 和 running batch都是 ScheduleBatch
+        NOTE 获取 prefill 任务数据，ret 和 running batch都是 ScheduleBatch
         """
         # Check if the grammar is ready in the grammar queue
         if self.grammar_manager.has_waiting_grammars():
@@ -3520,10 +3553,10 @@ class Scheduler(
             # Reset batch_is_full to try preemption with a prefill adder.
             running_batch.batch_is_full = False
 
-        # NOTE 
+        # NOTE
         #   （waiting_queue 为空 或 running_batch 已满） 且没有要续算的分块请求
         # 也没有未完成的 chunked_req
-        # 
+        #
         # tip
         #   running_batch is full：槽位、max_running_requests 等资源被 running_batch 占满了
         #   chunked_req：提示词太长的时候，按照 --chunked-prefill-size 分成多块做多轮 prefill
@@ -3541,8 +3574,7 @@ class Scheduler(
             and self.min_free_slots_delayer.should_delay(
                 running_bs=running_bs,
                 num_allocatable_reqs=self.get_num_allocatable_reqs(
-                    running_bs,
-                    running_batch=running_batch
+                    running_bs, running_batch=running_batch
                 ),
             )
         ):
@@ -3571,10 +3603,19 @@ class Scheduler(
             # in the waiting queue.
             return None, running_batch
 
+        # NOTE 计算每次 prefill 可计算的 token 数量，以 chunked_prefill_size 最终为 4096 示例
+        #
+        # 请求 A：需要 prefill 1024 个 token
+        # 请求 B：需要 prefill 4096 个 token
+        #
+        # 本轮：A 算 1024 + B 算 3072 = 4096
+        # 后续：B 剩下的 1024 个 token 继续做 prefill
         # Determine chunked_prefill_size for this batch
         chunked_prefill_size = self.chunked_prefill_size
         if self.chunked_req is not None and self.enable_dynamic_chunking:
-            history_len = len(self.chunked_req.prefix_indices) # 入参是这个 req 已经缓存的kv的数量
+            history_len = len(
+                self.chunked_req.prefix_indices
+            )  # 入参是这个 req 已经缓存的kv的数量
             # tip 动态 prefill size：获取本次的 prefill size，即要处理多少个 token
             dynamic_size = self.predict_next_chunk_size(history_len)
             if dynamic_size is not None:
@@ -3592,19 +3633,19 @@ class Scheduler(
         #   PrefillAdder 每一轮新建一个对象
         adder = PrefillAdder(
             page_size=self.page_size,
-            tree_cache=self.tree_cache, # tree_cache 就是 前缀匹配，就是 RadixCache 实现的那套
+            tree_cache=self.tree_cache,  # tree_cache 就是 前缀匹配，就是 RadixCache 实现的那套
             token_to_kv_pool_allocator=self.token_to_kv_pool_allocator,
-            running_batch=running_batch, # 正在 decode 的请求：要给它们后续生成的 token 预留 KV 编号
-            new_token_ratio=self.new_token_ratio_tracker.current, # 预留比例：running 请求剩余最大生成数 × 这个比例 = 给它预留的 KV 编号
-            rem_input_tokens=self.max_prefill_tokens, # 本轮 prefill 最多处理多少个输入 token
+            running_batch=running_batch,  # 正在 decode 的请求：要给它们后续生成的 token 预留 KV 编号
+            new_token_ratio=self.new_token_ratio_tracker.current,  # 预留比例：running 请求剩余最大生成数 × 这个比例 = 给它预留的 KV 编号
+            rem_input_tokens=self.max_prefill_tokens,  # 本轮 prefill 最多处理多少个输入 token
             # NOTE 这是本次组批 prefill 的 token上限
             #   超过 rem_chunk_tokens 则Req 就会被切分，并将留下来的待处理数据保存到 Scheduler.chunked_req 中
             rem_chunk_tokens=chunked_prefill_size,
             # 混合批时给拼进来的 decode 请求预留 token，不开混合批为 0——就当是0吧
             num_mixed_decode_tokens=running_bs if self.is_mixed_chunk else 0,
             priority_scheduling_preemption_threshold=self.priority_scheduling_preemption_threshold,
-            max_prefill_bs=int(self.max_prefill_bs), # 本轮 prefill 批最多放几个请求
-            max_running_requests=self.max_running_requests, # 同时在跑的请求数上限，也就是槽位上限
+            max_prefill_bs=int(self.max_prefill_bs),  # 本轮 prefill 批最多放几个请求
+            max_running_requests=self.max_running_requests,  # 同时在跑的请求数上限，也就是槽位上限
             prefill_max_requests=get_schedule().prefill_max_requests,
             prefill_delayer_single_pass=prefill_delayer_single_pass,
             dllm_config=self.dllm_config,
@@ -3612,8 +3653,9 @@ class Scheduler(
             prefill_tile_block_m=prefill_tile_block_m,
         )
 
-        if self.chunked_req is not None: 
+        if self.chunked_req is not None:
             # NOTE 如果有未完成的 chunked_req，则直接调用 add_chunked_req 放到批处理中
+            #   【重要】
             self.chunked_req.init_next_round_input()
             self.chunked_req = adder.add_chunked_req(self.chunked_req)
 
@@ -3643,28 +3685,32 @@ class Scheduler(
             candidate_beam_width = (
                 req.beam_group.beam_width if req.beam_group is not None else None
             )
+            # tag 1
             if len(adder.can_run_list) >= self.get_num_allocatable_reqs(
                 running_bs,
                 candidate_beam_width,
                 running_batch=running_batch,
             ):
                 running_batch.batch_is_full = True
+
+            # tag 2
             if self.disaggregation_mode == DisaggregationMode.PREFILL:
                 # In prefill mode, prealloc queue and transfer queue can also take memory,
                 # so we need to check if the available size for the actual available size.
                 if len(adder.can_run_list) >= self.req_to_token_pool.available_size():
                     running_batch.batch_is_full = True
 
+            # tip 如果在 tag 1 或者 tag 2处已经判断运行资源使用完了、即 batch_is_full 为true，则后续请求都在这里break、不组装batch
             if running_batch.batch_is_full:
                 if (
                     not self.enable_priority_preemption
                     or not adder.preempt_to_schedule(req, self.server_args)
                 ):
                     break
-            
+
             # tip 分层缓存逻辑：GPU -> CPU -> 外部存储
             if self.enable_hicache_storage:
-                # tip 判断已经获取到了 分层缓存 
+                # tip 判断已经获取到了 分层缓存
                 prefetch_done = self.tree_cache.check_prefetch_progress(req.rid)
                 if not prefetch_done:
                     # skip staging requests that are ongoing prefetch
@@ -3674,7 +3720,7 @@ class Scheduler(
                 # NOTE 获取缓存的长度，是指前n个缓存
                 loaded_tokens = self.tree_cache.pop_prefetch_loaded_tokens(req.rid)
                 if loaded_tokens > 0:
-                    req.storage_hit_length = loaded_tokens # NOTE 字段更新
+                    req.storage_hit_length = loaded_tokens  # NOTE 字段更新
 
             req.init_next_round_input(self.tree_cache)
             if (
@@ -3704,7 +3750,7 @@ class Scheduler(
             if self.enable_lora:
                 running_loras.add(req.lora_id)
 
-            # NOTE 
+            # NOTE
             #   CONTINUE = auto()  # Continue to add requests
             #   NO_TOKEN = auto()  # No token left
             #   OTHER = auto()  # Other reasons to stop adding requests
@@ -3740,7 +3786,7 @@ class Scheduler(
             mamba_allocator.alloc_group_end()
 
         # Update waiting queue
-        can_run_list: List[Req] = adder.can_run_list # NOTE 获取本批次执行的请求
+        can_run_list: List[Req] = adder.can_run_list  # NOTE 获取本批次执行的请求
         if len(can_run_list) == 0:
             return None, running_batch
 
@@ -3764,8 +3810,8 @@ class Scheduler(
         # Create a new batch
         # NOTE 用选中的请求建 prefill 批（只记下 reqs 和各个池的引用）
         new_batch = ScheduleBatch.init_new(
-            can_run_list, # NOTE 重点参数，本批次
-            self.req_to_token_pool, # NOTE Scheduler 的 ReqToTokenPool
+            can_run_list,  # NOTE 重点参数，本批次
+            self.req_to_token_pool,  # NOTE Scheduler 的 ReqToTokenPool
             self.token_to_kv_pool_allocator,
             self.tree_cache,
             self.model_config,
@@ -3864,7 +3910,7 @@ class Scheduler(
 
     def update_running_batch(self, batch: ScheduleBatch) -> Optional[ScheduleBatch]:
         """Update the current running decoding batch.
-            每步给每个请求分配 1 个 KV 槽位；显存不够时把部分请求退回等待队列（retract）
+        每步给每个请求分配 1 个 KV 槽位；显存不够时把部分请求退回等待队列（retract）
         """
         initial_bs = batch.batch_size()
 
@@ -4011,7 +4057,7 @@ class Scheduler(
     @scheduler_nvtx_method("scheduler.run_batch")
     def run_batch(
         self,
-        batch: ScheduleBatch, # 要执行的任务
+        batch: ScheduleBatch,  # 要执行的任务
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[GenerationBatchResult, EmbeddingBatchResult]:
         """Run a batch.
@@ -4033,7 +4079,6 @@ class Scheduler(
             time.sleep(self.forward_sleep_time)
 
         # Place holder handling for pd-disagg decode event loop
-        # PD 分离模式： 此时 Prefill/KV Cache 已经执行完了
         if batch.forward_mode.is_prebuilt():
             return self._run_batch_prebuilt(batch)
 
@@ -4043,8 +4088,8 @@ class Scheduler(
                 self.maybe_send_cached_prefix_chunk(req)
 
         # NOTE Run forward
-        if self.is_generation: # 是否是生成类的任务
-            if self.enable_overlap: # 是否是 cpu 调度和 gpu 计算并行执行
+        if self.is_generation:
+            if self.enable_overlap:  # 是否是 cpu 调度和 gpu 计算并行执行
 
                 # NOTE 投机解码相关的逻辑，方法体中的 spec 就是 Speculative
                 # Self-gates on batch.spec_info.future_indices; non-spec_v2
@@ -4058,7 +4103,7 @@ class Scheduler(
                 #   退出时自动调用 forward_stream_ctx 的 __exit__() 方法
                 #   forward_stream_ctx 是 StreamContext 类型
                 with self.forward_stream_ctx:
-                    # TIP: forward_stream 等 schedule_stream 
+                    # TIP: forward_stream 等 schedule_stream
                     self.forward_stream.wait_stream(self.schedule_stream)
 
                     # resolve consumes SB staging (prefill_input_ids_cpu /
@@ -4091,13 +4136,12 @@ class Scheduler(
                         # FIXME: pp is not compatible with overlap
                         # NOTE forward 的核心方法，进行推理并获取 logits、也就是结果位置每个token的分数
                         #   链路：
-                        #       run_batch() 
-                        #       -> TpWorker#forward_batch_generation() 
+                        #       run_batch()
+                        #       -> TpWorker#forward_batch_generation()
                         #       -> ModelRunner#forward() -> _forward_raw()
                         #   结果类型 GenerationBatchResult，logits_output 保存了每个 token 的分数
                         batch_result = self.model_worker.forward_batch_generation(
-                            batch, 
-                            **fwd_kwargs
+                            batch, **fwd_kwargs
                         )
                         if batch.spec_algorithm.is_none():
                             self.future_map.publish(future_indices, batch.seq_lens + 1)
@@ -4191,22 +4235,30 @@ class Scheduler(
                     if self.spec_algorithm.is_none()
                     else {}
                 )
+                # NOTE 给 batch.input_ids 赋值：每个请求上次推理的 token 都保存在 future_map中（req_slot -> tokenID)
                 resolve_forward_inputs(batch, self.future_map)
+
+                # NOTE 【推理入口】forward + sample
                 batch_result = self.model_worker.forward_batch_generation(
                     batch, **kwargs
                 )
                 if batch_result.has_sampled_token_ids:
                     # Non-spec: relay via future_map, gathered next iter.
+                    # NOTE 【核心 3】将本轮生成的 token 存入 future_map，供下一轮 decode 取用。
                     self._relay_forward_payload(
                         batch, batch.req_pool_indices, batch_result
                     )
+                    # 清除本轮输入，下轮再由 resolve_forward_inputs 按新批次组装。
                     batch.input_ids = None
+                # 缓存更新扩展钩子：当前 Scheduler 默认实现为 pass，可由扩展实现具体行为。
                 self.update_cache_from_scheduler(batch, batch_result)
+                # 必要时将附加输出从设备复制到 CPU，供后续结果处理使用。
                 self._copy_auxiliary_output_to_cpu(batch, batch_result)
 
             # These 2 values are needed for processing the output, but the values can be
             # modified by overlap schedule. So we have to copy them here so that
             # we can use the correct values in output processing.
+            # 以下是各生成分支的公共收尾：保存本轮长度等元数据，供后续解析 logprob/隐藏状态输出。
             if batch.return_logprob or batch.return_hidden_states:
                 batch_result.extend_input_len_per_req = [
                     req.extend_range.length if req.extend_range is not None else 0
@@ -4222,6 +4274,7 @@ class Scheduler(
             else:
                 batch_result.extend_logprob_start_len_per_req = None
 
+            # 保存本次生成结果，由 run_batch 末尾返回给事件循环处理。
             ret = batch_result
         else:  # embedding or reward model
             if self.enable_overlap:
@@ -5444,19 +5497,23 @@ class Scheduler(
 
 
 def dispatch_event_loop(scheduler: Scheduler):
+    """
+    根据 PD 分离模式决定该节点启动哪种 loop()
+    """
     # The live PP property asserts before torch.distributed init (MLX stub).
     disaggregation_mode: DisaggregationMode = scheduler.disaggregation_mode
     if disaggregation_mode == DisaggregationMode.NULL:
-        # 不做 PD 分离走的路径
+        # tip 不做 PD 分离走的路径
         if scheduler.enable_pdmux:
             scheduler.event_loop_pdmux()
-        elif get_parallel().pp_size > 1: 
+        elif get_parallel().pp_size > 1:
             # 流水线并行走这里，将模型切到多张卡上
             scheduler.event_loop_pp()
-        elif scheduler.enable_overlap_mlx: 
+        elif scheduler.enable_overlap_mlx:
             # 兼容 Apple 芯片
             scheduler.event_loop_overlap_mlx()
         elif scheduler.enable_overlap:
+            # NOTE
             # CPU 调度和 GPU 计算重叠执行
             #  含义解读：GPU 算这一批的时候，CPU 同时去处理上一批的结果、准备下一批，两边都不空等
             # CPU: [组批1][组批2][处理结果1][组批3][处理结果2]
@@ -5464,12 +5521,12 @@ def dispatch_event_loop(scheduler: Scheduler):
             scheduler.event_loop_overlap()
         else:
             # 串行执行
-            #CPU: [组批1]          [处理结果1][组批2]          [处理结果2]
-            #GPU:        [计算1]                     [计算2]
+            # CPU: [组批1]          [处理结果1][组批2]          [处理结果2]
+            # GPU:        [计算1]                     [计算2]
             #                   ↑ GPU 空闲 ↑
             scheduler.event_loop_normal()
     elif disaggregation_mode == DisaggregationMode.PREFILL:
-        # PD 分离模式下的 Prefill 实例
+        # tip PD 分离模式下的 Prefill 实例
         if get_parallel().pp_size > 1:
             scheduler.event_loop_pp_disagg_prefill()
         elif scheduler.enable_overlap:
@@ -5477,7 +5534,7 @@ def dispatch_event_loop(scheduler: Scheduler):
         else:
             scheduler.event_loop_normal_disagg_prefill()
     elif disaggregation_mode == DisaggregationMode.DECODE:
-        # PD 分离模式下的 Decode 模式
+        # tip PD 分离模式下的 Decode 模式
         if get_parallel().pp_size > 1:
             scheduler.event_loop_pp_disagg_decode()
         elif scheduler.enable_overlap:
@@ -5569,12 +5626,18 @@ def run_scheduler_process(
     display_dp_rank: Optional[int] = None,
     display_moe_ep_rank: Optional[int] = None,
 ):
+    """
+    NOTE 启动 Scheduler 子进程
+    """
     # Load plugins so hooks can override Scheduler and its dependencies.
     load_plugins()
     # Publish before anything in this process reads configuration.
+    # tip 将推理参数放到进程上下文中方便随时读取，代码在 sglang.srt.runtime_context
     publish(server_args, role="scheduler")
+
     dp_rank = configure_scheduler_process(
         server_args,
+        # 这个 scheduler 的 gpu 节点及其编码
         gpu_id,
         tp_rank,
         attn_cp_rank,

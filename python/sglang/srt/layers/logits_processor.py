@@ -343,12 +343,23 @@ class LogitsProcessor(nn.Module):
     def forward(
         self,
         input_ids,
-        hidden_states,
+        hidden_states,  # NOTE hidden_states * lm_head 也是在这个方法计算
         lm_head: VocabParallelEmbedding,
         logits_metadata: Union[LogitsMetadata, ForwardBatch],
         aux_hidden_states: Optional[AuxHiddenStates] = None,
         hidden_states_before_norm: Optional[torch.Tensor] = None,
     ) -> LogitsProcessorOutput:
+        """
+                #       【重点】hidden_states 和 lm_head.weight（[vocab_size, hidden_size]）的转置矩阵相乘
+        #            先每个请求只取最后一个 token：[num_tokens, hidden_size] -> [请求数, hidden_size]
+        #            [请求数, hidden_size] * [hidden_size, vocab_size] = [请求数, vocab_size] 获取每个请求对词表里所有 token 的分数
+        #            调用链路 self.logits_processor()
+        #               -> LogitsProcessor.forward()
+        #               -> _get_pruned_states()
+        #               -> _get_logits()
+        #               -> _compute_lm_head()：代码是 torch.matmul(hidden_states, lm_head.weight.T)
+        #
+        """
         # Extract MIS indices before ForwardBatch → LogitsMetadata conversion
         multi_item_delimiter_indices = None
         if isinstance(logits_metadata, ForwardBatch):
@@ -755,10 +766,9 @@ class LogitsProcessor(nn.Module):
                     hidden_states.bfloat16(), lm_head.weight.T.bfloat16()
                 )
             else:
-                # NOTE 
+                # NOTE
                 logits = torch.matmul(
-                    hidden_states.to(lm_head.weight.dtype), 
-                    lm_head.weight.T
+                    hidden_states.to(lm_head.weight.dtype), lm_head.weight.T
                 )
         else:
             # GGUF models

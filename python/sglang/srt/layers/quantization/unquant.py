@@ -201,7 +201,9 @@ class UnquantizedEmbeddingMethod(QuantizeMethodBase):
             requires_grad=False,
         )
         set_weight_attrs(weight, {"input_dim": 1, "output_dim": 0})
+        # NOTE 给 layer/VocabParalellelEmbedding 创建变量 weight 并赋 torch.empty(...)
         layer.register_parameter("weight", weight)
+        # NOTE 给 layer/VocabParalellelEmbedding 数值属性，包括 weight_loader() 方法
         set_weight_attrs(weight, extra_weight_attrs)
 
     def apply(
@@ -213,7 +215,11 @@ class UnquantizedEmbeddingMethod(QuantizeMethodBase):
         return F.linear(x, layer.weight, bias)
 
     def embedding(self, layer: torch.nn.Module, input_: torch.Tensor) -> torch.Tensor:
-        return F.embedding(input_, layer.weight)
+        # NOTE F 是 torch.nn.functional 模块；embedding 按 token ID 查权重表。
+        return F.embedding(
+            input_,  # tip input (LongTensor): Tensor containing indices into the embedding matrix // token 就是 embedding 词表的下标索引
+            layer.weight,  # tip weight (Tensor): The embedding matrix with number of rows equal to the maximum possible index + 1, // 类似 [vocab_size, hidden_size] 向量，input_ 会来查表获取对应token的embedding
+        )
 
 
 class UnquantizedLinearMethod(LinearMethodBase):
@@ -221,7 +227,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
 
     def create_weights(
         self,
-        layer: torch.nn.Module,
+        layer: torch.nn.Module,  # tip VocabParallelEmbedding
         input_size_per_partition: int,
         output_partition_sizes: List[int],
         input_size: int,
@@ -230,7 +236,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
         **extra_weight_attrs,
     ):
         weight = Parameter(
-            torch.empty(
+            torch.empty(  # tag 1
                 sum(output_partition_sizes),
                 input_size_per_partition,
                 dtype=params_dtype,
@@ -238,6 +244,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
             requires_grad=False,
         )
         set_weight_attrs(weight, {"input_dim": 1, "output_dim": 0})
+        # NOTE 这里只是给 weight 变量创建空间，见 tag 1
         layer.register_parameter("weight", weight)
         set_weight_attrs(weight, extra_weight_attrs)
 

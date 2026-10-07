@@ -1262,6 +1262,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         config: Qwen3VLConfig,
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
+        # note Qwen3_5ForConditionalGeneration 调用过来结果是 Qwen3_5ForCausalLM,
         language_model_cls=Qwen3LLMModel,
     ) -> None:
         super().__init__()
@@ -1299,6 +1300,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 self.config.tie_word_embeddings = config.tie_word_embeddings
 
         if not hasattr(config, "encoder_only") or not config.encoder_only:
+            # NOTE 牛逼了，原来 model 对象还可以不实用当前类创建
             self.model = language_model_cls(
                 config=self.config,
                 quant_config=quant_config,
@@ -1312,6 +1314,8 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 ):
                     self.lm_head = self.model.embed_tokens
                 else:
+                    # NOTE lm_head 在这里，保存了词表投影权重
+                    #   [x, hidden_size] * [hidden_size, vocal_size] -> [x, vocal_size] 表示词表每个token的输出可能性分数
                     self.lm_head = ParallelLMHead(
                         self.config.vocab_size,
                         self.config.hidden_size,
@@ -1329,6 +1333,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             not self.language_model_only and "mrope_section" in self.config.rope_scaling
         )
 
+        # TODO 干啥的
         self.logits_processor = LogitsProcessor(self.config)
         self.pooler = Pooler(pooling_type=PoolingType.LAST, normalize=True)
         self.capture_aux_hidden_states = False
@@ -1441,14 +1446,14 @@ class Qwen3VLForConditionalGeneration(nn.Module):
     @torch.no_grad()
     def forward(
         self,
-        input_ids: torch.Tensor,
+        input_ids: torch.Tensor,  # tip [a,b,c...] 是输入 每个请求最新输入 tokenID
         positions: torch.Tensor,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # tip 请求参数
         get_embedding: bool = False,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
         """Run forward pass for Qwen3-VL.
-        NOTE 重点 qwen3.8-27B 的 forward实现
+            NOTE 重点 qwen3.8-27B 的 forward实现
 
         Args:
             input_ids: Flattened (concatenated) input_ids corresponding to a
@@ -1464,19 +1469,13 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             positions = forward_batch.mrope_positions
 
         if self.language_model_only:
-            # NOTE 使用模型权重进行计算
-            #   当前 Scheduler 加载了哪些模型层、这里就用哪哪些模型层计算 // 重点
-            #   hidden_states 形状是 [num_tokens, hidden_size]
-            #       num_tokens：prefill 的时候等于输入token之和；decode的时候等于请求数量
-            #       hidden_size：每个 token 用的向量长度
-            #       【重点】hidden_states 和 lm_head.weight（[vocab_size, hidden_size]）的转置矩阵相乘
-            #            先每个请求只取最后一个 token：[num_tokens, hidden_size] -> [请求数, hidden_size]
-            #            [请求数, hidden_size] * [hidden_size, vocab_size] = [请求数, vocab_size] 获取每个请求对词表里所有 token 的分数
-            #            调用链路 self.logits_processor() 
-            #               -> LogitsProcessor.forward()
-            #               -> _get_pruned_states()
-            #               -> _get_logits() 
-            #               -> _compute_lm_head()：代码是 torch.matmul(hidden_states, lm_head.weight.T)
+            # NOTE 第一部分：embedding -> transformer layer -> Norm // Qwen3_5ForCausalLM
+            #   备注：模型初始化加载了哪几层 transformer layer 就用哪几层计算 // 重点
+            #
+            # 返回结果说明
+            # hidden_states 形状是 [num_tokens, hidden_size]
+            #   num_tokens：prefill 的时候等于输入token之和；decode的时候等于请求数量
+            #   hidden_size：表示输入 token 向量长度
             hidden_states = self.model(
                 input_ids=input_ids,
                 forward_batch=forward_batch,
@@ -1509,19 +1508,21 @@ class Qwen3VLForConditionalGeneration(nn.Module):
 
         if self.pp_group.is_last_rank:
             if not get_embedding:
-                # NOTE hidden_states -> LogitsProcessorOutput
+                # NOTE 第二部分：lm_head -> logits -> x
+                #
+                # hidden_states -> LogitsProcessorOutput
                 # 调用链：LogitsProcessor 继承了 nn.Module，所以调用的是forward()
                 #   PyTorch 里，参与前向计算的组件习惯都继承 nn.Module
-                # 
-                # 调用链路 self.logits_processor() 
+                #
+                # 调用链路 self.logits_processor()
                 #         -> LogitsProcessor.forward()
                 #         -> _get_pruned_states()
-                #         -> _get_logits() 
+                #         -> _get_logits()
                 #         -> _compute_lm_head()：代码是 torch.matmul(hidden_states, lm_head.weight.T)
                 return self.logits_processor(
                     input_ids,
                     hidden_states,
-                    self.lm_head,
+                    self.lm_head,  # NOTE lm_head 计算是在 logits_processor 中计算的
                     forward_batch,
                     aux_hidden_states,
                 )

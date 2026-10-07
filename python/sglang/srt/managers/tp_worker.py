@@ -322,8 +322,10 @@ class TpModelWorker(BaseTpWorker):
         ps: ParallelState,
         nccl_port: int,
         is_draft_worker: bool = False,
-        req_to_token_pool: Optional[ReqToTokenPool] = None, # req slot -> KV index
-        token_to_kv_pool_allocator: Optional[BaseTokenToKVPoolAllocator] = None, # free KV index
+        req_to_token_pool: Optional[ReqToTokenPool] = None,  # req slot -> KV index
+        token_to_kv_pool_allocator: Optional[
+            BaseTokenToKVPoolAllocator
+        ] = None,  # free KV index
         memory_pool_config: Optional[MemoryPoolConfig] = None,
         is_multi_layer_eagle: bool = False,
         context_length: Optional[int] = None,
@@ -350,8 +352,8 @@ class TpModelWorker(BaseTpWorker):
         self.model_runner_list: List[ModelRunner] = []
 
         # NOTE
-        self._init_model_config() # 初始化模型配置
-        self._init_model_runner() # NOTE 初始化 ModelRunner：加载模型、多卡通信、设置kv参数
+        self._init_model_config()  # 初始化模型配置
+        self._init_model_runner()  # NOTE 初始化 ModelRunner：加载模型、多卡通信、设置kv参数
 
         if is_multi_layer_eagle:
             self._init_multi_layer_eagle_model_runners()
@@ -421,6 +423,7 @@ class TpModelWorker(BaseTpWorker):
         #   创建 req_to_token_pool、token_to_kv_pool、token_to_kv_pool_allocator 三个池
         self.model_runner.alloc_memory_pool(memory_pool_config)
 
+        # speculative 链路：EAGLE / MTP（Multi-Token Prediction）
         for mr in self.model_runner_list[1:]:
             mr.req_to_token_pool = self.req_to_token_pool
             mr.token_to_kv_pool_allocator = self.token_to_kv_pool_allocator
@@ -462,8 +465,7 @@ class TpModelWorker(BaseTpWorker):
             mr.finalize_startup_weight_load()
 
     def _init_model_config(self):
-        """ 模型配置在创建 ModelRunner 之前加载赋值
-        """
+        """模型配置在创建 ModelRunner 之前加载赋值"""
         from sglang.srt.configs.model_config import ModelConfig
 
         self.model_config = ModelConfig.from_server_args(
@@ -483,12 +485,12 @@ class TpModelWorker(BaseTpWorker):
         )
 
     def _init_model_runner(self):
-        """ NOTE 初始化 ModelRunner
-            加载模型、多卡通信、设置kv参数
+        """NOTE 初始化 ModelRunner
+        加载模型、多卡通信、设置kv参数
         """
         from sglang.srt.model_executor.model_runner import ModelRunner
 
-        self._model_runner = ModelRunner( # NOTE 初始化 ModelRunner
+        self._model_runner = ModelRunner(  # NOTE 初始化 ModelRunner
             model_config=self.model_config,
             mem_fraction_static=get_schedule().mem_fraction_static,
             gpu_id=self.gpu_id,
@@ -600,7 +602,7 @@ class TpModelWorker(BaseTpWorker):
 
     def forward_batch_generation(
         self,
-        batch: Optional[ScheduleBatch], # NOTE 任务
+        batch: Optional[ScheduleBatch],  # NOTE 任务
         forward_batch: Optional[ForwardBatch] = None,
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
         is_verify: bool = False,
@@ -608,21 +610,17 @@ class TpModelWorker(BaseTpWorker):
         *,
         capture_hidden_mode: Optional[CaptureHiddenMode] = None,
     ) -> GenerationBatchResult:
-        """ 
-        NOTE 推理的核心方法
-        step 1: 构造输入参数 ForwardBatch
-        step 2: forward 获取下一个结果中、每个token的分数
-        step 3: sample
-        step 4: 结果装进 GenerationBatchResult 交回 Scheduler
+        """
+        NOTE 推理的核心方法：输入类型转换；
         """
         # Get forward batch from schedule batch
         if batch is not None:
             # update the consumer index of hicache to the running batch
             self.set_hicache_consumer(batch.hicache_consumer_index)
 
-            # tip step 1 : 把 ScheduleBatch 转成模型要用的 GPU Tensor
+            # NOTE step 1 : 把 ScheduleBatch 转成模型要用的 GPU Tensor
             forward_batch = ForwardBatch.init_new(
-                batch, # ScheduleBatch 类型
+                batch,  # ScheduleBatch 类型
                 self.model_runner,
                 capture_hidden_mode=capture_hidden_mode,
                 return_hidden_states_before_norm=False,
@@ -641,11 +639,12 @@ class TpModelWorker(BaseTpWorker):
             return self._forward_batch_generation_dllm(forward_batch, batch)
 
         if self.pp_group.is_last_rank:
-            # NOTE Step 2:ModelRunner 选 CUDA Graph 或 eager 执行，得到 logits
+            # NOTE Step 2 【核心方法】，ModelRunner进行推理，内部选择 EAGER 或者 CUDA Graph 方法
             out = self.model_runner.forward(
                 forward_batch,
-                pp_proxy_tensors=pp_proxy_tensors,
+                pp_proxy_tensors=pp_proxy_tensors,  # 一般路径为 None
             )
+            # TODO
             logits_output, can_run_cuda_graph = out.logits_output, out.can_run_graph
             batch_result = GenerationBatchResult(
                 logits_output=logits_output,
@@ -689,8 +688,7 @@ class TpModelWorker(BaseTpWorker):
                 # NOTE 已经有了每个token的分数，这里 sample 出下一个 token
                 # For normal requests, sample the next token ids.
                 batch_result.next_token_ids = self.model_runner.sample(
-                    logits_output, # 保存了每个 token 出现可能的分数
-                    forward_batch
+                    logits_output, forward_batch  # 保存了每个 token 出现可能的分数
                 )
             else:
                 # For prefill-only requests, create dummy token IDs on CPU

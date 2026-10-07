@@ -202,12 +202,14 @@ class _GlobalState:
     scheduler_info: Dict
 
 
+# NOTE 服务的全局状态
+#   generate 接口直接通过这个变量获取相关组件执行服务，类似：_global_state.tokenizer_manager.generate_request(obj, request)
 _global_state: Optional[_GlobalState] = None
 
 
 def set_global_state(global_state: _GlobalState):
-    global _global_state # global 表示修改的是模块级别的变量，只在"赋值"时需要
-    _global_state = global_state # 将入参赋值给模块变量
+    global _global_state  # global 表示修改的是模块级别的变量，只在"赋值"时需要
+    _global_state = global_state  # 将入参赋值给模块变量
 
 
 def get_global_state() -> _GlobalState:
@@ -303,10 +305,24 @@ async def lifespan(fast_api_app: FastAPI):
         trace_set_thread_info(thread_label)
 
     # Initialize OpenAI serving handlers
+    # NOTE 注册 OpenAI 相关的函数
+    #   当前 fast_api_app.state 中已经保存了一些 manager 了，这里会使用这些 manager初始化相关函数
+    #   - completion
+    #   - chat
+    #   - embedding
+    #   - classify
+    #   - score
+    #   - rerank
+    #   - tokenize
+    #   - detokenize
+    #   - transcription
     fast_api_app.state.openai_serving_completion = OpenAIServingCompletion(
         _global_state.tokenizer_manager, _global_state.template_manager
     )
+    # tip 对应 /v1/chat/completions
     fast_api_app.state.openai_serving_chat = (
+        # NOTE tokenizer_manager.serving_chat_class 返回 OpenAIServingChat 【类型】
+        #    所以这里初始化一个 OpenAIServingChat 对象
         _global_state.tokenizer_manager.serving_chat_class(
             _global_state.tokenizer_manager, _global_state.template_manager
         )
@@ -456,8 +472,9 @@ class ORJSONRoute(APIRoute):
         return custom_handler
 
 
+# NOTE 重点，app 是定义 HTTP 服务的变量。由 uvicorn.run(app, ...) 启动 HTTP 服务
 app = FastAPI(
-    lifespan=lifespan,
+    lifespan=lifespan,  # NOTE 调用 lifespan 会将 self/app/FastAPI 传递到这个方法
     openapi_url=None if get_bool_env_var("DISABLE_OPENAPI_DOC") else "/openapi.json",
 )
 app.router.route_class = ORJSONRoute
@@ -639,7 +656,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 async def validate_json_request(raw_request: Request):
-    """Validate that the request content-type is application/json."""
+    """Validate that the request content-type is application/json.
+    tip fastapi 组件，验证 请求
+    """
     content_type = raw_request.headers.get("content-type", "").lower()
     media_type = content_type.split(";", maxsplit=1)[0]
     if media_type != "application/json":
@@ -898,18 +917,18 @@ if os.environ.get("DUMPER_SERVER_PORT") == "reuse":
 )
 async def generate_request(obj: GenerateReqInput, request: Request):
     """Handle a generate request.
-        NOTE 请求入口
+    NOTE 请求入口
     """
     if envs.SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES.get():
         apply_header_overrides(obj, request.headers)
     # note 流式链路
     if obj.stream:
+
         async def stream_results() -> AsyncIterator[bytes]:
             try:
                 # note 支持 stream，generate_request 通过 yield 返回结果
                 async for out in _global_state.tokenizer_manager.generate_request(
-                    obj, 
-                    request
+                    obj, request
                 ):
                     # tip 通过 yield 向上游返回结果
                     yield b"data: " + dumps_json(out) + b"\n\n"
@@ -1728,12 +1747,20 @@ async def openai_v1_completions(request: CompletionRequest, raw_request: Request
     )
 
 
+# NOTE 超重点， inference 入口
+#   app 就是刚才创建的 app 变量
 @app.post("/v1/chat/completions", dependencies=[Depends(validate_json_request)])
 async def openai_v1_chat_completions(
-    request: ChatCompletionRequest, raw_request: Request
+    request: ChatCompletionRequest,  # tip 这两个参数都是从原始的 http 请求参数解析、转换来的
+    raw_request: Request,  # fastapi 的类
 ):
     """OpenAI-compatible chat completion endpoint.
-    调用到了 ./srt/entrypoints/openai/serving_base.py:73
+
+    代码解释：
+    raw_request.app 引用到的就是当前 fastapi.app 应用对象，fastapi框架通过如下代码将 app 对象注入到请求参数中
+        async def __call__(self, scope, receive, send):
+            scope["app"] = self
+    openai_serving_chat 对象是 OpenAIServingChat 类型
     """
     return await raw_request.app.state.openai_serving_chat.handle_request(
         request, raw_request
@@ -2524,24 +2551,19 @@ def _setup_and_run_http_server(
     tokenizer_manager,
     template_manager,
     port_args: PortArgs,
-    scheduler_infos: List[Dict], #
+    scheduler_infos: List[Dict],  #
     subprocess_watchdog: Optional[SubprocessWatchdog],
     execute_warmup_func: Callable = _execute_server_warmup,
     launch_callback: Optional[Callable[[], None]] = None,
 ):
     """
-    把已经准备好的推理组件接入 HTTP 应用，并启动对外服务。
-    Step 1 设置全局状态；Step 2 配置中间件与启动参数；
-    Step 3 运行 HTTP 服务，阻塞到服务退出，期间由 FastAPI 触发 lifespan。
-    方法阅读：[启动流程与时序图](./http_server.py._setup_and_run_http_server.md)
-
     Set up global state, configure middleware, and run uvicorn.
 
     Called by launch_server after subprocesses have been launched.
     """
-    # 【Step 1】设置全局状态，供路由函数和 lifespan 读取推理组件。
     # Set global states
-    # tokenizer manager 等组件放到 GlobalState 中
+    # tip 将 tokenizer_manager、template_manager 和 scheduler_infos[0] 封装为 _GlobalState，
+    #   写入本进程全局状态供 HTTP 接口使用。
     set_global_state(
         _GlobalState(
             tokenizer_manager=tokenizer_manager,
@@ -2554,7 +2576,6 @@ def _setup_and_run_http_server(
     if tokenizer_manager is not None:
         tokenizer_manager._subprocess_watchdog = subprocess_watchdog
 
-    # 【Step 2】配置中间件与启动参数；单分词器模式挂在 app 属性上，多分词器模式写入共享内存。
     if get_observability().enable_metrics:
         add_prometheus_track_response_middleware(app)
 
@@ -2602,7 +2623,6 @@ def _setup_and_run_http_server(
             },
         )
 
-    # 【Step 3】按配置选择 HTTP 服务器并阻塞运行；退出时清理多分词器模式的共享内存。
     try:
         # Update logging configs
         set_uvicorn_logging_configs(server_args)
@@ -2674,6 +2694,7 @@ def _setup_and_run_http_server(
                 asyncio.run(_run_with_ssl_refresh())
             else:
                 # Default case, one tokenizer process
+                # NOTE 按照指定的配置启动 http 服务
                 uvicorn.run(
                     app,
                     host=get_serving().host,
@@ -2791,8 +2812,10 @@ def launch_server(
     # python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000 中的参数
     server_args: ServerArgs,
     # 创建分词管理器（TokenizerManager）的函数，默认使用标准初始化逻辑。
+    #   tip init 对象
     init_tokenizer_manager_func: Callable = init_tokenizer_manager,
     # 调度器（Scheduler）子进程的入口函数，负责初始化调度器并运行调度循环 NOTE 设置了默认值
+    #   tip run xx process() 和 init 对象在命名上就有区别
     run_scheduler_process_func: Callable = run_scheduler_process,
     # 反分词管理器（DetokenizerManager）子进程的入口函数，负责将输出 token 解码为文本。
     run_detokenizer_process_func: Callable = run_detokenizer_process,
@@ -2816,15 +2839,18 @@ def launch_server(
     1. The HTTP server, Engine, and TokenizerManager all run in the main process.
     2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library. NOTE
     """
+
     # Launch subprocesses
+    # NOTE 太重要了，启动服务重要组件
+    #   主进程里只有 TokenizerManager；Scheduler 和 DetokenizerManager 都是 mp.Process 子进程，彼此靠 ZMQ（ZeroMQ）通信
     (
-        tokenizer_manager,
+        tokenizer_manager,  # tip
         template_manager,
         port_args,
         scheduler_init_result,
         subprocess_watchdog,
         _weight_cache_daemon_procs,
-    ) = Engine._launch_subprocesses( # 调用一个函数返回变量列表
+    ) = Engine._launch_subprocesses(  # 调用一个函数返回变量列表
         server_args=server_args,
         init_tokenizer_manager_func=init_tokenizer_manager_func,
         run_scheduler_process_func=run_scheduler_process_func,
@@ -2845,13 +2871,14 @@ def launch_server(
             launch_callback()
         scheduler_init_result.block_until_scheduler_exits()
     else:
+        # NOTE 将重要组件和 http 服务绑定并启动
         _setup_and_run_http_server(
             server_args,
-            tokenizer_manager,
+            tokenizer_manager,  # tip
             template_manager,
             port_args,
             scheduler_init_result.scheduler_infos,
-            subprocess_watchdog,
+            subprocess_watchdog,  # tip
             execute_warmup_func=execute_warmup_func,
             launch_callback=launch_callback,
         )

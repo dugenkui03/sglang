@@ -254,6 +254,10 @@ class OpenAIServingChat(OpenAIServingBase):
         tokenizer_manager: TokenizerManager,
         template_manager: TemplateManager,
     ):
+        """
+        NOTE 使用 tokenizer_manager 初始化 接收 OpenAI 请求的对象，在接收请求的时候使用
+            另，tokenizer_manager 也是在 handle_request() 处理 /v1/chat/completions 的入口、有调度职能
+        """
         super().__init__(tokenizer_manager)
         self.template_manager = template_manager
         self.tool_call_parser = self.tokenizer_manager.config_value("tool_call_parser")
@@ -970,6 +974,17 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request = None,
     ) -> tuple[GenerateReqInput, ChatCompletionRequest]:
+        """
+        将 http 解析而来的参数转换成内部使用的参数
+
+            HTTP 请求中的 JSON
+                ↓ FastAPI 解析、校验
+            ChatCompletionRequest
+                ↓ 本方法转换
+            GenerateReqInput
+                ↓
+            交给内部推理流程处理
+        """
         reasoning_effort = (
             request.chat_template_kwargs.pop("reasoning_effort", None)
             if request.chat_template_kwargs
@@ -1815,14 +1830,20 @@ class OpenAIServingChat(OpenAIServingBase):
         raw_request: Request,
     ) -> Union[ChatCompletionResponse, ErrorResponse, ORJSONResponse]:
         """Handle non-streaming chat completion request
-            处理 non-streaming 类型请求
+
+        NOTE 处理 non-stream 请求
+        参数说明：
+            self: 当前处理器实例，例如 OpenAIServingChat，由 Python 自动传入。
+            adapted_request/GenerateReqInput: 转换后的 SGLang 内部生成请求，包含提示词或 token IDs、
+                采样参数等，用于执行推理。
         """
         try:
-            # 定义核心逻辑：处理输入 → 分词 → 发给 Scheduler → 模型推理 → 收到输出 → yield 结果 → 赋值给 ret
+            # note 核心逻辑：
+            #   处理输入 → 分词 → 发给 Scheduler → 模型推理 → 收到输出 → yield 结果 → 赋值给 ret
             response_generator = self.tokenizer_manager.generate_request(
                 adapted_request, raw_request
             )
-            # 真正执行核心逻辑
+            # 处罚执行核心逻辑
             ret = await response_generator.__anext__()
         except ValueError as e:
             return self.create_error_response(str(e))

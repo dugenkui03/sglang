@@ -95,9 +95,14 @@ def split_tensor_along_last_dim(
 def get_pp_indices(
     num_hidden_layers: int, pp_rank: int, pp_size: int
 ) -> Tuple[int, int]:
-    """Try to evenly distribute layers across partitions.
+    """
+    Try to evenly distribute layers across partitions.
     If the number of layers is not divisible by the number of partitions,
     the last N partitions will have one extra layer, where N = remainder.
+
+    NOTE 使用 pipeline parallelism 的时候，返回本层的 开始、结束 transformer layer 编号
+        pp_rank: 当前 PP 阶段的编号，从 0 开始
+        pp_size: PP 阶段总数
     """
     # partition_list_str can be set to None in sglang
     partition_list_str = os.getenv("SGLANG_PP_LAYER_PARTITION", None)

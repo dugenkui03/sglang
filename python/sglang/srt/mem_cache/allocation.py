@@ -300,6 +300,8 @@ def alloc_for_extend(
         note
         - req_to_token[槽位, :prefix_len] 写前缀已有的 KV Index（复用）；[槽位, prefix_len:seq_len] 写本轮新分配的 KV Index
         - 该方法只分配编号，K/V 在前向时才按 out_cache_loc 写进 KV 池
+
+    NOTE 返回值分别是： x, req_pool_indices_tensor(ScheduleBatch 每个请求对应的 请求编号), y
     """
     # free out-of-window swa tokens
     # NOTE 仅 SWA（Sliding Window Attention）模型会释放窗口外的旧 KV，普通模型不做任何事
@@ -329,9 +331,7 @@ def alloc_for_extend(
     # Allocate req slots (raises RuntimeError if the pool is exhausted)
     # NOTE 每个请求一个槽位，写入 req.req_pool_idx；分块续算的请求复用原来的槽位
     req_pool_indices = alloc_req_slots(
-        batch.req_to_token_pool, 
-        batch.reqs, 
-        batch.tree_cache
+        batch.req_to_token_pool, batch.reqs, batch.tree_cache
     )
     req_pool_indices_cpu = torch.tensor(
         req_pool_indices, dtype=torch.int64, pin_memory=pin_memory

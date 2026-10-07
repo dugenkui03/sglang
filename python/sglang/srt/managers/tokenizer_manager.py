@@ -227,13 +227,15 @@ class ReqState:
     """
 
     # NOTE 收到的输出结果，流式时会分多次追加进来
-    out_list: List[Dict[Any, Any]]  
+    out_list: List[Dict[Any, Any]]
     # tip rid 对应的请求生成是否完毕
-    finished: bool  
+    finished: bool
 
     # NOTE event.set() 是为了通知阻塞获取该 ReqState 的 Scheduler 已经获取到了一批 DeTokenizer 的结果
     event: asyncio.Event
-    obj: Union[GenerateReqInput, EmbeddingReqInput]  # 原始请求对象，比如 GenerateReqInput
+    obj: Union[
+        GenerateReqInput, EmbeddingReqInput
+    ]  # 原始请求对象，比如 GenerateReqInput
 
     # For performance metrics
     time_stats: APIServerReqTimeStats
@@ -246,7 +248,9 @@ class ReqState:
     # Accumulate text lazily so incremental streaming can emit the incoming
     # delta directly without rebuilding the full output prefix.
     text: str = ""  # NOTE 累计的结果
-    text_chunks: List[str] = dataclasses.field(default_factory=list)  # 还没合并进 text 的文本片段
+    text_chunks: List[str] = dataclasses.field(
+        default_factory=list
+    )  # 还没合并进 text 的文本片段
 
     def append_text(self, chunk: str):
         if chunk:
@@ -254,10 +258,10 @@ class ReqState:
 
     def get_text(self) -> str:
         """获取当前积攒的结果文本
-            如果text_chunks接收了新结果则拼接到text中，并清空text_chunks
+        如果text_chunks接收了新结果则拼接到text中，并清空text_chunks
         """
         if self.text_chunks:
-            self.text += "".join(self.text_chunks) # tip 结果都拼接到 ReqState.text 中
+            self.text += "".join(self.text_chunks)  # tip 结果都拼接到 ReqState.text 中
             self.text_chunks.clear()
         return self.text
 
@@ -403,11 +407,11 @@ _MANAGER_OWNED_FIELDS = ("model_path", "served_model_name")
 
 class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
     """TokenizerManager is a process that tokenizes the text.
-       它负责
-        1. 将文本转换为令牌序列
-        2. 提交任务到 Scheduler
-        3. 接收 Scheduler 完成的任务
-       详见 ../../../../user_guide_zh/核心组件二：TokenizerManager.md
+    它负责
+     1. 将文本转换为令牌序列
+     2. 提交任务到 Scheduler
+     3. 接收 Scheduler 完成的任务
+    详见 ../../../../user_guide_zh/核心组件二：TokenizerManager.md
     """
 
     @property
@@ -516,12 +520,14 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def init_tokenizer_and_processor(self):
         """
-            从模型目录加载 tokenizer
+        从模型目录加载 tokenizer
         """
         server_args = self.server_args
 
         # Initialize tokenizer and processor
-        if self.model_config.is_multimodal and not get_disagg().language_model_only: # 忽略多模态链路
+        if (
+            self.model_config.is_multimodal and not get_disagg().language_model_only
+        ):  # 忽略多模态链路
             import_processors("sglang.srt.multimodal.processors")
             if mm_process_pkg := envs.SGLANG_EXTERNAL_MM_PROCESSOR_PACKAGE.get():
                 import_processors(mm_process_pkg, overwrite=True)
@@ -562,7 +568,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                     #   1）tokenizer.json 最主要的一个，里面有词表、合并规则和预处理规则
                     #   2）tokenizer_config.json：中的 "tokenizer_class": "Qwen2Tokenizer" 是 transformer 原生支持的
                     # https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/tree/main
-                    get_serving().tokenizer_path, 
+                    get_serving().tokenizer_path,
                     tokenizer_mode=get_serving().tokenizer_mode,
                     trust_remote_code=get_model().trust_remote_code,
                     revision=get_model().revision,
@@ -597,9 +603,11 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def init_ipc_channels(self, port_args: PortArgs):
         """
-         IPC：Inter-Process Communication 进程间通信
+        IPC：Inter-Process Communication 进程间通信
         """
-        context = zmq.asyncio.Context(2)  # 异步版 Context，创建出的 socket 可以 await 收发
+        context = zmq.asyncio.Context(
+            2
+        )  # 异步版 Context，创建出的 socket 可以 await 收发
         # NOTE 接收结果的管道：单 worker、多 worker 两种模式都会创建
         # Detokenizer 进程                                                              TokenizerManager 进程
         #      PUSH socket  ---- 生成结果(共用通信地址 tokenizer_ipc_name) ---->  PULL socket（后台 handle_loop 一直在收）
@@ -642,11 +650,8 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         if self.tokenizer_ipc_name is not None:
             # Inter-Process Communication
             stamp_http_worker_ipc(obj, self.tokenizer_ipc_name)
-        # NOTE tokenizer_manager -req_token->Scheduler
-        sock_send(
-            self.send_to_scheduler, # 通信 socket
-            obj # token化的对象
-        )
+        # NOTE tokenizer_manager —— req_token ——> Scheduler
+        sock_send(self.send_to_scheduler, obj)  # 通信 socket  # token化的对象
 
     async def _async_dispatch_to_scheduler(self, obj: Any) -> None:
         if self.tokenizer_ipc_name is not None:
@@ -844,51 +849,51 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     async def generate_request(
         self,
-        obj: Union[GenerateReqInput, EmbeddingReqInput], # note: adapted_request
-        request: Optional[fastapi.Request] = None, # note: raw_request
+        req_obj: Union[GenerateReqInput, EmbeddingReqInput],  # note: adapted_request
+        request: Optional[fastapi.Request] = None,  # note: raw_request
     ):
-        """接收 http 推理请求的入口函数
         """
-        
-        # NOTE 【重点】创建监听 DetokenizerManager resp 的后台任务 // 懒初始化，第一个请求过来在初始化
+        note 接收 http 推理请求的入口函数
+        """
+
+        # NOTE 【重点】创建监听 DetokenizerManager resp 的后台任务
+        # // 懒初始化，第一个请求过来在初始化
         self.auto_create_handle_loop()
 
         # Normalize the request
-        obj.normalize_batch_and_arguments()
-        self._set_default_priority(obj) # 设置请求优先级，请求中有对应参数
+        req_obj.normalize_batch_and_arguments()
+        self._set_default_priority(req_obj)  # 设置请求优先级，请求中有对应参数
 
         if (
-            isinstance(obj, GenerateReqInput)
-            and obj.max_thinking_tokens is not None
+            isinstance(req_obj, GenerateReqInput)
+            and req_obj.max_thinking_tokens is not None
             and not get_serving().enable_strict_thinking
         ):
-            # 请求设置了思考 token 预算，但服务端未开启严格思考控制时，报错拒绝请求。
             raise ValueError(
                 "max_thinking_tokens requires the server to be launched with "
                 "--enable-strict-thinking"
             )
 
-        # SMG 在 DP-aware 路由时通过此参数指定目标 worker，当前传入旧名 data_parallel_rank，由服务端转换为 routed_dp_rank。
-        if isinstance(obj, GenerateReqInput) and obj.routed_dp_rank is not None:
+        if isinstance(req_obj, GenerateReqInput) and req_obj.routed_dp_rank is not None:
             dp_size = self.elastic_worker_count
-            if dp_size <= 1 and obj.routed_dp_rank == 0:
+            if dp_size <= 1 and req_obj.routed_dp_rank == 0:
                 logger.debug(
-                    f"routed_dp_rank={obj.routed_dp_rank} is ignored because dp_size={dp_size}"
+                    f"routed_dp_rank={req_obj.routed_dp_rank} is ignored because dp_size={dp_size}"
                 )
-            elif obj.routed_dp_rank < 0 or obj.routed_dp_rank >= dp_size:
+            elif req_obj.routed_dp_rank < 0 or req_obj.routed_dp_rank >= dp_size:
                 raise ValueError(
-                    f"routed_dp_rank={obj.routed_dp_rank} out of range [0, {dp_size})"
+                    f"routed_dp_rank={req_obj.routed_dp_rank} out of range [0, {dp_size})"
                 )
 
-        # note 讲 rid 对应的 ReqState 保存到 rid_to_state
-        self._init_req_state(obj, request)
+        # note 将 rid 对应的 ReqState 保存到 rid_to_state
+        self._init_req_state(req_obj, request)
         try:
             # get_disagg()：获取分离部署相关配置
             if get_disagg().language_only:
-                self._handle_epd_disaggregation_encode_request(obj)
+                self._handle_epd_disaggregation_encode_request(req_obj)
 
             # Log the request 记录收到请求的日志
-            self.request_logger.log_received_request(obj, self.tokenizer, request)
+            self.request_logger.log_received_request(req_obj, self.tokenizer, request)
 
             #  如果服务已暂停，则等待恢复后继续处理。
             async with self.is_pause_cond:
@@ -899,13 +904,14 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 # 定义：使用 async def 定义的异步函数
                 # 调用：请求 async def func_x() 时返回一个待执行的协程对象
                 # 执行：await 执行该协程，并等待方法完成后再继续执行后面的代码
-                await self._validate_and_resolve_lora(obj)
+                await self._validate_and_resolve_lora(req_obj)
 
                 # Tokenize the request and send it to the scheduler
-                if obj.is_single:
-                    tokenized_obj = await self._tokenize_one_request(obj)
-                    state = self.rid_to_state[obj.rid]
-                    if obj.return_prompt_token_ids:
+                if req_obj.is_single:
+                    # NOTE 对数据进行 tokenize
+                    tokenized_obj = await self._tokenize_one_request(req_obj)
+                    state = self.rid_to_state[req_obj.rid]
+                    if req_obj.return_prompt_token_ids:
                         # 如果调用方要求返回提示词 token IDs，则保存到请求状态中。
                         state.prompt_token_ids = list(tokenized_obj.input_ids)
                     # NOTE 将请求给到 Scheduler 并等待结果
@@ -916,11 +922,11 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                     #   yield response 表示向上游返回 response，上游可以通过 next(x) 或者也通过 for 获取（注意，这里的yeild和 _wait_one_response 中的yield没语法联系）
                     # 补充：yield 支持实现 chat stream api，yield经常用来实现在数据通道中的数据流式传输
                     # 这里的 async 是和上游使用 wait 调用思路比较类似，上游直接wait表示执行并等待获取结果
-                    async for response in self._wait_one_response(obj, request):
+                    async for response in self._wait_one_response(req_obj, request):
                         yield response
                 else:
                     # 批量请求由此方法统一组织分词、发送和等待结果。
-                    async for response in self._handle_batch_request(obj, request):
+                    async for response in self._handle_batch_request(req_obj, request):
                         # 将取得的批量请求结果交给调用方。
                         yield response
         except BaseException:
@@ -932,7 +938,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             # are still pending; entries already removed on the normal completion
             # path are left untouched (pop is a no-op).
             # 异常退出时清理尚未移除的请求状态，并向调用方继续抛出异常。
-            self._discard_pending_req_states(obj)
+            self._discard_pending_req_states(req_obj)
             raise
 
     def _detect_input_format(
@@ -992,8 +998,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         Tuple[List[int], Optional[List[int]]],
         Tuple[List[List[int]], Optional[List[List[int]]]],
     ]:
-        """对输入进行token化
-        """
+        """对输入进行token化"""
         if not texts or self.tokenizer is None:
             raise ValueError("texts cannot be empty and tokenizer must be initialized")
 
@@ -1063,7 +1068,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     async def _tokenize_one_request(
         self,
-        obj: Union[GenerateReqInput, EmbeddingReqInput], # NOTE
+        obj: Union[GenerateReqInput, EmbeddingReqInput],  # NOTE
     ):
         """Tokenize one request."""
 
@@ -1072,9 +1077,12 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         input_text = obj.text
         token_type_ids = None
         is_cross_encoder_request = (
-            isinstance(obj, EmbeddingReqInput) and obj.is_cross_encoder_request # embedding链路，忽略
+            isinstance(obj, EmbeddingReqInput)
+            and obj.is_cross_encoder_request  # embedding链路，忽略
         )
-        if obj.input_embeds is not None: # 直接使用已计算好的输入向量，文本生成模型也支持这种输入方式。
+        if (
+            obj.input_embeds is not None
+        ):  # 直接使用已计算好的输入向量，文本生成模型也支持这种输入方式。
             if not get_memory().disable_radix_cache:
                 raise ValueError(
                     "input_embeds is provided while disable_radix_cache is False. "
@@ -1102,7 +1110,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 # NOTE tokenize/对输入进行token化
                 input_ids, token_type_ids = await self._tokenize_texts(
                     input_text,
-                    is_cross_encoder_request # 是否为交叉编码器请求；普通文本生成时为 False，但是不是所有 embedding 请求都为 True
+                    is_cross_encoder_request,  # 是否为交叉编码器请求；普通文本生成时为 False，但是不是所有 embedding 请求都为 True
                 )
 
         # mm 是指 multimodal，判断输入是否包含多模态数据
@@ -1230,15 +1238,13 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         else:
             mm_inputs = None
 
-        self._validate_one_request(obj, input_ids) # 验证输入是否超过上下文长度
+        self._validate_one_request(obj, input_ids)  # 验证输入是否超过上下文长度
         return self._create_tokenized_object(
             obj,  # 当前请求对象，包含请求 ID、采样参数等信息。
-
             # input_text、input_ids、input_embeds 是同一份输入的不同参数，分别是 人读的文本、对应的tokenID 和向量化后的数据
             input_text,  # 请求中的输入文本，直接传 token IDs 时可为空。
             input_ids,  # 输入的 token ID 序列。
             input_embeds,  # 调用方直接提供的输入向量，普通文本请求通常为 None。
-
             mm_inputs,  # 预处理后的多模态数据，普通纯文本请求通常为 None。
             token_type_ids,  # 各 token 的类型或分段编号，普通文本生成通常为 None。
         )
@@ -1455,29 +1461,35 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def _create_tokenized_object(
         self,  # 当前 TokenizerManager 实例。
-        obj: Union[GenerateReqInput, EmbeddingReqInput],  # 当前请求对象，包含请求 ID、采样参数等信息。
+        obj: Union[
+            GenerateReqInput, EmbeddingReqInput
+        ],  # 当前请求对象，包含请求 ID、采样参数等信息。
         input_text: str,  # 请求中的输入文本，直接传 token IDs 时可为空。
         input_ids: Optional[List[int]],  # 输入的 token ID 序列。
-        input_embeds: Optional[List[List[float]]] = None,  # 调用方直接提供的输入向量，普通文本请求通常为 None。
+        input_embeds: Optional[
+            List[List[float]]
+        ] = None,  # 调用方直接提供的输入向量，普通文本请求通常为 None。
         mm_inputs=None,  # 预处理后的多模态数据，普通纯文本请求通常为 None。
-        token_type_ids: Optional[List[int]] = None,  # 各 token 的类型或分段编号，普通文本生成通常为 None。
+        token_type_ids: Optional[
+            List[int]
+        ] = None,  # 各 token 的类型或分段编号，普通文本生成通常为 None。
     ) -> Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput]:
         """Create a tokenized request object from common parameters.
-         对输入进行token化
+        对输入进行token化
         """
 
         # 条件表达式 a = operation if con else non：con 为真时取 operation 的值，否则取 non 的值。
         # 这里 input_ids 不为 None 时转换为整数数组，否则 input_ids_arr 赋值为 None。
         input_ids_arr: Optional[array[int]] = (
-            array("q", input_ids)
-            if input_ids is not None
-            else None
+            array("q", input_ids) if input_ids is not None else None
         )
 
         # Parse sampling parameters
         # Note: if there are preferred sampling params, we use them if they are not
         # explicitly passed in sampling_params
-        if self.preferred_sampling_params: # self.preferred_sampling_params 是服务端配置的默认采样参数，例如 temperature、top_p
+        if (
+            self.preferred_sampling_params
+        ):  # self.preferred_sampling_params 是服务端配置的默认采样参数，例如 temperature、top_p
             sampling_kwargs = {**self.preferred_sampling_params, **obj.sampling_params}
         else:
             sampling_kwargs = obj.sampling_params
@@ -1490,7 +1502,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         # msgspec.Struct.init()
         # SamplingParams.post_init()
         sampling_params = self.sampling_params_class(**sampling_kwargs)
-        sampling_params.normalize(self.tokenizer) # 规范化 stop
+        sampling_params.normalize(self.tokenizer)  # 规范化 stop
         # 验证采样菜蔬是否合法，比如温度值是否是小于0
         # 为什么叫采样参数：控制“如何从模型给出的候选 token 中选出下一个 token”，属于推理参数的一部分
         sampling_params.verify(self.model_config.vocab_size)
@@ -1691,7 +1703,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     def _send_one_request(
         self,
-        tokenized_obj: Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput], # 请求参数
+        tokenized_obj: Union[
+            TokenizedGenerateReqInput, TokenizedEmbeddingReqInput
+        ],  # 请求参数
     ):
         prepared_mm_items = []
         dispatched = False
@@ -1830,7 +1844,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         request: Optional[fastapi.Request] = None,
     ):
         """Wait for the response of one request.
-            tip 等待 DeTokenizerManager 返回的结果
+        tip 等待 DeTokenizerManager 返回的结果
         """
         state = self.rid_to_state[obj.rid]
         # Not all request types have `stream` (e.g., EmbeddingReqInput). Default to non-streaming.
@@ -1841,8 +1855,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 #   1）state.event.set() 被调用
                 #   2）或者 _REQUEST_STATE_WAIT_TIMEOUT 时间到达的时候抛出 asyncio.TimeoutError 超时异常
                 await asyncio.wait_for(
-                    state.event.wait(), 
-                    timeout=_REQUEST_STATE_WAIT_TIMEOUT
+                    state.event.wait(), timeout=_REQUEST_STATE_WAIT_TIMEOUT
                 )
             except asyncio.TimeoutError:
                 # tip 超时：客户端已断开则中止请求，否则 continue 继续等
@@ -1862,10 +1875,10 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
             # Drain all pending outputs atomically.
             #  Drain: to remove all items from a queue or buffer until it is empty
             #  atomically: as a single, indivisible operation that cannot be interrupted
-            out_list = state.out_list # 获取目前积攒的全部结果
-            state.out_list = [] # 清空积攒结果的变量
-            finished = state.finished # 判断推理是否完成
-            state.event.clear() # wait() -> set() -> clear() -> wait() 
+            out_list = state.out_list  # 获取目前积攒的全部结果
+            state.out_list = []  # 清空积攒结果的变量
+            finished = state.finished  # 判断推理是否完成
+            state.event.clear()  # wait() -> set() -> clear() -> wait()
 
             # With incremental streaming, each chunk is a delta — coalesce
             # multiple queued chunks to avoid dropping token ids.
@@ -1891,7 +1904,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 and "text" in out
                 and out["text"] is None
             ):
-                out["text"] = state.get_text() # 流式链路， NOTE 非流失链路在 _handle_batch_output 中
+                out["text"] = (
+                    state.get_text()
+                )  # 流式链路， NOTE 非流失链路在 _handle_batch_output 中
 
             # Flattened so the downstream finished/logging/metrics logic is shared.
             if out.get("beam_results"):
@@ -2325,8 +2340,8 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     async def handle_loop(self):
         """The event loop that handles requests
-        
-            NOTE 创建监听 DetokenizerManager resp 的后台任务 
+
+        NOTE 创建监听 DetokenizerManager resp 的后台任务
         """
         while True:
             with self.soft_watchdog.disable():
@@ -2346,14 +2361,13 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
     async def _handle_batch_output(
         self,
-        recv_obj: Union[ # tip DeTokenizerManager 返回的结果的可能类型
+        recv_obj: Union[  # tip DeTokenizerManager 返回的结果的可能类型
             BatchStrOutput,
             BatchEmbeddingOutput,
             BatchTokenIDOutput,
         ],
     ):
-        """ NOTE 将 DeTokenizerManager response 处理后赋值给 ReqState 并通知 wait_one_response()
-        """
+        """NOTE 将 DeTokenizerManager response 处理后赋值给 ReqState 并通知 wait_one_response()"""
         recv_obj.time_stats = unwrap_from_pickle(recv_obj.time_stats)
         if isinstance(recv_obj, (BatchStrOutput, BatchTokenIDOutput)):
             customized_info = unwrap_from_pickle(recv_obj.customized_info)
@@ -2505,7 +2519,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 delta_output_ids = list(recv_obj.output_ids[i])
                 output_offset = state.last_output_offset
                 # NOTE 将 DeTokenizerManager 返回的具体值拼接到 ReqState 上
-                state.append_text(delta_text) # text_chunks 字段
+                state.append_text(delta_text)  # text_chunks 字段
                 state.output_ids.extend(delta_output_ids)
 
                 if is_stream:
@@ -2649,7 +2663,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
                 if len(pending_notify) >= batch_notify_size:
                     for s in pending_notify.values():
-                        s.event.set() # tip 通知 wait_one_response 接收到结果
+                        s.event.set()  # tip 通知 wait_one_response 接收到结果
                     pending_notify = {}
                     await asyncio.sleep(0)
 
@@ -2662,7 +2676,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
 
         # handle_loop awaits next recv immediately
         for s in pending_notify.values():
-            s.event.set() # tip 通知 wait_one_response 接收到结果
+            s.event.set()  # tip 通知 wait_one_response 接收到结果
 
     @staticmethod
     def _accumulate_request_meta_info(
@@ -3571,7 +3585,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         request: Optional[fastapi.Request] = None,
     ):
         """
-            NOTE 为请求初始化 ReqState 并存入 TokenizerManager.rid_to_state（请求id及其对应的 请求状态/结果）
+        NOTE 为请求初始化 ReqState 并存入 TokenizerManager.rid_to_state（请求id及其对应的 请求状态/结果）
         """
         created_time = obj.received_time
 
@@ -3611,10 +3625,10 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                 raise ValueError(f"Duplicate request ID detected: {rid}")
             time_stats = APIServerReqTimeStats(disagg_mode=self.disaggregation_mode)
 
-            # NOTE 初始化 ReqState 并保存到 TokenizerManager.rid_to_state 
+            # NOTE 初始化 ReqState 并保存到 TokenizerManager.rid_to_state
             #   一个服务器示例默认有一个 TokenizerManager，可通过 --tokenizer-worker-num 配置
             state = ReqState([], False, asyncio.Event(), sub_obj, time_stats)
-            self.rid_to_state[rid] = state 
+            self.rid_to_state[rid] = state
 
             if self.enable_trace:
                 time_stats.init_trace_ctx(rid, bootstrap_room, external_trace_header)
@@ -3793,13 +3807,13 @@ async def print_exception_wrapper(func):
 def get_processor_wrapper():
     """根据当前服务的配置，加载并返回模型对应的 Processor 对象"""
     return get_processor(
-        get_serving().tokenizer_path, # 从哪个模型目录或仓库加载 tokenizer 模型。默认使用 model_path，加载模型配套的 tokenizer
-        tokenizer_mode=get_serving().tokenizer_mode, # 使用哪种 tokenizer 实现
+        get_serving().tokenizer_path,  # 从哪个模型目录或仓库加载 tokenizer 模型。默认使用 model_path，加载模型配套的 tokenizer
+        tokenizer_mode=get_serving().tokenizer_mode,  # 使用哪种 tokenizer 实现
         trust_remote_code=get_model().trust_remote_code,
-        revision=get_model().revision, # 使用哪个模型版本
+        revision=get_model().revision,  # 使用哪个模型版本
         image_processor_backend=resolve_image_processor_backend(get_mm()),
         tokenizer_backend=get_serving().tokenizer_backend,
-        model_name=get_model().model_path, # 模型名称
+        model_name=get_model().model_path,  # 模型名称
     )
 
 

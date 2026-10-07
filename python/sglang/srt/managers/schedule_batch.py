@@ -1316,8 +1316,7 @@ class Req(ReqDllmMixin):
         self.extend_range = Range(start, end)
 
     def get_fill_ids(self) -> array:
-        """ 返回本批次要计算的批次：肯定是从0开始、但是可能执行到某个阶段
-        """
+        """返回本批次要计算的批次：肯定是从0开始、但是可能执行到某个阶段"""
         return self.full_untruncated_fill_ids[: self.extend_range.end]
 
     def _refresh_fill_ids(self) -> None:
@@ -2074,8 +2073,8 @@ def _compute_chunked_req_next_prompt_token(
 class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     """Store all information of a batch on the scheduler.
 
-       NOTE 保存某一批次任务的所有的信息
-       分析文档：user_guide_zh/核心组件六：ScheduleBatch.md
+    NOTE 保存某一批次任务的所有的信息
+    分析文档：user_guide_zh/核心组件六：ScheduleBatch.md
     """
 
     # === Core: request list (ForwardBatch derives lora_ids / rids / grammars / positions from it) ===
@@ -2084,8 +2083,8 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
     # === Global config and shared resources (engine-lifetime; identical across batches) ===
     # Memory pool and cache
-    req_to_token_pool: ReqToTokenPool = None # tip slot -> KV index
-    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None # tip KV index -> KV
+    req_to_token_pool: ReqToTokenPool = None  # tip slot -> KV index
+    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator = None  # tip KV index -> KV
     tree_cache: BasePrefixCache = None
 
     # Batch configs
@@ -2108,7 +2107,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     # For chunked prefill in PP
     chunked_req: Optional[Req] = None
     chunked_req_next_prompt_token: Optional[int] = None
-    #tip 【本批是否包含某个请求的最后一块】
+    # tip 【本批是否包含某个请求的最后一块】
     contains_last_prefill_chunk: bool = True
 
     # For DP attention
@@ -2140,8 +2139,11 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     after_idle_gap: bool = False
 
     # === GPU tensors crossing to ForwardBatch (clone targets for stream isolation) ===
+
     # Batched arguments to model runner
+    # tip 每个请求上一次推理结果tokenID，要给到模型：计算 kv；推理下一个 token
     input_ids: torch.Tensor = None  # shape: [b], int64
+
     # Staging consumed by resolve_forward_inputs (prefill H2D / mixed gather).
     prefill_input_ids_cpu: Optional[torch.Tensor] = None
     mix_running_indices: Optional[torch.Tensor] = None
@@ -2157,13 +2159,16 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     # pseudo next-token must NOT be written into the ngram token table.
     ne_skip_token_table_update: torch.Tensor = None
 
+    # NOTE 保存本批次各请求的 req slot 编号，与 batch.reqs 顺序一一对应。
     req_pool_indices: torch.Tensor = None  # shape: [b], int64
+    # 各个请求的输入长度，是个 tensor
     seq_lens: torch.Tensor = None  # shape: [b], int64
 
     # The original sequence lengths, Qwen-1M related
     orig_seq_lens: torch.Tensor = None  # shape: [b], int32
 
     # The output locations of the KV cache
+    # tip 本轮新计算出的 token 的 K/V 要写入哪些位置，保存的是 KV 编号
     out_cache_loc: torch.Tensor = None  # shape: [b], int64
     # DSV4-NPU: KV-only per-pool slot bundle from
     # DSV4NPUTokenToKVPoolAllocator (None elsewhere).
@@ -2270,12 +2275,12 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
     spec_info: Optional[SpecInput] = None
 
     @classmethod
-    def init_new( 
+    def init_new(
         cls,
         reqs: List[Req],
-        req_to_token_pool: ReqToTokenPool, # NOTE Scheduler 的 req_to_token_pool
+        req_to_token_pool: ReqToTokenPool,  # NOTE Scheduler 的 req_to_token_pool
         token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator,
-        tree_cache: BasePrefixCache, # tip 这里用的是 Scheduler 的 tree_cache、即 RadixCache
+        tree_cache: BasePrefixCache,  # tip 这里用的是 Scheduler 的 tree_cache、即 RadixCache
         model_config: ModelConfig,
         enable_overlap: bool,
         spec_algorithm: SpeculativeAlgorithm,
@@ -2283,7 +2288,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         dllm_config: Optional[DllmConfig] = None,
     ):
         """
-            # tip scheduler.py 中有调用 ScheduleBatch.init_new，先重点看这条链路
+        # tip scheduler.py 中有调用 ScheduleBatch.init_new，先重点看这条链路
         """
         # 是否返回批处理结果的 logprob/对数概率
         return_logprob = any(req.return_logprob for req in reqs)
@@ -2293,20 +2298,20 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         return_hidden_states_mode = get_batch_return_hidden_states_mode(reqs)
 
         batch = cls(
-            reqs=reqs, # 请求参数
-            req_to_token_pool=req_to_token_pool, # req slot -> kv index
-            token_to_kv_pool_allocator=token_to_kv_pool_allocator, # kv index -> kv value
-             # RadixCache（Scheduler、RadixCache、显卡、TpModelWorker、ModelRunner 是一一对应的；
-             #  每一轮组批都会创建一个 PrefillAdder 对象；
+            reqs=reqs,  # 请求参数
+            req_to_token_pool=req_to_token_pool,  # req slot -> kv index
+            token_to_kv_pool_allocator=token_to_kv_pool_allocator,  # kv index -> kv value
+            # RadixCache（Scheduler、RadixCache、显卡、TpModelWorker、ModelRunner 是一一对应的；
+            #  每一轮组批都会创建一个 PrefillAdder 对象；
             tree_cache=tree_cache,
             model_config=model_config,
-            enable_overlap=enable_overlap, # cpu 和 gpu 是否并行执行任务
-            return_logprob=return_logprob, # 结果是否返回对数概率
-            has_grammar=any(req.grammar for req in reqs), # 是否指定了返回格式
+            enable_overlap=enable_overlap,  # cpu 和 gpu 是否并行执行任务
+            return_logprob=return_logprob,  # 结果是否返回对数概率
+            has_grammar=any(req.grammar for req in reqs),  # 是否指定了返回格式
             device=req_to_token_pool.device,
-            spec_algorithm=spec_algorithm, # 投机函数
-            return_hidden_states=return_hidden_states_mode.need_capture(), # 是否要返回token的 hidden state
-            return_hidden_states_mode=return_hidden_states_mode, # FULL -> LAST -> NULL
+            spec_algorithm=spec_algorithm,  # 投机函数
+            return_hidden_states=return_hidden_states_mode.need_capture(),  # 是否要返回token的 hidden state
+            return_hidden_states_mode=return_hidden_states_mode,  # FULL -> LAST -> NULL
             is_prefill_only=all(req.is_prefill_only for req in reqs),
             chunked_req=chunked_req,
             chunked_req_next_prompt_token=_compute_chunked_req_next_prompt_token(
@@ -2462,7 +2467,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
         分析文档：schedule_batch.py.prepare_for_extend.md（同目录）
         """
-        self.forward_mode = ForwardMode.EXTEND # Prefill
+        self.forward_mode = ForwardMode.EXTEND  # Prefill
 
         if self.is_dllm():
             # For DLLM, we use a separate forward mode
@@ -3598,8 +3603,8 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
 
 class NextBatchPlan(msgspec.Struct):
-    """批任务
-    """
+    """批任务"""
+
     # 本轮要计算的 batch，要么是 prefill（EXTEND），要么是 decode（DECODE）
     batch_to_run: Optional[ScheduleBatch]
     # NOTE running_batch 是已经 prefill 完成，正在进行 decode 的请求

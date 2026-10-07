@@ -219,8 +219,8 @@ def infer_coverage(scope, direct):
     return status, reasons
 
 
-def measure(root=ROOT):
-    scope_text = (root / "quick_learn" / "LEARN.scope.json").read_text(encoding="utf-8")
+def measure(root=ROOT, *, scope_file="quick_learn/LEARN.scope.json"):
+    scope_text = (root / scope_file).read_text(encoding="utf-8")
     scope = json.loads(scope_text)
     validate_scope(scope)
     baseline = scope["baseline_commit"]
@@ -324,6 +324,8 @@ def render_methods(report):
     rule = scope["branch_threshold"]
     lines = [
         "# SGLang 核心方法阅读清单",
+        "",
+        "当前模型固定为 `Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration)`；初始化、权重加载和文本推理的对象关系见 [LEARN.md 第 3.1 节](LEARN.md#31-固定模型qwen3_5forconditionalgeneration)。本页是全核心总览；当前默认的模型准备与非流式 Overlap 路线见 [LEARN.overlap.md](LEARN.overlap.md)，两者独立计分。",
         "",
         f"**已读 {total['learned']}/{total['total']}（{percentage(total)}），未读 {total['U']} 个。**",
         "",

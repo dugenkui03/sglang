@@ -33,10 +33,24 @@ _WhitelistParamNamesCreator = Callable[[torch.nn.Module], List[str]]
 class BaseOffloader(ABC):
     def wrap_modules(
         self,
+        # NOTE transformer layer generator
         all_modules_generator: Generator[torch.nn.Module, None, None],
         submodule_accessor: Optional[_SubmoduleAccessor] = None,
         whitelist_param_names_creator: Optional[_WhitelistParamNamesCreator] = None,
     ):
+        """NOTE
+
+        Generator 定义：generator = (表达式 for 变量 in 可迭代对象)
+            例如 generator = (i * 2 for i in range(3)) # 生成器可以执行多少次创建的时候已经确定了
+
+        另，创建的时候不会进行计算，三种触发方式：
+            1. next(generator)：取下一个结果；耗尽时抛出 StopIteration。
+            2. for item in generator：逐个取出结果，在循环体中处理。
+            3. list(generator)：取完剩余结果，收集成 Python 列表。
+
+        三种方式都会消耗生成器，后续取值会接着上次的位置继续，不能自动从头再来。
+        """
+        # 作用是遍历 生成器，生成所有的 transformer layer
         return list(all_modules_generator)
 
     def post_init(self):

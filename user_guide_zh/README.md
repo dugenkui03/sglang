@@ -11,6 +11,11 @@
 - [核心组件五：TpModelWorker 与 ModelRunner](核心组件五：TpModelWorker与ModelRunner.md)：启动时加载权重、分配 KV 池、捕获 CUDA Graph；每轮构造 ForwardBatch、前向、采样。
 - [核心组件六：ScheduleBatch](核心组件六：ScheduleBatch.md)：Scheduler 组好的一批请求，组批时创建、前向时转成 ForwardBatch、处理结果时再读；继承关系与核心方法。
 
+## 核心流程(Core Workflows)
+
+- [核心流程一：模型加载](核心流程一：模型加载.md)：从 ModelRunner 初始化到 Qwen3.5 模型创建、权重文件下载，以及 weight_loader 的绑定与执行。
+- [核心流程二：模型前向](核心流程二：模型前向.md)：Qwen3.5 的 embedding、两类 Decoder 层、最终归一化与 LM Head 计算，共三张调用图。
+
 ## 核心概念(Core Concepts)
 
 - [核心概念一：SGLang中的并行策略](核心概念一：SGLang中的并行策略.md)：TP、PP、DP、EP、CP 五种基础策略及细分变体，卡怎么分，rank 坐标与请求分发。
@@ -29,6 +34,7 @@
 ## 思考(Reflections)
 
 - [思考一：关于组批请求的思考](思考一：关于组批请求的思考.md)：把组批看成调度器、数据容器和有状态元素之间的交互：调度器按规则把 Req 从 waiting_queue 搬进 ScheduleBatch，规则读各实体的状态，搬运又会改这些状态。
+- [思考二：关于推理过程的思考](思考二：关于推理过程的思考.md)：模型架构、权重与实现的关系，前向计算与缓存读写，训练和推理的区别，以及新模型首日支持。
 
 ## 1. 服务与调优(Serving and Tuning)
 

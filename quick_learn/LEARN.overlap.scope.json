@@ -1,0 +1,1783 @@
+{
+  "version": 3,
+  "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
+  "scope": "先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。",
+  "representatives": "模型固定为 Qwen3_5ForConditionalGeneration（dense）：构造函数在 qwen3_5.py，forward 继承 qwen3_vl.py 的 Qwen3VLForConditionalGeneration；self.model 是 qwen3_5.py 的 Qwen3_5ForCausalLM。qwen3_5_text.py 中的同名类是另一个文本模型入口，不计入这条路线。初始化取 DefaultModelLoader 的常规加载路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。QKV 线性投影补读 QKVParallelLinear、ColumnParallelLinear、LinearBase 的构造，以及 UnquantizedLinearMethod 的参数创建和普通 F.linear 前向分支；共用方法只计一次。",
+  "excluded": [
+    "通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter",
+    "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑",
+    "视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化和硬件专用变体、底层算子实现",
+    "AI 生成文档、图片及其文件数量不作为直接已读证据",
+    "event_loop_normal 及其独有执行分支；所有展示的共用方法只沿 Overlap 可达分支阅读",
+    "服务启动与配置发布的其余路径、启动期缓存池初始化和 CUDA Graph capture；本路线的启动准备只包含所列模型构造与权重加载方法",
+    "非流式处理入口之前的 HTTP 路由与请求转换、原生 generate 和 SSE 响应分支；需要时另外查看全核心总览",
+    "简单队列/属性操作和 pop_and_process 局部包装函数不单独计数，时序在路线说明中保留",
+    "启动期权重加载重叠、远程/IPC/其他 loader 变体；本次只补齐常规模型构造和权重加载",
+    "LinearBase.forward 抽象占位、PyTorch nn.Module 通用机制及 F.linear 底层算子实现"
+  ],
+  "branch_threshold": {
+    "numerator": 2,
+    "denominator": 3,
+    "min_direct": 2
+  },
+  "node_columns": [
+    "id",
+    "source",
+    "qualname",
+    "concept"
+  ],
+  "sources": {
+    "chat": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+    "tokenizer": "python/sglang/srt/managers/tokenizer_manager.py",
+    "scheduler": "python/sglang/srt/managers/scheduler.py",
+    "receiver": "python/sglang/srt/managers/scheduler_components/request_receiver.py",
+    "policy": "python/sglang/srt/managers/schedule_policy.py",
+    "batch": "python/sglang/srt/managers/schedule_batch.py",
+    "worker": "python/sglang/srt/managers/tp_worker.py",
+    "runner": "python/sglang/srt/model_executor/model_runner.py",
+    "forward_batch": "python/sglang/srt/model_executor/forward_batch_info.py",
+    "overlap": "python/sglang/srt/managers/overlap_utils.py",
+    "eager": "python/sglang/srt/model_executor/runner/eager_runner.py",
+    "graph": "python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py",
+    "qwen_entry": "python/sglang/srt/models/qwen3_vl.py",
+    "qwen_model": "python/sglang/srt/models/qwen3_5.py",
+    "qwen_mlp": "python/sglang/srt/models/qwen2_moe.py",
+    "linear_attention": "python/sglang/srt/layers/radix_linear_attention.py",
+    "attention": "python/sglang/srt/layers/radix_attention.py",
+    "flash": "python/sglang/srt/layers/attention/flashattention_backend.py",
+    "pool": "python/sglang/srt/mem_cache/memory_pool.py",
+    "allocation": "python/sglang/srt/mem_cache/allocation.py",
+    "cache_common": "python/sglang/srt/mem_cache/common.py",
+    "paged": "python/sglang/srt/mem_cache/allocator/paged.py",
+    "radix": "python/sglang/srt/mem_cache/radix_cache.py",
+    "logits": "python/sglang/srt/layers/logits_processor.py",
+    "sampler": "python/sglang/srt/layers/sampler.py",
+    "params": "python/sglang/srt/sampling/sampling_params.py",
+    "result": "python/sglang/srt/managers/scheduler_components/batch_result_processor.py",
+    "streamer": "python/sglang/srt/managers/scheduler_components/output_streamer.py",
+    "detokenizer": "python/sglang/srt/managers/detokenizer_manager.py",
+    "batch_result": "python/sglang/srt/managers/utils.py",
+    "load_utils": "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py",
+    "loader": "python/sglang/srt/model_loader/loader.py",
+    "mm_utils": "python/sglang/srt/managers/mm_utils.py",
+    "linear": "python/sglang/srt/layers/linear.py",
+    "unquant": "python/sglang/srt/layers/quantization/unquant.py"
+  },
+  "stages": {
+    "1": "启动与进程",
+    "2": "配置发布",
+    "3": "API 与请求转换",
+    "4": "分词与请求提交",
+    "5": "调度与组批",
+    "6": "执行桥接与 overlap 数据交接",
+    "7": "模型前向与 Attention",
+    "8": "KV 分配与前缀缓存",
+    "9": "采样、结果处理与回包"
+  },
+  "branches": [
+    {
+      "id": "model_loading",
+      "stage": "1",
+      "label": "Qwen 3.5 模型构造入口与权重加载",
+      "description": "代表路径为常规 DefaultModelLoader；load_model 内先调用 _initialize_model 完成整个对象树构造，再调用 load_weights_and_postprocess。构造与加载是两个阶段，不把构造方法和 load_weights 串成父子调用。",
+      "nodes": [
+        [
+          "load_model",
+          "runner",
+          "ModelRunner.load_model",
+          "启动期加载模型并保存 loader 与外层模型实例"
+        ],
+        [
+          "load_model_memory",
+          "load_utils",
+          "load_model_with_memory_saver",
+          "在权重内存区域中选择 loader 并加载模型"
+        ],
+        [
+          "default_load_model",
+          "loader",
+          "DefaultModelLoader.load_model",
+          "先创建模型结构，再加载权重并进入 eval 模式"
+        ],
+        [
+          "initialize_model",
+          "loader",
+          "_initialize_model",
+          "按模型架构解析具体类并调用构造函数"
+        ],
+        [
+          "load_weights_postprocess",
+          "loader",
+          "DefaultModelLoader.load_weights_and_postprocess",
+          "调用模型的 load_weights 并执行加载后处理"
+        ],
+        [
+          "qwen_load_weights",
+          "qwen_model",
+          "Qwen3_5ForConditionalGeneration.load_weights",
+          "映射 checkpoint 名称，将 QKV、MLP 和 GDN 权重装入参数"
+        ]
+      ]
+    },
+    {
+      "id": "model_construction",
+      "stage": "1",
+      "label": "Qwen3_5ForConditionalGeneration 的对象初始化",
+      "description": "入口把 language_model_cls=Qwen3_5ForCausalLM 传给父类；父类用 config.text_config 创建 self.model，并持有 lm_head 与 logits_processor。两类层按 layers_block_type 分支创建，dense MLP 被两类层复用。这里只认识视觉模块的创建条件，不展开视觉计算。",
+      "nodes": [
+        [
+          "qwen_entry_init",
+          "qwen_model",
+          "Qwen3_5ForConditionalGeneration.__init__",
+          "注入 Qwen3_5ForCausalLM，调用父类构造并设置位置编码信息"
+        ],
+        [
+          "qwen_parent_init",
+          "qwen_entry",
+          "Qwen3VLForConditionalGeneration.__init__",
+          "创建文本主干、LM head、LogitsProcessor 与可选视觉模块"
+        ],
+        [
+          "qwen_model_init",
+          "qwen_model",
+          "Qwen3_5ForCausalLM.__init__",
+          "创建 embedding、按配置选择两类解码层并创建最终归一化"
+        ],
+        [
+          "qwen_attention_init",
+          "qwen_model",
+          "Qwen3_5AttentionDecoderLayer.__init__",
+          "创建 QKV 投影、RoPE、RadixAttention、dense MLP 与归一化"
+        ],
+        [
+          "qwen_linear_init",
+          "qwen_model",
+          "Qwen3_5LinearDecoderLayer.__init__",
+          "创建 GatedDeltaNet、dense MLP、归一化与层间通信组件"
+        ],
+        [
+          "qwen_gdn_init",
+          "qwen_model",
+          "Qwen3_5GatedDeltaNet.__init__",
+          "创建 GDN 输入投影、卷积参数、RadixLinearAttention、门控归一化与输出投影"
+        ],
+        [
+          "qwen_mlp_init",
+          "qwen_mlp",
+          "Qwen2MoeMLP.__init__",
+          "创建 dense gate/up、SiLU 门控与 down 投影"
+        ]
+      ]
+    },
+    {
+      "id": "linear_construction",
+      "stage": "1",
+      "label": "QKV 投影与线性层权重创建",
+      "description": "QKVParallelLinear 继承 ColumnParallelLinear 和 LinearBase。ColumnParallelLinear.__init__ 先调用父类构造选择计算实现，返回后再调用 create_weights；两者是独立调用分支。这里只读未量化代表路径，共用方法只计一次。",
+      "nodes": [
+        [
+          "qkv_projection_init",
+          "linear",
+          "QKVParallelLinear.__init__",
+          "确定 QKV 合并投影的维度、头划分与权重布局"
+        ],
+        [
+          "column_linear_init",
+          "linear",
+          "ColumnParallelLinear.__init__",
+          "配置列并行线性层，创建权重并绑定加载回调"
+        ],
+        [
+          "linear_base_init",
+          "linear",
+          "LinearBase.__init__",
+          "保存线性层配置并选择 quant_method 计算实现"
+        ],
+        [
+          "unquant_linear_weights",
+          "unquant",
+          "UnquantizedLinearMethod.create_weights",
+          "创建并注册未量化线性层的 weight 参数及加载属性"
+        ]
+      ]
+    },
+    {
+      "id": "tokenize_submit",
+      "stage": "4",
+      "label": "请求登记、分词与提交",
+      "nodes": [
+        [
+          "generate_request",
+          "tokenizer",
+          "TokenizerManager.generate_request",
+          "统一请求生命周期入口"
+        ],
+        [
+          "init_req_state",
+          "tokenizer",
+          "TokenizerManager._init_req_state",
+          "以 rid 登记请求状态"
+        ],
+        [
+          "tokenize_request",
+          "tokenizer",
+          "TokenizerManager._tokenize_one_request",
+          "构造单个 tokenized 请求"
+        ],
+        [
+          "tokenize_texts",
+          "tokenizer",
+          "TokenizerManager._tokenize_texts",
+          "文本与 token 输入的分词路径"
+        ],
+        [
+          "validate_request",
+          "tokenizer",
+          "TokenizerManager._validate_one_request",
+          "上下文长度与生成预算检查"
+        ],
+        [
+          "create_tokenized",
+          "tokenizer",
+          "TokenizerManager._create_tokenized_object",
+          "生成跨进程请求对象"
+        ],
+        [
+          "send_request",
+          "tokenizer",
+          "TokenizerManager._send_one_request",
+          "提交请求并关联返回状态"
+        ]
+      ]
+    },
+    {
+      "id": "scheduler_ingress",
+      "stage": "5",
+      "label": "接收、分发与入队",
+      "nodes": [
+        [
+          "receive_requests",
+          "receiver",
+          "SchedulerRequestReceiver.recv_requests",
+          "接收本轮请求并做 rank 同步"
+        ],
+        [
+          "pull_requests",
+          "receiver",
+          "SchedulerRequestReceiver._pull_raw_reqs",
+          "从主进程管道接收消息"
+        ],
+        [
+          "broadcast_requests",
+          "receiver",
+          "SchedulerRequestReceiver._broadcast_reqs_across_ranks",
+          "将请求分发到参与执行的 rank"
+        ],
+        [
+          "dispatch_requests",
+          "scheduler",
+          "Scheduler.process_input_requests",
+          "按消息类型分派处理"
+        ],
+        [
+          "handle_generate",
+          "scheduler",
+          "Scheduler.handle_generate_request",
+          "将 tokenized 输入变为调度请求"
+        ],
+        [
+          "init_request",
+          "batch",
+          "Req.__init__",
+          "建立请求、生成和缓存状态"
+        ],
+        [
+          "enqueue",
+          "scheduler",
+          "Scheduler._add_request_to_queue",
+          "进入等待队列"
+        ]
+      ]
+    },
+    {
+      "id": "scheduler_loop",
+      "stage": "5",
+      "label": "Overlap 调度循环",
+      "nodes": [
+        [
+          "overlap_loop",
+          "scheduler",
+          "Scheduler.event_loop_overlap",
+          "CPU 调度和 GPU 执行交错推进"
+        ]
+      ]
+    },
+    {
+      "id": "prefill_admission",
+      "stage": "5",
+      "label": "Prefill 选择与预算控制",
+      "nodes": [
+        [
+          "next_batch",
+          "scheduler",
+          "Scheduler.get_next_batch_to_run",
+          "选择下一轮 prefill/decode 批次"
+        ],
+        [
+          "new_prefill",
+          "scheduler",
+          "Scheduler.get_new_batch_prefill",
+          "建立 prefill 批次入口"
+        ],
+        [
+          "raw_prefill",
+          "scheduler",
+          "Scheduler._get_new_batch_prefill_raw",
+          "选择可接纳的等待请求"
+        ],
+        [
+          "priority",
+          "policy",
+          "SchedulePolicy.calc_priority",
+          "确定等待队列处理顺序"
+        ],
+        [
+          "prefill_budget",
+          "policy",
+          "PrefillAdder.__init__",
+          "建立 token 与显存接纳预算"
+        ],
+        [
+          "admit_request",
+          "policy",
+          "PrefillAdder.add_one_req",
+          "检查预算并接纳请求"
+        ],
+        [
+          "admit_chunk",
+          "policy",
+          "PrefillAdder.add_chunked_req",
+          "继续处理分块 prefill 请求"
+        ],
+        [
+          "update_budget",
+          "policy",
+          "PrefillAdder._update_prefill_budget",
+          "扣减本轮 prefill 预算"
+        ]
+      ]
+    },
+    {
+      "id": "batch_layout",
+      "stage": "5",
+      "label": "Prefill 与 decode 批次状态",
+      "nodes": [
+        [
+          "request_next_input",
+          "batch",
+          "Req.init_next_round_input",
+          "按已缓存前缀准备下轮输入"
+        ],
+        [
+          "batch_init",
+          "batch",
+          "ScheduleBatch.init_new",
+          "从请求集合建立调度批次"
+        ],
+        [
+          "prepare_extend",
+          "batch",
+          "ScheduleBatch.prepare_for_extend",
+          "准备 prefill token、长度和缓存位置"
+        ],
+        [
+          "update_decode",
+          "scheduler",
+          "Scheduler.update_running_batch",
+          "维护继续生成的请求集合"
+        ],
+        [
+          "prepare_decode",
+          "batch",
+          "ScheduleBatch.prepare_for_decode",
+          "为每个请求准备下一 token 的执行状态"
+        ],
+        [
+          "filter_batch",
+          "batch",
+          "ScheduleBatch.filter_batch",
+          "移除结束请求并对齐批次张量"
+        ],
+        [
+          "merge_batch",
+          "batch",
+          "ScheduleBatch.merge_batch",
+          "合并完成 prefill 的请求与运行批次"
+        ]
+      ]
+    },
+    {
+      "id": "decode_pressure",
+      "stage": "5",
+      "label": "Decode 显存不足与回退",
+      "nodes": [
+        [
+          "check_decode_memory",
+          "batch",
+          "ScheduleBatch.check_decode_mem",
+          "检查下一轮 KV 容量"
+        ],
+        [
+          "retract_decode",
+          "batch",
+          "ScheduleBatch.retract_decode",
+          "显存不足时撤回部分请求"
+        ],
+        [
+          "reset_retracted",
+          "batch",
+          "Req.reset_for_retract",
+          "重置被撤回请求以便重新调度"
+        ]
+      ]
+    },
+    {
+      "id": "forward_bridge",
+      "stage": "6",
+      "label": "调度批次进入 GPU 执行",
+      "nodes": [
+        [
+          "run_batch",
+          "scheduler",
+          "Scheduler.run_batch",
+          "提交一轮模型计算并接收结果"
+        ],
+        [
+          "worker_forward",
+          "worker",
+          "TpModelWorker.forward_batch_generation",
+          "组织 ForwardBatch、前向与采样"
+        ],
+        [
+          "forward_batch",
+          "forward_batch",
+          "ForwardBatch.init_new",
+          "调度视图转换为 GPU 批次视图"
+        ],
+        [
+          "resolve_inputs",
+          "overlap",
+          "resolve_forward_inputs",
+          "将 overlap 的未来 token 解析为实际输入"
+        ]
+      ]
+    },
+    {
+      "id": "future_map",
+      "stage": "6",
+      "label": "Overlap 结果与后续输入衔接",
+      "nodes": [
+        [
+          "future_publish",
+          "overlap",
+          "FutureMap.publish",
+          "发布下一轮序列长度等元数据"
+        ],
+        [
+          "future_stash",
+          "overlap",
+          "FutureMap.stash",
+          "保存生成 token 等下一轮输入数据"
+        ]
+      ]
+    },
+    {
+      "id": "runner_dispatch",
+      "stage": "7",
+      "label": "模型执行路径分派",
+      "nodes": [
+        [
+          "model_forward",
+          "runner",
+          "ModelRunner.forward",
+          "模型前向总入口"
+        ],
+        [
+          "raw_forward",
+          "runner",
+          "ModelRunner._forward_raw",
+          "选择图执行或 eager 路径"
+        ],
+        [
+          "eager_execute",
+          "eager",
+          "EagerRunner.execute",
+          "按 ForwardMode 分派执行"
+        ],
+        [
+          "eager_extend",
+          "eager",
+          "EagerRunner._execute_extend",
+          "Prefill 的模型执行入口"
+        ],
+        [
+          "eager_decode",
+          "eager",
+          "EagerRunner._execute_decode",
+          "Decode 的模型执行入口"
+        ]
+      ]
+    },
+    {
+      "id": "decode_graph",
+      "stage": "7",
+      "label": "基础 decode CUDA Graph",
+      "nodes": [
+        [
+          "can_replay",
+          "graph",
+          "DecodeCudaGraphRunner.can_run_graph",
+          "判断批次是否满足图重放条件"
+        ],
+        [
+          "replay_graph",
+          "graph",
+          "DecodeCudaGraphRunner.execute",
+          "重放已捕获的执行图"
+        ]
+      ]
+    },
+    {
+      "id": "dense_model",
+      "stage": "7",
+      "label": "Qwen 3.5 dense 文本模型的前向主干",
+      "description": "前向继承父类，但执行的是构造时注入的 Qwen 3.5 主干。language_model_only=True 直接调用 self.model；否则经 general_mm_embed_routine 的文本路径。普通 Attention 与 GDN 是不同层类型；完整调用关系见 LEARN.md 第 3.1 节。",
+      "nodes": [
+        [
+          "causal_lm",
+          "qwen_entry",
+          "Qwen3VLForConditionalGeneration.forward",
+          "Qwen 3.5 继承的入口：执行文本主干并产出 logits"
+        ],
+        [
+          "qwen_embed",
+          "mm_utils",
+          "general_mm_embed_routine",
+          "非 language_model_only 配置下，纯文本也经此完成 embedding 并调用主干"
+        ],
+        [
+          "qwen_model",
+          "qwen_model",
+          "Qwen3_5ForCausalLM.forward",
+          "嵌入、混合类型解码层逐层执行与最终归一化"
+        ],
+        [
+          "qwen_attention_layer",
+          "qwen_model",
+          "Qwen3_5AttentionDecoderLayer.forward",
+          "普通 Attention 层的注意力、MLP 与残差连接"
+        ],
+        [
+          "qwen_attention",
+          "qwen_model",
+          "Qwen3_5AttentionDecoderLayer.self_attention",
+          "QKV 与位置编码准备、RadixAttention 和输出门控"
+        ],
+        [
+          "qwen_linear_layer",
+          "qwen_model",
+          "Qwen3_5LinearDecoderLayer.forward",
+          "线性注意力层的 GatedDeltaNet、MLP 与残差连接"
+        ],
+        [
+          "qwen_gdn",
+          "qwen_model",
+          "Qwen3_5GatedDeltaNet.forward",
+          "GatedDeltaNet 的输入投影、线性注意力调用与输出门控"
+        ],
+        [
+          "radix_linear_attention",
+          "linear_attention",
+          "RadixLinearAttention.forward",
+          "将 GatedDeltaNet 输入交给 SGLang 线性注意力后端"
+        ],
+        [
+          "qwen_mlp",
+          "qwen_mlp",
+          "Qwen2MoeMLP.forward",
+          "Qwen 3.5 dense 复用的门控前馈网络"
+        ]
+      ]
+    },
+    {
+      "id": "linear_projection",
+      "stage": "7",
+      "label": "QKV 线性投影的前向计算",
+      "description": "self_attention 经 QKV 准备方法调用 qkv_proj 对象，实际执行继承的 ColumnParallelLinear.forward，再由 UnquantizedLinearMethod.apply 计算。投影与 RadixAttention 是 self_attention 内的不同调用分支；QKVParallelLinear 没有独立的 forward 定义。",
+      "nodes": [
+        [
+          "column_linear_forward",
+          "linear",
+          "ColumnParallelLinear.forward",
+          "QKVParallelLinear 继承的前向入口，调用 quant_method.apply 执行投影"
+        ],
+        [
+          "unquant_linear_apply",
+          "unquant",
+          "UnquantizedLinearMethod.apply",
+          "未量化线性计算的普通分支，以 F.linear 执行输入与权重的投影"
+        ]
+      ]
+    },
+    {
+      "id": "attention_backend",
+      "stage": "7",
+      "label": "Attention 与 KV 读写",
+      "nodes": [
+        [
+          "radix_attention",
+          "attention",
+          "RadixAttention.forward",
+          "模型层接入 SGLang 注意力后端"
+        ],
+        [
+          "attention_metadata",
+          "flash",
+          "FlashAttentionBackend.init_forward_metadata",
+          "准备批次和 KV 索引元数据"
+        ],
+        [
+          "attention_extend",
+          "flash",
+          "FlashAttentionBackend.forward_extend",
+          "Prefill 注意力与 KV 写入"
+        ],
+        [
+          "attention_decode",
+          "flash",
+          "FlashAttentionBackend.forward_decode",
+          "读取历史 KV 并计算 decode 注意力"
+        ],
+        [
+          "store_kv",
+          "pool",
+          "MHATokenToKVPool.set_kv_buffer",
+          "将新 token 的 K/V 写入槽位"
+        ]
+      ]
+    },
+    {
+      "id": "kv_slots",
+      "stage": "8",
+      "label": "请求与 KV 槽位分配",
+      "nodes": [
+        [
+          "allocate_request",
+          "pool",
+          "ReqToTokenPool.alloc",
+          "为活跃请求分配映射表行"
+        ],
+        [
+          "free_request",
+          "pool",
+          "ReqToTokenPool.free",
+          "归还请求映射表行"
+        ],
+        [
+          "allocate_extend",
+          "allocation",
+          "alloc_for_extend",
+          "为新增 prefill token 分配 KV"
+        ],
+        [
+          "allocate_decode",
+          "allocation",
+          "alloc_for_decode",
+          "为下一轮 decode token 分配 KV"
+        ],
+        [
+          "map_slots",
+          "allocation",
+          "assign_req_to_token_pool",
+          "将逻辑 token 位置映射到 KV 槽位"
+        ],
+        [
+          "paged_extend",
+          "paged",
+          "PagedTokenToKVPoolAllocator.alloc_extend",
+          "按页接纳 prefill 的 KV 增量"
+        ],
+        [
+          "paged_decode",
+          "paged",
+          "PagedTokenToKVPoolAllocator.alloc_decode",
+          "处理 decode 跨页分配"
+        ],
+        [
+          "paged_free",
+          "paged",
+          "PagedTokenToKVPoolAllocator.free",
+          "归还 KV 页面"
+        ]
+      ]
+    },
+    {
+      "id": "radix_lookup",
+      "stage": "8",
+      "label": "前缀匹配与引用保护",
+      "nodes": [
+        [
+          "match_prefix",
+          "radix",
+          "RadixCache.match_prefix",
+          "查找可复用前缀"
+        ],
+        [
+          "match_prefix_tree",
+          "radix",
+          "RadixCache._match_prefix_helper",
+          "沿树匹配 token 序列"
+        ],
+        [
+          "split_radix_node",
+          "radix",
+          "RadixCache._split_node",
+          "部分命中时拆分树节点"
+        ],
+        [
+          "lock_prefix",
+          "radix",
+          "RadixCache.inc_lock_ref",
+          "保护活跃请求使用的缓存"
+        ],
+        [
+          "unlock_prefix",
+          "radix",
+          "RadixCache.dec_lock_ref",
+          "释放缓存引用保护"
+        ]
+      ]
+    },
+    {
+      "id": "radix_update",
+      "stage": "8",
+      "label": "缓存写回与淘汰",
+      "nodes": [
+        [
+          "insert_prefix",
+          "radix",
+          "RadixCache.insert",
+          "插入可复用 token 前缀"
+        ],
+        [
+          "insert_prefix_tree",
+          "radix",
+          "RadixCache._insert_helper",
+          "维护前缀树节点与 KV 所有权"
+        ],
+        [
+          "cache_running",
+          "radix",
+          "RadixCache.cache_unfinished_req",
+          "缓存继续运行请求的前缀"
+        ],
+        [
+          "cache_finished",
+          "radix",
+          "RadixCache.cache_finished_req",
+          "完成请求的缓存写回与释放"
+        ],
+        [
+          "evict_prefix",
+          "radix",
+          "RadixCache.evict",
+          "淘汰未保护前缀以腾出 KV"
+        ]
+      ]
+    },
+    {
+      "id": "sampling",
+      "stage": "9",
+      "label": "从隐藏状态到下一个 token",
+      "nodes": [
+        [
+          "normalize_sampling",
+          "params",
+          "SamplingParams.normalize",
+          "将生成参数规范化为采样语义"
+        ],
+        [
+          "process_logits",
+          "logits",
+          "LogitsProcessor.forward",
+          "选择需要输出的 token 并形成 logits"
+        ],
+        [
+          "get_logits",
+          "logits",
+          "LogitsProcessor._get_logits",
+          "隐藏状态经过 LM head 得到词表分数"
+        ],
+        [
+          "compute_lm_head",
+          "logits",
+          "LogitsProcessor._compute_lm_head",
+          "执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T"
+        ],
+        [
+          "prepare_logits",
+          "runner",
+          "ModelRunner._preprocess_logits",
+          "惩罚项、掩码与 logit 偏置"
+        ],
+        [
+          "model_sample",
+          "runner",
+          "ModelRunner.sample",
+          "调用 sampler 并返回 token ID"
+        ],
+        [
+          "sample",
+          "sampler",
+          "Sampler.forward",
+          "贪心与概率采样的核心分派"
+        ]
+      ]
+    },
+    {
+      "id": "result_commit",
+      "stage": "9",
+      "label": "前向结果进入请求状态",
+      "nodes": [
+        [
+          "process_result",
+          "scheduler",
+          "Scheduler.process_batch_result",
+          "按批次类型处理前向结果"
+        ],
+        [
+          "prefill_result",
+          "result",
+          "SchedulerBatchResultProcessor.process_batch_result_prefill",
+          "处理 prefill 输出和请求状态"
+        ],
+        [
+          "decode_result",
+          "result",
+          "SchedulerBatchResultProcessor.process_batch_result_decode",
+          "接收新 token 并推进 decode 状态"
+        ],
+        [
+          "finish_request",
+          "batch",
+          "Req.update_finish_state",
+          "判断长度、终止 token 和停止字符串"
+        ],
+        [
+          "release_request",
+          "cache_common",
+          "release_kv_cache",
+          "结束请求时转交缓存并释放资源"
+        ]
+      ]
+    },
+    {
+      "id": "output_stream",
+      "stage": "9",
+      "label": "Scheduler 输出 token 消息",
+      "nodes": [
+        [
+          "stream_output",
+          "streamer",
+          "SchedulerOutputStreamer.stream_output",
+          "组织生成结果并选择输出类型"
+        ],
+        [
+          "stream_generation",
+          "streamer",
+          "SchedulerOutputStreamer._stream_output_generation",
+          "按流式间隔构造 token 输出批次"
+        ]
+      ]
+    },
+    {
+      "id": "detokenize",
+      "stage": "9",
+      "label": "Token 消息增量解码为文本",
+      "nodes": [
+        [
+          "detokenizer_loop",
+          "detokenizer",
+          "DetokenizerManager.event_loop",
+          "接收 token 输出并分发解码"
+        ],
+        [
+          "handle_token_output",
+          "detokenizer",
+          "DetokenizerManager.handle_batch_token_id_out",
+          "解码并发送文本输出消息"
+        ],
+        [
+          "decode_token_output",
+          "detokenizer",
+          "DetokenizerManager._decode_batch_token_id_output",
+          "维护请求的增量解码状态"
+        ],
+        [
+          "group_decode",
+          "detokenizer",
+          "DetokenizerManager._grouped_batch_decode",
+          "将批量 token 增量转为字符串"
+        ],
+        [
+          "trim_stop",
+          "detokenizer",
+          "DetokenizerManager.trim_matched_stop",
+          "按停止规则裁剪返回文本"
+        ]
+      ]
+    },
+    {
+      "id": "response",
+      "stage": "9",
+      "label": "按 rid 回送完整响应",
+      "nodes": [
+        [
+          "tokenizer_handle_loop",
+          "tokenizer",
+          "TokenizerManager.handle_loop",
+          "接收返回消息并按类型分发"
+        ],
+        [
+          "handle_text_output",
+          "tokenizer",
+          "TokenizerManager._handle_batch_output",
+          "更新 ReqState 并唤醒等待者"
+        ],
+        [
+          "wait_response",
+          "tokenizer",
+          "TokenizerManager._wait_one_response",
+          "等待并产出请求结果"
+        ],
+        [
+          "nonstream_response",
+          "chat",
+          "OpenAIServingChat._handle_non_streaming_request",
+          "收集完整结果并构造 chat 响应"
+        ],
+        [
+          "build_chat_response",
+          "chat",
+          "OpenAIServingChat._build_chat_response",
+          "将完整生成结果包装成 OpenAI 响应"
+        ]
+      ]
+    },
+    {
+      "id": "overlap_execution",
+      "stage": "6",
+      "label": "Overlap 执行隔离、结果交接与同步",
+      "nodes": [
+        [
+          "overlap_gate",
+          "scheduler",
+          "Scheduler.is_disable_overlap_for_batch",
+          "判断是否需要先处理上一批结果"
+        ],
+        [
+          "forward_isolation",
+          "scheduler",
+          "Scheduler._forward_isolation",
+          "隔离批次可变状态并保留跨流张量引用"
+        ],
+        [
+          "relay_payload",
+          "scheduler",
+          "Scheduler._relay_forward_payload",
+          "将采样结果交给下一轮输入通道"
+        ],
+        [
+          "copy_result",
+          "batch_result",
+          "GenerationBatchResult.copy_to_cpu",
+          "异步复制结果到 CPU 并记录完成事件"
+        ],
+        [
+          "apply_war_barrier",
+          "scheduler",
+          "Scheduler._apply_war_barrier",
+          "保护本批共享读取，约束后续调度写入"
+        ],
+        [
+          "delay_sample",
+          "scheduler",
+          "Scheduler.launch_batch_sample_if_needed",
+          "上一批处理后按需采样本批并交接结果"
+        ]
+      ]
+    }
+  ],
+  "chains": [
+    {
+      "id": "chat_nonstream",
+      "kind": "call",
+      "label": "非流式请求进入 TokenizerManager",
+      "nodes": [
+        "nonstream_response",
+        "generate_request"
+      ]
+    },
+    {
+      "id": "tokenize_text_path",
+      "kind": "call",
+      "label": "内部请求的分词路径",
+      "nodes": [
+        "generate_request",
+        "tokenize_request",
+        "tokenize_texts"
+      ]
+    },
+    {
+      "id": "tokenized_object",
+      "kind": "call",
+      "label": "生成待提交的内部消息",
+      "nodes": [
+        "generate_request",
+        "tokenize_request",
+        "create_tokenized"
+      ]
+    },
+    {
+      "id": "request_validation",
+      "kind": "call",
+      "label": "分词后的上下文预算校验",
+      "nodes": [
+        "generate_request",
+        "tokenize_request",
+        "validate_request"
+      ]
+    },
+    {
+      "id": "receive_ipc",
+      "kind": "ipc",
+      "label": "请求消息跨进程交接（接收入口到消息读取）",
+      "nodes": [
+        "send_request",
+        "receive_requests",
+        "pull_requests"
+      ]
+    },
+    {
+      "id": "request_to_queue",
+      "kind": "call",
+      "label": "分发生成请求并入队",
+      "nodes": [
+        "dispatch_requests",
+        "handle_generate",
+        "enqueue"
+      ]
+    },
+    {
+      "id": "request_state",
+      "kind": "call",
+      "label": "建立调度请求对象",
+      "nodes": [
+        "dispatch_requests",
+        "handle_generate",
+        "init_request"
+      ]
+    },
+    {
+      "id": "overlap_schedule",
+      "kind": "call",
+      "label": "重叠主循环选择 prefill 批次",
+      "nodes": [
+        "overlap_loop",
+        "next_batch",
+        "new_prefill",
+        "raw_prefill",
+        "admit_request",
+        "update_budget"
+      ]
+    },
+    {
+      "id": "prefill_batch",
+      "kind": "call",
+      "label": "生成 prefill 批次输入与 KV 布局",
+      "nodes": [
+        "next_batch",
+        "new_prefill",
+        "raw_prefill",
+        "prepare_extend",
+        "allocate_extend",
+        "paged_extend"
+      ]
+    },
+    {
+      "id": "prefill_priority",
+      "kind": "call",
+      "label": "选择请求前进行队列排序",
+      "nodes": [
+        "next_batch",
+        "new_prefill",
+        "raw_prefill",
+        "priority"
+      ]
+    },
+    {
+      "id": "decode_batch",
+      "kind": "call",
+      "label": "更新 decode 批次和下一轮 KV",
+      "nodes": [
+        "next_batch",
+        "update_decode",
+        "prepare_decode",
+        "allocate_decode",
+        "paged_decode"
+      ]
+    },
+    {
+      "id": "decode_retract",
+      "kind": "call",
+      "label": "Decode 容量不足时回退请求",
+      "nodes": [
+        "update_decode",
+        "retract_decode",
+        "reset_retracted"
+      ]
+    },
+    {
+      "id": "worker_model",
+      "kind": "call",
+      "label": "批次提交到模型前向",
+      "nodes": [
+        "run_batch",
+        "worker_forward",
+        "model_forward",
+        "raw_forward",
+        "eager_execute"
+      ]
+    },
+    {
+      "id": "worker_batch",
+      "kind": "call",
+      "label": "构造 GPU 批次视图",
+      "nodes": [
+        "run_batch",
+        "worker_forward",
+        "forward_batch"
+      ]
+    },
+    {
+      "id": "worker_sample",
+      "kind": "call",
+      "label": "Worker 的采样调用",
+      "nodes": [
+        "run_batch",
+        "worker_forward",
+        "model_sample",
+        "sample"
+      ]
+    },
+    {
+      "id": "eager_extend_model",
+      "kind": "call",
+      "label": "Prefill 经 Qwen 3.5 普通 Attention 层写入 KV（language_model_only 直达主干分支）",
+      "nodes": [
+        "raw_forward",
+        "eager_execute",
+        "eager_extend",
+        "causal_lm",
+        "qwen_model",
+        "qwen_attention_layer",
+        "qwen_attention",
+        "radix_attention",
+        "attention_extend",
+        "store_kv"
+      ]
+    },
+    {
+      "id": "eager_decode_model",
+      "kind": "call",
+      "label": "Decode 经 Qwen 3.5 普通 Attention 层写入 KV（language_model_only 直达主干分支）",
+      "nodes": [
+        "raw_forward",
+        "eager_execute",
+        "eager_decode",
+        "causal_lm",
+        "qwen_model",
+        "qwen_attention_layer",
+        "qwen_attention",
+        "radix_attention",
+        "attention_decode",
+        "store_kv"
+      ]
+    },
+    {
+      "id": "eager_extend_linear_model",
+      "kind": "call",
+      "label": "Prefill 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet（language_model_only 直达主干分支）",
+      "nodes": [
+        "raw_forward",
+        "eager_execute",
+        "eager_extend",
+        "causal_lm",
+        "qwen_model",
+        "qwen_linear_layer",
+        "qwen_gdn",
+        "radix_linear_attention"
+      ]
+    },
+    {
+      "id": "eager_decode_linear_model",
+      "kind": "call",
+      "label": "Decode 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet（language_model_only 直达主干分支）",
+      "nodes": [
+        "raw_forward",
+        "eager_execute",
+        "eager_decode",
+        "causal_lm",
+        "qwen_model",
+        "qwen_linear_layer",
+        "qwen_gdn",
+        "radix_linear_attention"
+      ]
+    },
+    {
+      "id": "model_mlp",
+      "kind": "call",
+      "label": "Qwen 3.5 普通 Attention 层的 dense 前馈分支（language_model_only 直达主干分支）",
+      "nodes": [
+        "causal_lm",
+        "qwen_model",
+        "qwen_attention_layer",
+        "qwen_mlp"
+      ]
+    },
+    {
+      "id": "model_linear_mlp",
+      "kind": "call",
+      "label": "Qwen 3.5 线性注意力层的 dense 前馈分支（language_model_only 直达主干分支）",
+      "nodes": [
+        "causal_lm",
+        "qwen_model",
+        "qwen_linear_layer",
+        "qwen_mlp"
+      ]
+    },
+    {
+      "id": "model_logits",
+      "kind": "call",
+      "label": "模型隐藏状态进入词表投影",
+      "nodes": [
+        "causal_lm",
+        "process_logits",
+        "get_logits",
+        "compute_lm_head"
+      ]
+    },
+    {
+      "id": "prefix_lookup",
+      "kind": "call",
+      "label": "请求下一轮输入匹配前缀",
+      "nodes": [
+        "request_next_input",
+        "match_prefix",
+        "match_prefix_tree",
+        "split_radix_node"
+      ]
+    },
+    {
+      "id": "prefix_insert",
+      "kind": "call",
+      "label": "完成请求的缓存写回",
+      "nodes": [
+        "release_request",
+        "cache_finished",
+        "insert_prefix",
+        "insert_prefix_tree"
+      ]
+    },
+    {
+      "id": "prefill_output",
+      "kind": "call",
+      "label": "Prefill 结果向 token 输出消息转换",
+      "nodes": [
+        "process_result",
+        "prefill_result",
+        "stream_output",
+        "stream_generation"
+      ]
+    },
+    {
+      "id": "decode_output",
+      "kind": "call",
+      "label": "Decode 结果向 token 输出消息转换",
+      "nodes": [
+        "process_result",
+        "decode_result",
+        "stream_output",
+        "stream_generation"
+      ]
+    },
+    {
+      "id": "decode_finish",
+      "kind": "call",
+      "label": "Decode 结果更新终止状态",
+      "nodes": [
+        "process_result",
+        "decode_result",
+        "finish_request"
+      ]
+    },
+    {
+      "id": "decode_release",
+      "kind": "call",
+      "label": "Decode 请求结束后的资源回收",
+      "nodes": [
+        "process_result",
+        "decode_result",
+        "release_request"
+      ]
+    },
+    {
+      "id": "token_message",
+      "kind": "ipc",
+      "label": "Token 输出消息跨进程进入增量解码",
+      "nodes": [
+        "stream_output",
+        "stream_generation",
+        "detokenizer_loop",
+        "handle_token_output",
+        "decode_token_output",
+        "group_decode"
+      ]
+    },
+    {
+      "id": "text_message",
+      "kind": "ipc",
+      "label": "文本输出消息按 rid 回到请求状态",
+      "nodes": [
+        "handle_token_output",
+        "tokenizer_handle_loop",
+        "handle_text_output"
+      ]
+    },
+    {
+      "id": "text_response",
+      "kind": "data",
+      "label": "更新 ReqState 后唤醒请求等待协程",
+      "nodes": [
+        "handle_text_output",
+        "wait_response",
+        "nonstream_response"
+      ]
+    },
+    {
+      "id": "overlap_relay",
+      "kind": "call",
+      "label": "Overlap 结果保存到下一轮输入通道",
+      "nodes": [
+        "run_batch",
+        "relay_payload",
+        "future_stash"
+      ]
+    },
+    {
+      "id": "overlap_delayed_sample",
+      "kind": "call",
+      "label": "按条件延迟采样本批",
+      "nodes": [
+        "overlap_loop",
+        "delay_sample",
+        "model_sample",
+        "sample"
+      ]
+    },
+    {
+      "id": "nonstream_response_build",
+      "kind": "call",
+      "label": "构造完整 HTTP 响应",
+      "nodes": [
+        "nonstream_response",
+        "build_chat_response"
+      ]
+    },
+    {
+      "id": "qwen_construct_attention",
+      "kind": "call",
+      "label": "默认 loader 创建 Qwen 3.5 普通 Attention 层和 dense MLP",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "initialize_model",
+        "qwen_entry_init",
+        "qwen_parent_init",
+        "qwen_model_init",
+        "qwen_attention_init",
+        "qwen_mlp_init"
+      ]
+    },
+    {
+      "id": "qwen_construct_linear",
+      "kind": "call",
+      "label": "默认 loader 创建 Qwen 3.5 线性注意力层和 GDN",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "initialize_model",
+        "qwen_entry_init",
+        "qwen_parent_init",
+        "qwen_model_init",
+        "qwen_linear_init",
+        "qwen_gdn_init"
+      ]
+    },
+    {
+      "id": "qwen_construct_linear_mlp",
+      "kind": "call",
+      "label": "线性注意力层创建 dense MLP",
+      "nodes": [
+        "qwen_model_init",
+        "qwen_linear_init",
+        "qwen_mlp_init"
+      ]
+    },
+    {
+      "id": "qwen_load_checkpoint",
+      "kind": "call",
+      "label": "构造完成后由 loader 调用外层模型的权重加载入口",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "load_weights_postprocess",
+        "qwen_load_weights"
+      ]
+    },
+    {
+      "id": "qwen_text_embedding",
+      "kind": "call",
+      "label": "language_model_only=False 时纯文本请求经通用嵌入入口进入主干",
+      "nodes": [
+        "causal_lm",
+        "qwen_embed",
+        "qwen_model"
+      ]
+    },
+    {
+      "id": "qwen_construct_qkv_base",
+      "kind": "call",
+      "label": "Qwen 普通 Attention 层创建 QKV 投影，并沿继承链初始化计算实现",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "initialize_model",
+        "qwen_entry_init",
+        "qwen_parent_init",
+        "qwen_model_init",
+        "qwen_attention_init",
+        "qkv_projection_init",
+        "column_linear_init",
+        "linear_base_init"
+      ]
+    },
+    {
+      "id": "qwen_construct_qkv_weights",
+      "kind": "call",
+      "label": "QKV 投影由 ColumnParallelLinear 调用未量化实现创建参数；与父类初始化是独立分支",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "initialize_model",
+        "qwen_entry_init",
+        "qwen_parent_init",
+        "qwen_model_init",
+        "qwen_attention_init",
+        "qkv_projection_init",
+        "column_linear_init",
+        "unquant_linear_weights"
+      ]
+    },
+    {
+      "id": "qwen_qkv_projection",
+      "kind": "call",
+      "label": "Qwen 普通 Attention 经 QKV 准备方法调用继承的线性层前向，再执行未量化投影",
+      "nodes": [
+        "causal_lm",
+        "qwen_model",
+        "qwen_attention_layer",
+        "qwen_attention",
+        "column_linear_forward",
+        "unquant_linear_apply"
+      ]
+    }
+  ],
+  "route_id": "overlap_nonstream",
+  "expected_method_count": 127,
+  "route_sections": [
+    {
+      "id": "model_init",
+      "label": "启动准备：Qwen 3.5 初始化 → 权重加载",
+      "nodes": [
+        "load_model",
+        "load_model_memory",
+        "default_load_model",
+        "initialize_model",
+        "qwen_entry_init",
+        "qwen_parent_init",
+        "qwen_model_init",
+        "qwen_attention_init",
+        "qkv_projection_init",
+        "column_linear_init",
+        "linear_base_init",
+        "unquant_linear_weights",
+        "qwen_linear_init",
+        "qwen_gdn_init",
+        "qwen_mlp_init",
+        "load_weights_postprocess",
+        "qwen_load_weights"
+      ],
+      "note": "发生在请求执行前，一次初始化服务后续批次。DefaultModelLoader.load_model 先调用 _initialize_model 构造模型树，构造返回后再加载权重。入口子类调用父类并注入文本主干；主干按 layers_block_type 创建两类解码层。编号是阅读顺序，两类层和共用 MLP 不是串行调用。详细对象关系见 [LEARN.md 第 3.1 节](LEARN.md#31-固定模型qwen3_5forconditionalgeneration)。QKV 投影沿继承链初始化，父类构造返回后才创建权重参数；两条调用链分开判定。"
+    },
+    {
+      "id": "request",
+      "label": "接收请求 → 分词 → 发给 Scheduler",
+      "nodes": [
+        "nonstream_response",
+        "generate_request",
+        "init_req_state",
+        "tokenize_request",
+        "tokenize_texts",
+        "validate_request",
+        "normalize_sampling",
+        "create_tokenized",
+        "send_request"
+      ],
+      "note": "以单个非流式生成请求为主；generate_request 调用 _wait_one_response 后挂起，结果到达时才继续 yield。"
+    },
+    {
+      "id": "ingress",
+      "label": "Overlap 循环 → 收请求 → 入队",
+      "nodes": [
+        "overlap_loop",
+        "receive_requests",
+        "pull_requests",
+        "broadcast_requests",
+        "dispatch_requests",
+        "handle_generate",
+        "init_request",
+        "enqueue"
+      ],
+      "note": "Scheduler 循环已在后台运行，TokenizerManager 通过 ZMQ 发送请求；多 rank 广播按配置执行。"
+    },
+    {
+      "id": "prefill",
+      "label": "选择 Prefill 请求 → 匹配前缀 → 建立批次",
+      "nodes": [
+        "next_batch",
+        "new_prefill",
+        "raw_prefill",
+        "priority",
+        "prefill_budget",
+        "request_next_input",
+        "match_prefix",
+        "match_prefix_tree",
+        "split_radix_node",
+        "admit_request",
+        "lock_prefix",
+        "admit_chunk",
+        "update_budget",
+        "batch_init",
+        "prepare_extend"
+      ],
+      "note": "展示父方法后再下钻；分块 Prefill、前缀匹配属于条件路径。RadixCache 是学习代表实现，实际缓存由模型和配置选择。"
+    },
+    {
+      "id": "allocate",
+      "label": "为 Prefill 分配 KV 空间",
+      "nodes": [
+        "allocate_extend",
+        "allocate_request",
+        "paged_extend",
+        "map_slots"
+      ],
+      "note": "关注请求映射表行、逻辑 token 位置和物理 KV 槽位的关系；paged allocator 为代表实现。"
+    },
+    {
+      "id": "submit",
+      "label": "决定本轮重叠 → 解析输入 → 提交前向",
+      "nodes": [
+        "overlap_gate",
+        "run_batch",
+        "resolve_inputs",
+        "forward_isolation",
+        "worker_forward",
+        "forward_batch"
+      ],
+      "note": "run_batch 只读 enable_overlap 分支；resolve_forward_inputs 在 worker 调用和 ForwardBatch.init_new 之前。若需关闭本轮重叠，先处理队列中的上一批结果。"
+    },
+    {
+      "id": "model",
+      "label": "模型前向 → Qwen 3.5 → logits 与采样",
+      "nodes": [
+        "model_forward",
+        "raw_forward",
+        "eager_execute",
+        "eager_extend",
+        "eager_decode",
+        "attention_metadata",
+        "causal_lm",
+        "qwen_embed",
+        "qwen_model",
+        "qwen_attention_layer",
+        "qwen_attention",
+        "column_linear_forward",
+        "unquant_linear_apply",
+        "radix_attention",
+        "attention_extend",
+        "attention_decode",
+        "store_kv",
+        "qwen_linear_layer",
+        "qwen_gdn",
+        "radix_linear_attention",
+        "qwen_mlp",
+        "process_logits",
+        "get_logits",
+        "compute_lm_head",
+        "model_sample",
+        "prepare_logits",
+        "sample"
+      ],
+      "note": "外层实例是 Qwen3_5ForConditionalGeneration，执行继承的 Qwen3VLForConditionalGeneration.forward。language_model_only=True 时直接调用 self.model；否则纯文本也先经 general_mm_embed_routine，再进入 qwen3_5.py 的 Qwen3_5ForCausalLM.forward。主干返回 hidden states，外层调用 LogitsProcessor 得到 logits，ModelRunner.sample 再采样。Prefill/Decode、普通 Attention/GDN、Eager/CUDA Graph 分别是不同分支；FlashAttention 是普通 Attention 后端代表。满足延迟采样条件时，sample 移到上一批结果处理之后。先读 QKV 线性投影，再看注意力缓存读写；这是阅读顺序，投影方法不调用 RadixAttention。"
+    },
+    {
+      "id": "relay",
+      "label": "保存本批结果 → 交接下一轮输入",
+      "nodes": [
+        "future_publish",
+        "relay_payload",
+        "future_stash",
+        "copy_result",
+        "apply_war_barrier"
+      ],
+      "note": "publish 发布序列长度等元数据，stash 保存生成 token 等下一轮输入。copy_to_cpu 安排异步复制；随后将 batch 快照与结果放入 result_queue。若延迟采样，relay/stash/copy 在延迟采样后执行。"
+    },
+    {
+      "id": "result",
+      "label": "处理上一批结果 → 结束判断 → 缓存与释放",
+      "nodes": [
+        "process_result",
+        "prefill_result",
+        "decode_result",
+        "finish_request",
+        "cache_running",
+        "release_request",
+        "cache_finished",
+        "insert_prefix",
+        "insert_prefix_tree",
+        "unlock_prefix",
+        "paged_free",
+        "free_request",
+        "delay_sample"
+      ],
+      "note": "event_loop_overlap 内的 pop_and_process 从队头取出上一批并调用 process_batch_result；此处通常与本批 GPU 工作重叠。完成/未完成请求走不同分支；最后 launch_batch_sample_if_needed 仅在存在 delay_sample_func 时实际采样。"
+    },
+    {
+      "id": "decode",
+      "label": "请求未结束 → 准备下一轮 Decode",
+      "nodes": [
+        "merge_batch",
+        "update_decode",
+        "filter_batch",
+        "check_decode_memory",
+        "evict_prefix",
+        "retract_decode",
+        "reset_retracted",
+        "prepare_decode",
+        "allocate_decode",
+        "paged_decode"
+      ],
+      "note": "这些操作位于后续轮次的 get_next_batch_to_run 中；显存不足时才淘汰/撤回。准备后回到提交前向阶段，直到结束。"
+    },
+    {
+      "id": "response",
+      "label": "输出 token → 解码文本 → 完整 HTTP 响应",
+      "nodes": [
+        "stream_output",
+        "stream_generation",
+        "detokenizer_loop",
+        "handle_token_output",
+        "decode_token_output",
+        "group_decode",
+        "trim_stop",
+        "tokenizer_handle_loop",
+        "handle_text_output",
+        "wait_response",
+        "build_chat_response"
+      ],
+      "note": "结果处理内部发出输出，跨 ZMQ 到 Detokenizer，再回 TokenizerManager；后台 handle_loop 唤醒 _wait_one_response。非流式请求也复用 stream_output，最终由最初的 _handle_non_streaming_request 返回完整响应。"
+    },
+    {
+      "id": "graph",
+      "label": "条件分支：Decode CUDA Graph",
+      "nodes": [
+        "can_replay",
+        "replay_graph"
+      ],
+      "note": "这是 _forward_raw 中替代 Eager 的路径，不是 HTTP 回包之后执行。capture 在图准备阶段，不属于本次运行中请求路线，因此不计入本路线。"
+    }
+  ],
+  "origin": "路线 v3（2026-10-07）：在 v2 的 121 项基础上补入 4 个 QKV/线性层构造与参数创建方法、2 个线性投影前向方法，共 127 项。继承的 forward 按实际定义只计一次；统计基线与 D/C/B 规则保持不变。分母变化不代表学习退步，也不与全核心总览混算。",
+  "priority_nodes": [
+    "qwen_entry_init",
+    "qwen_parent_init",
+    "qwen_model_init",
+    "qwen_attention_init",
+    "qkv_projection_init",
+    "column_linear_init",
+    "linear_base_init",
+    "unquant_linear_weights",
+    "qwen_linear_init",
+    "qwen_gdn_init",
+    "qwen_mlp_init",
+    "load_weights_postprocess",
+    "qwen_load_weights",
+    "qwen_embed",
+    "qwen_model",
+    "qwen_attention_layer",
+    "qwen_attention",
+    "column_linear_forward",
+    "unquant_linear_apply",
+    "qwen_linear_layer",
+    "qwen_gdn",
+    "radix_linear_attention",
+    "qwen_mlp",
+    "process_logits",
+    "get_logits",
+    "compute_lm_head",
+    "prepare_logits",
+    "request_next_input",
+    "match_prefix",
+    "allocate_request",
+    "map_slots",
+    "overlap_gate",
+    "forward_isolation",
+    "future_publish",
+    "relay_payload",
+    "copy_result",
+    "apply_war_barrier",
+    "delay_sample",
+    "finish_request",
+    "release_request",
+    "cache_finished",
+    "merge_batch",
+    "filter_batch",
+    "allocate_decode"
+  ]
+}

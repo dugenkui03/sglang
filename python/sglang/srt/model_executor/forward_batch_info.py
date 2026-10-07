@@ -109,13 +109,15 @@ class ForwardMode(IntEnum):
     # Extend a sequence. The KV cache of the beginning part of the sequence is already computed (e.g., system prompt).
     # It is also called "prefill" in common terminology.
     # tip auto 给 IntEnum 自动编号，从0开始递增
-    EXTEND = auto() 
+    EXTEND = auto()
     # Decode one token.
-    DECODE = auto() # tip decode
+    DECODE = auto()  # tip decode
     # Contains both EXTEND and DECODE when doing chunked prefill.
-    MIXED = auto() # tip prefill + decode
+    MIXED = auto()  # tip prefill + decode
     # No sequence to forward. For data parallel attention, some workers will be IDLE if no sequence are allocated.
-    IDLE = auto() # tip 开 DP（Data Parallelism）attention 时，没活的卡也要陪其他卡跑一次
+    IDLE = (
+        auto()
+    )  # tip 开 DP（Data Parallelism）attention 时，没活的卡也要陪其他卡跑一次
 
     # Used in speculative decoding: verify a batch in the target model.
     TARGET_VERIFY = auto()
@@ -210,9 +212,10 @@ class ForwardMode(IntEnum):
 @total_ordering
 class CaptureHiddenMode(IntEnum):
     """
-       对最后的 transformer 层的 hidden states 的保留策略，
-       分别是：不保留、保留最后一个 token 的 hidden states和最后一层的所有token的 hidden states
+    对最后的 transformer 层的 hidden states 的保留策略，
+    分别是：不保留、保留最后一个 token 的 hidden states和最后一层的所有token的 hidden states
     """
+
     # Do not capture anything.
     NULL = 0
     # Capture a hidden state of the last token.
@@ -401,15 +404,24 @@ class NgramEmbeddingInfo:
 
 @dataclass
 class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
-    """Store all inputs of a forward pass."""
+    """Store all inputs of a forward pass.
+
+    tip 记录一次 forward 阶段的一次全部输入
+    """
 
     # === Required core inputs (no default; input_ids / req_pool_indices / seq_lens / out_cache_loc are borrowed from ScheduleBatch) ===
+
     # The forward mode
+    # EXTEND/PREFILL, DECODE, MIXED
     forward_mode: ForwardMode
+
     # The batch size
+    # 请求数量
     batch_size: int
+
     # The input ids
     input_ids: torch.Tensor
+
     # The indices of requests in the req_to_token_pool
     req_pool_indices: torch.Tensor
     # The sequence length
@@ -737,8 +749,11 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
         capture_hidden_mode: Optional[CaptureHiddenMode] = None,
         return_hidden_states_before_norm: bool,
     ):
-        # init_new must not mutate the input ScheduleBatch; per-forward
-        # overrides go through explicit keyword arguments.
+        """
+        NOTE create ForwardBatch from ScheduleBatch
+        """
+        # init_new must not mutate(change) the input ScheduleBatch;
+        # per-forward overrides go through explicit(clear and direct) keyword arguments.
 
         # capture_hidden_mode=None means no override: capture the server's
         # configured maximum so lower-mode requests can share one graph.
@@ -786,12 +801,20 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
 
         ret = cls(
             # Required core inputs
+            # NOTE 核心输入
+            # prefill/decode/mixed
             forward_mode=batch.forward_mode,
+            # 请求数量
             batch_size=len(batch.seq_lens),
+            # 每个请求上一次推理结果tokenID，要给到模型：计算 kv；推理下一个 token
             input_ids=batch.input_ids,
+            # req slot，结合 req_to_token 得到这个请求已经缓存 KV 的 KV index，支持读取 KV Cache
             req_pool_indices=batch.req_pool_indices,
+            # 各个请求的输入长度，是个 tensor
             seq_lens=batch.seq_lens,
+            # 本轮新计算出的 token 的 K/V 要写入哪些位置，保存的是 KV 编号
             out_cache_loc=batch.out_cache_loc,
+            # 本批所有请求的 seq_lens 之和
             seq_lens_sum=batch.seq_lens_sum,
             # Inputs aliased by reference from ScheduleBatch
             seq_lens_cpu=seq_lens_cpu,

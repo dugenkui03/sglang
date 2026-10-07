@@ -1,9 +1,9 @@
 {
-  "version": 2,
+  "version": 4,
   "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
-  "scope": "SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph，以及 Qwen 3.5 dense 文本主干的两类解码层。",
-  "representatives": "模型选 Qwen 3.5 dense：Qwen3_5ForConditionalGeneration 的文本路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。",
-  "excluded": ["通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter", "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑", "视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化和硬件专用变体、底层算子实现", "AI 生成文档、图片及其文件数量不作为直接已读证据"],
+  "scope": "SGLang 常规文本生成核心链路：启动、请求、调度、KV、前向、采样、回包；包含 normal/overlap、chunked prefill、基础 decode CUDA Graph，以及 Qwen3_5ForConditionalGeneration 的初始化、权重加载和 dense 文本推理。补入 QKV 投影及父类的核心构造与未量化前向方法。",
+  "representatives": "模型固定为 Qwen3_5ForConditionalGeneration（dense）：构造函数在 qwen3_5.py，forward 继承 qwen3_vl.py 的 Qwen3VLForConditionalGeneration；self.model 是 qwen3_5.py 的 Qwen3_5ForCausalLM。qwen3_5_text.py 中的同名类是另一个文本模型入口，不计入这条路线。初始化取 DefaultModelLoader 的常规加载路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。QKV 线性投影补读 QKVParallelLinear、ColumnParallelLinear、LinearBase 的构造，以及 UnquantizedLinearMethod 的参数创建和普通 F.linear 前向分支；共用方法只计一次。",
+  "excluded": ["通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter", "运维与权重更新 API、LoRA、PD/EPD、推测解码、MoE/EP、复杂并行拓扑", "视觉编码与多模态融合、独立 Mamba/SWA 专题、GDN 状态池与后端算子、量化和硬件专用变体、底层算子实现", "AI 生成文档、图片及其文件数量不作为直接已读证据", "启动期权重加载重叠、远程/IPC/其他 loader 变体；本次只补齐常规模型构造和权重加载", "LinearBase.forward 抽象占位、PyTorch nn.Module 通用机制及 F.linear 底层算子实现"],
   "branch_threshold": {"numerator": 2, "denominator": 3, "min_direct": 2},
   "node_columns": ["id", "source", "qualname", "concept"],
   "sources": {
@@ -40,7 +40,12 @@
     "params": "python/sglang/srt/sampling/sampling_params.py",
     "result": "python/sglang/srt/managers/scheduler_components/batch_result_processor.py",
     "streamer": "python/sglang/srt/managers/scheduler_components/output_streamer.py",
-    "detokenizer": "python/sglang/srt/managers/detokenizer_manager.py"
+    "detokenizer": "python/sglang/srt/managers/detokenizer_manager.py",
+    "load_utils": "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py",
+    "loader": "python/sglang/srt/model_loader/loader.py",
+    "mm_utils": "python/sglang/srt/managers/mm_utils.py",
+    "linear": "python/sglang/srt/layers/linear.py",
+    "unquant": "python/sglang/srt/layers/quantization/unquant.py"
   },
   "stages": {
     "1": "启动与进程",
@@ -72,6 +77,28 @@
       ["runner_init", "runner", "ModelRunner.__init__", "GPU 执行状态与设备配置"],
       ["runner_initialize", "runner", "ModelRunner.initialize", "模型执行环境初始化顺序"],
       ["load_model", "runner", "ModelRunner.load_model", "将模型权重与结构加载到执行器"]
+    ]},
+    {"id": "model_loading", "stage": "1", "label": "Qwen 3.5 模型构造入口与权重加载", "description": "代表路径为常规 DefaultModelLoader；load_model 内先调用 _initialize_model 完成整个对象树构造，再调用 load_weights_and_postprocess。构造与加载是两个阶段，不把构造方法和 load_weights 串成父子调用。", "nodes": [
+      ["load_model_memory", "load_utils", "load_model_with_memory_saver", "在权重内存区域中选择 loader 并加载模型"],
+      ["default_load_model", "loader", "DefaultModelLoader.load_model", "先创建模型结构，再加载权重并进入 eval 模式"],
+      ["initialize_model", "loader", "_initialize_model", "按模型架构解析具体类并调用构造函数"],
+      ["load_weights_postprocess", "loader", "DefaultModelLoader.load_weights_and_postprocess", "调用模型的 load_weights 并执行加载后处理"],
+      ["qwen_load_weights", "qwen_model", "Qwen3_5ForConditionalGeneration.load_weights", "映射 checkpoint 名称，将 QKV、MLP 和 GDN 权重装入参数"]
+    ]},
+    {"id": "model_construction", "stage": "1", "label": "Qwen3_5ForConditionalGeneration 的对象初始化", "description": "入口把 language_model_cls=Qwen3_5ForCausalLM 传给父类；父类用 config.text_config 创建 self.model，并持有 lm_head 与 logits_processor。两类层按 layers_block_type 分支创建，dense MLP 被两类层复用。这里只认识视觉模块的创建条件，不展开视觉计算。", "nodes": [
+      ["qwen_entry_init", "qwen_model", "Qwen3_5ForConditionalGeneration.__init__", "注入 Qwen3_5ForCausalLM，调用父类构造并设置位置编码信息"],
+      ["qwen_parent_init", "qwen_entry", "Qwen3VLForConditionalGeneration.__init__", "创建文本主干、LM head、LogitsProcessor 与可选视觉模块"],
+      ["qwen_model_init", "qwen_model", "Qwen3_5ForCausalLM.__init__", "创建 embedding、按配置选择两类解码层并创建最终归一化"],
+      ["qwen_attention_init", "qwen_model", "Qwen3_5AttentionDecoderLayer.__init__", "创建 QKV 投影、RoPE、RadixAttention、dense MLP 与归一化"],
+      ["qwen_linear_init", "qwen_model", "Qwen3_5LinearDecoderLayer.__init__", "创建 GatedDeltaNet、dense MLP、归一化与层间通信组件"],
+      ["qwen_gdn_init", "qwen_model", "Qwen3_5GatedDeltaNet.__init__", "创建 GDN 输入投影、卷积参数、RadixLinearAttention、门控归一化与输出投影"],
+      ["qwen_mlp_init", "qwen_mlp", "Qwen2MoeMLP.__init__", "创建 dense gate/up、SiLU 门控与 down 投影"]
+    ]},
+    {"id": "linear_construction", "stage": "1", "label": "QKV 投影与线性层权重创建", "description": "QKVParallelLinear 继承 ColumnParallelLinear 和 LinearBase。ColumnParallelLinear.__init__ 先调用父类构造选择计算实现，返回后再调用 create_weights；两者是独立调用分支。这里只读未量化代表路径，共用方法只计一次。", "nodes": [
+      ["qkv_projection_init", "linear", "QKVParallelLinear.__init__", "确定 QKV 合并投影的维度、头划分与权重布局"],
+      ["column_linear_init", "linear", "ColumnParallelLinear.__init__", "配置列并行线性层，创建权重并绑定加载回调"],
+      ["linear_base_init", "linear", "LinearBase.__init__", "保存线性层配置并选择 quant_method 计算实现"],
+      ["unquant_linear_weights", "unquant", "UnquantizedLinearMethod.create_weights", "创建并注册未量化线性层的 weight 参数及加载属性"]
     ]},
     {"id": "configuration", "stage": "2", "label": "从启动参数到本进程配置", "nodes": [
       ["resolve_config", "args", "ServerArgs.resolve_once", "一次性解析启动配置"],
@@ -163,8 +190,9 @@
       ["capture_graph", "graph", "DecodeCudaGraphRunner.capture", "捕获固定布局的执行图"],
       ["replay_graph", "graph", "DecodeCudaGraphRunner.execute", "重放已捕获的执行图"]
     ]},
-    {"id": "dense_model", "stage": "7", "label": "Qwen 3.5 dense 文本模型的前向主干", "description": "入口为 Qwen3_5ForConditionalGeneration，forward 继承自 Qwen3VLForConditionalGeneration；其内部文本模型是 qwen3_5.py 中的 Qwen3_5ForCausalLM。普通 Attention 层和 GatedDeltaNet 线性注意力层是按配置选择的两条分支；两类层复用 Qwen2MoeMLP 的 dense 前馈实现，类名中的 Moe 不表示本清单纳入了专家路由。", "nodes": [
+    {"id": "dense_model", "stage": "7", "label": "Qwen 3.5 dense 文本模型的前向主干", "description": "前向继承父类，但执行的是构造时注入的 Qwen 3.5 主干。language_model_only=True 直接调用 self.model；否则经 general_mm_embed_routine 的文本路径。普通 Attention 与 GDN 是不同层类型；完整调用关系见 LEARN.md 第 3.1 节。", "nodes": [
       ["causal_lm", "qwen_entry", "Qwen3VLForConditionalGeneration.forward", "Qwen 3.5 继承的入口：执行文本主干并产出 logits"],
+      ["qwen_embed", "mm_utils", "general_mm_embed_routine", "非 language_model_only 配置下，纯文本也经此完成 embedding 并调用主干"],
       ["qwen_model", "qwen_model", "Qwen3_5ForCausalLM.forward", "嵌入、混合类型解码层逐层执行与最终归一化"],
       ["qwen_attention_layer", "qwen_model", "Qwen3_5AttentionDecoderLayer.forward", "普通 Attention 层的注意力、MLP 与残差连接"],
       ["qwen_attention", "qwen_model", "Qwen3_5AttentionDecoderLayer.self_attention", "QKV 与位置编码准备、RadixAttention 和输出门控"],
@@ -172,6 +200,10 @@
       ["qwen_gdn", "qwen_model", "Qwen3_5GatedDeltaNet.forward", "GatedDeltaNet 的输入投影、线性注意力调用与输出门控"],
       ["radix_linear_attention", "linear_attention", "RadixLinearAttention.forward", "将 GatedDeltaNet 输入交给 SGLang 线性注意力后端"],
       ["qwen_mlp", "qwen_mlp", "Qwen2MoeMLP.forward", "Qwen 3.5 dense 复用的门控前馈网络"]
+    ]},
+    {"id": "linear_projection", "stage": "7", "label": "QKV 线性投影的前向计算", "description": "self_attention 经 QKV 准备方法调用 qkv_proj 对象，实际执行继承的 ColumnParallelLinear.forward，再由 UnquantizedLinearMethod.apply 计算。投影与 RadixAttention 是 self_attention 内的不同调用分支；QKVParallelLinear 没有独立的 forward 定义。", "nodes": [
+      ["column_linear_forward", "linear", "ColumnParallelLinear.forward", "QKVParallelLinear 继承的前向入口，调用 quant_method.apply 执行投影"],
+      ["unquant_linear_apply", "unquant", "UnquantizedLinearMethod.apply", "未量化线性计算的普通分支，以 F.linear 执行输入与权重的投影"]
     ]},
     {"id": "attention_backend", "stage": "7", "label": "Attention 与 KV 读写", "nodes": [
       ["radix_attention", "attention", "RadixAttention.forward", "模型层接入 SGLang 注意力后端"],
@@ -216,6 +248,7 @@
       ["normalize_sampling", "params", "SamplingParams.normalize", "将生成参数规范化为采样语义"],
       ["process_logits", "logits", "LogitsProcessor.forward", "选择需要输出的 token 并形成 logits"],
       ["get_logits", "logits", "LogitsProcessor._get_logits", "隐藏状态经过 LM head 得到词表分数"],
+      ["compute_lm_head", "logits", "LogitsProcessor._compute_lm_head", "执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T"],
       ["prepare_logits", "runner", "ModelRunner._preprocess_logits", "惩罚项、掩码与 logit 偏置"],
       ["model_sample", "runner", "ModelRunner.sample", "调用 sampler 并返回 token ID"],
       ["sample", "sampler", "Sampler.forward", "贪心与概率采样的核心分派"]
@@ -271,13 +304,13 @@
     {"id": "worker_model", "kind": "call", "label": "批次提交到模型前向", "nodes": ["run_batch", "worker_forward", "model_forward", "raw_forward", "eager_execute"]},
     {"id": "worker_batch", "kind": "call", "label": "构造 GPU 批次视图", "nodes": ["run_batch", "worker_forward", "forward_batch"]},
     {"id": "worker_sample", "kind": "call", "label": "Worker 的采样调用", "nodes": ["run_batch", "worker_forward", "model_sample", "sample"]},
-    {"id": "eager_extend_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 普通 Attention 层写入 KV", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_extend", "store_kv"]},
-    {"id": "eager_decode_model", "kind": "call", "label": "Decode 经 Qwen 3.5 普通 Attention 层写入 KV", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_decode", "store_kv"]},
-    {"id": "eager_extend_linear_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
-    {"id": "eager_decode_linear_model", "kind": "call", "label": "Decode 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
-    {"id": "model_mlp", "kind": "call", "label": "Qwen 3.5 普通 Attention 层的 dense 前馈分支", "nodes": ["causal_lm", "qwen_model", "qwen_attention_layer", "qwen_mlp"]},
-    {"id": "model_linear_mlp", "kind": "call", "label": "Qwen 3.5 线性注意力层的 dense 前馈分支", "nodes": ["causal_lm", "qwen_model", "qwen_linear_layer", "qwen_mlp"]},
-    {"id": "model_logits", "kind": "call", "label": "模型隐藏状态进入词表投影", "nodes": ["causal_lm", "process_logits", "get_logits"]},
+    {"id": "eager_extend_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 普通 Attention 层写入 KV（language_model_only 直达主干分支）", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_extend", "store_kv"]},
+    {"id": "eager_decode_model", "kind": "call", "label": "Decode 经 Qwen 3.5 普通 Attention 层写入 KV（language_model_only 直达主干分支）", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "radix_attention", "attention_decode", "store_kv"]},
+    {"id": "eager_extend_linear_model", "kind": "call", "label": "Prefill 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet（language_model_only 直达主干分支）", "nodes": ["raw_forward", "eager_execute", "eager_extend", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
+    {"id": "eager_decode_linear_model", "kind": "call", "label": "Decode 经 Qwen 3.5 线性注意力层进入 GatedDeltaNet（language_model_only 直达主干分支）", "nodes": ["raw_forward", "eager_execute", "eager_decode", "causal_lm", "qwen_model", "qwen_linear_layer", "qwen_gdn", "radix_linear_attention"]},
+    {"id": "model_mlp", "kind": "call", "label": "Qwen 3.5 普通 Attention 层的 dense 前馈分支（language_model_only 直达主干分支）", "nodes": ["causal_lm", "qwen_model", "qwen_attention_layer", "qwen_mlp"]},
+    {"id": "model_linear_mlp", "kind": "call", "label": "Qwen 3.5 线性注意力层的 dense 前馈分支（language_model_only 直达主干分支）", "nodes": ["causal_lm", "qwen_model", "qwen_linear_layer", "qwen_mlp"]},
+    {"id": "model_logits", "kind": "call", "label": "模型隐藏状态进入词表投影", "nodes": ["causal_lm", "process_logits", "get_logits", "compute_lm_head"]},
     {"id": "kv_init", "kind": "call", "label": "从调度器初始化执行器缓存资源", "nodes": ["init_memory", "init_target_memory", "worker_memory", "runner_memory"]},
     {"id": "prefix_lookup", "kind": "call", "label": "请求下一轮输入匹配前缀", "nodes": ["request_next_input", "match_prefix", "match_prefix_tree", "split_radix_node"]},
     {"id": "prefix_insert", "kind": "call", "label": "完成请求的缓存写回", "nodes": ["release_request", "cache_finished", "insert_prefix", "insert_prefix_tree"]},
@@ -287,6 +320,14 @@
     {"id": "decode_release", "kind": "call", "label": "Decode 请求结束后的资源回收", "nodes": ["process_result", "decode_result", "release_request"]},
     {"id": "token_message", "kind": "ipc", "label": "Token 输出消息跨进程进入增量解码", "nodes": ["stream_output", "stream_generation", "detokenizer_loop", "handle_token_output", "decode_token_output", "group_decode"]},
     {"id": "text_message", "kind": "ipc", "label": "文本输出消息按 rid 回到请求状态", "nodes": ["handle_token_output", "tokenizer_handle_loop", "handle_text_output"]},
-    {"id": "text_response", "kind": "data", "label": "更新 ReqState 后唤醒请求等待协程", "nodes": ["handle_text_output", "wait_response", "nonstream_response"]}
+    {"id": "text_response", "kind": "data", "label": "更新 ReqState 后唤醒请求等待协程", "nodes": ["handle_text_output", "wait_response", "nonstream_response"]},
+    {"id": "qwen_construct_attention", "kind": "call", "label": "默认 loader 创建 Qwen 3.5 普通 Attention 层和 dense MLP", "nodes": ["load_model", "load_model_memory", "default_load_model", "initialize_model", "qwen_entry_init", "qwen_parent_init", "qwen_model_init", "qwen_attention_init", "qwen_mlp_init"]},
+    {"id": "qwen_construct_linear", "kind": "call", "label": "默认 loader 创建 Qwen 3.5 线性注意力层和 GDN", "nodes": ["load_model", "load_model_memory", "default_load_model", "initialize_model", "qwen_entry_init", "qwen_parent_init", "qwen_model_init", "qwen_linear_init", "qwen_gdn_init"]},
+    {"id": "qwen_construct_linear_mlp", "kind": "call", "label": "线性注意力层创建 dense MLP", "nodes": ["qwen_model_init", "qwen_linear_init", "qwen_mlp_init"]},
+    {"id": "qwen_load_checkpoint", "kind": "call", "label": "构造完成后由 loader 调用外层模型的权重加载入口", "nodes": ["load_model", "load_model_memory", "default_load_model", "load_weights_postprocess", "qwen_load_weights"]},
+    {"id": "qwen_text_embedding", "kind": "call", "label": "language_model_only=False 时纯文本请求经通用嵌入入口进入主干", "nodes": ["causal_lm", "qwen_embed", "qwen_model"]},
+    {"id": "qwen_construct_qkv_base", "kind": "call", "label": "Qwen 普通 Attention 层创建 QKV 投影，并沿继承链初始化计算实现", "nodes": ["load_model", "load_model_memory", "default_load_model", "initialize_model", "qwen_entry_init", "qwen_parent_init", "qwen_model_init", "qwen_attention_init", "qkv_projection_init", "column_linear_init", "linear_base_init"]},
+    {"id": "qwen_construct_qkv_weights", "kind": "call", "label": "QKV 投影由 ColumnParallelLinear 调用未量化实现创建参数；与父类初始化是独立分支", "nodes": ["load_model", "load_model_memory", "default_load_model", "initialize_model", "qwen_entry_init", "qwen_parent_init", "qwen_model_init", "qwen_attention_init", "qkv_projection_init", "column_linear_init", "unquant_linear_weights"]},
+    {"id": "qwen_qkv_projection", "kind": "call", "label": "Qwen 普通 Attention 经 QKV 准备方法调用继承的线性层前向，再执行未量化投影", "nodes": ["causal_lm", "qwen_model", "qwen_attention_layer", "qwen_attention", "column_linear_forward", "unquant_linear_apply"]}
   ]
 }

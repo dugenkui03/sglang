@@ -64,6 +64,7 @@ class Qwen3_5ForCausalLM(nn.Module):
         if quant_config is not None and hasattr(quant_config, "packed_modules_mapping"):
             quant_config.packed_modules_mapping = self.packed_modules_mapping
 
+        # NOTE 又改变了 model 的类型为 qwen3_5.Qwen3_5ForCausalLM
         self.model = self.body_cls(
             config=config,
             quant_config=quant_config,

@@ -435,7 +435,7 @@ def get_available_gpu_memory(
             # memory metric instead.
             free_gpu_memory = psutil.virtual_memory().available
         else:
-            #【总要】返回闲置的内存大小，单位 byte 字节
+            # 【总要】返回闲置的内存大小，单位 byte 字节
             free_gpu_memory, _ = torch.cuda.mem_get_info(gpu_id)
 
     elif device == "xpu":
@@ -1437,15 +1437,19 @@ class LayerFn(Protocol):
 
 
 def make_layers(
-    num_hidden_layers: int,
-    layer_fn: LayerFn,
+    num_hidden_layers: int,  # tip transformer layer 的层数
+    layer_fn: LayerFn,  # tip 创建 transformer layer 的function
     pp_rank: Optional[int] = None,
     pp_size: Optional[int] = None,
     prefix: str = "",
     return_tuple: bool = False,
     offloader_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[torch.nn.Module, int, int]:
-    """Make a list of layers with the given layer function"""
+    """Make a list of layers with the given layer function
+
+    note 使用给定的 layer_create_function 创建 transformer layer
+        nn.ModuleList 也继承了 nn.Module
+    """
     # circular imports
     from sglang.srt.distributed import get_pp_indices
     from sglang.srt.layers.utils import PPMissingLayer
@@ -1453,6 +1457,8 @@ def make_layers(
 
     assert not pp_size or num_hidden_layers >= pp_size
     start_layer, end_layer = (
+        # tip 如果没有使用 pipeline parallelism 则 layer 的开始、结束编号是 0, num_hidden_layer-1
+        #    如果使用了 pipeline parallelism 则这里返回当前 pipeline 编号要创建的层数
         get_pp_indices(
             num_hidden_layers,
             pp_rank,
@@ -1461,13 +1467,21 @@ def make_layers(
         if pp_rank is not None and pp_size is not None
         else (0, num_hidden_layers)
     )
+
+    # NOTE 调用到 init() 方法，参数是 Optional[Iterable[Module]] 类型
+    #   tip 三个[Module] 拼接成 Iterable[Module]
     modules = torch.nn.ModuleList(
+        # 如果是 pipeline parallelism 才有第一个 [Module]
         [PPMissingLayer(return_tuple=return_tuple) for _ in range(start_layer)]
+        # TODO 这个代码啥意思
         + get_offloader().wrap_modules(
+            # tip 第一个参数
             (
+                # NOTE 调用 transformer layer 创建函数
                 layer_fn(idx=idx, prefix=add_prefix(idx, prefix))
                 for idx in range(start_layer, end_layer)
             ),
+            # tip 第二个参数，** 会将列表展开赋值给对应名称的参数
             **(offloader_kwargs or {}),
         )
         + [
@@ -2394,7 +2408,7 @@ def broadcast_pyobj(
     force_cpu_device: bool = True,
 ):
     """Broadcast inputs from src rank to all other ranks with torch.dist backend.
-    The `rank` here refer to the source rank on global process group 
+    The `rank` here refer to the source rank on global process group
     (regardless of dist_group argument).
 
     用 torch.distributed 后端，把输入从 src rank 广播给其他所有 rank。
@@ -4717,7 +4731,7 @@ def raise_error_or_warn(obj, strict, counter_name, message, log_interval=1000):
 
 def get_or_create_event_loop():
     """Gets the running event loop or creates a new one if it doesn't exist.
-     获取当前线程正在运行的事件循环，没有就抛出 RuntimeError
+    获取当前线程正在运行的事件循环，没有就抛出 RuntimeError
     """
     try:
         return asyncio.get_running_loop()
