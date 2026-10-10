@@ -1,10 +1,10 @@
 # SGLang Overlap 学习路线与现状
 
-先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。 不计入已排除的 5 个 Overlap 协作方法。
+先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。 不计入已排除的 5 个 Overlap 协作方法。 main 合并后的接口映射：旧 cache_unfinished_req/cache_finished_req 已移除，缓存写回改为 checkpoint → _insert_cache，结束释放仍由 release_kv_cache 负责；方法总数不变。
 
-**Overlap 路线阅读覆盖：94/122（77.0%），待覆盖 28 个。**
+**Overlap 路线阅读覆盖：95/122（77.9%），待覆盖 27 个。**
 
-直接注释 D：76；链路补全 C：11；分支补全 B：7。
+直接注释 D：79；链路补全 C：9；分支补全 B：7。
 
 | 阅读阶段 | 已覆盖 / 总数 | 待覆盖 | 进度 |
 | --- | ---: | ---: | ---: |
@@ -17,7 +17,7 @@
 | 模型前向 → Qwen 3.5 → logits 与采样 | 24/27 | 3 | 88.9% |
 | 保存本批结果 → 交接下一轮输入 | 2/2 | 0 | 100.0% |
 | 处理上一批结果 → 结束判断 → 缓存与释放 | 4/13 | 9 | 30.8% |
-| 请求未结束 → 准备下一轮 Decode | 2/10 | 8 | 20.0% |
+| 请求未结束 → 准备下一轮 Decode | 3/10 | 7 | 30.0% |
 | 输出 token → 解码文本 → 完整 HTTP 响应 | 11/11 | 0 | 100.0% |
 | 条件分支：Decode CUDA Graph | 0/2 | 2 | 0.0% |
 
@@ -54,16 +54,16 @@
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 40 | ⬜ 未读 | Req | [init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1343) | 按已缓存前缀准备下轮输入 |
-| 41 | ⬜ 未读 | RadixCache | [match\_prefix](python/sglang/srt/mem_cache/radix_cache.py#L391) | 查找可复用前缀 |
-| 53 | ⬜ 未读 | — | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L617) | 将逻辑 token 位置映射到 KV 槽位 |
-| 80 | ⬜ 未读 | LogitsProcessor | [\_get\_logits](python/sglang/srt/layers/logits_processor.py#L668) | 隐藏状态经过 LM head 得到词表分数 |
-| 81 | ⬜ 未读 | LogitsProcessor | [\_compute\_lm\_head](python/sglang/srt/layers/logits_processor.py#L722) | 执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T |
-| 83 | ⬜ 未读 | ModelRunner | [\_preprocess\_logits](python/sglang/srt/model_executor/model_runner.py#L1927) | 惩罚项、掩码与 logit 偏置 |
-| 90 | ⬜ 未读 | Req | [update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1674) | 判断长度、终止 token 和停止字符串 |
-| 92 | ⬜ 未读 | — | [release\_kv\_cache](python/sglang/srt/mem_cache/common.py#L202) | 结束请求时转交缓存并释放资源 |
-| 93 | ⬜ 未读 | RadixCache | [cache\_finished\_req](python/sglang/srt/mem_cache/radix_cache.py#L473) | 完成请求的缓存写回与释放 |
-| 100 | ⬜ 未读 | ScheduleBatch | [merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3406) | 合并完成 prefill 的请求与运行批次 |
+| 40 | ⬜ 未读 | Req | [init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1619) | 按已缓存前缀准备下轮输入 |
+| 41 | ⬜ 未读 | RadixCache | [match\_prefix](python/sglang/srt/mem_cache/radix_cache.py#L373) | 查找可复用前缀 |
+| 53 | ⬜ 未读 | — | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L713) | 将逻辑 token 位置映射到 KV 槽位 |
+| 80 | ⬜ 未读 | LogitsProcessor | [\_get\_logits](python/sglang/srt/layers/logits_processor.py#L876) | 隐藏状态经过 LM head 得到词表分数 |
+| 81 | ⬜ 未读 | LogitsProcessor | [\_compute\_lm\_head](python/sglang/srt/layers/logits_processor.py#L978) | 执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T |
+| 83 | ⬜ 未读 | ModelRunner | [\_preprocess\_logits](python/sglang/srt/model_executor/model_runner.py#L2096) | 惩罚项、掩码与 logit 偏置 |
+| 90 | ⬜ 未读 | Req | [update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1908) | 判断长度、终止 token 和停止字符串 |
+| 92 | ⬜ 未读 | — | [release\_kv\_cache](python/sglang/srt/mem_cache/common.py#L379) | 结束请求时转交缓存并释放资源 |
+| 93 | ⬜ 未读 | RadixCache | [\_insert\_cache](python/sglang/srt/mem_cache/radix_cache.py#L459) | 将页对齐 KV 前缀写入树并释放重复槽位 |
+| 100 | ⬜ 未读 | ScheduleBatch | [merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3800) | 合并完成 prefill 的请求与运行批次 |
 
 ## 启动准备：Qwen 3.5 初始化 → 权重加载
 
@@ -73,23 +73,23 @@
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 1 | ✅ 已读 | ModelRunner | [load\_model](python/sglang/srt/model_executor/model_runner.py#L1163) | 启动期加载模型并保存 loader 与外层模型实例 |
-| 2 | ✅ 已读 | — | [load\_model\_with\_memory\_saver](python/sglang/srt/model_executor/model_runner_components/load_model_utils.py#L265) | 在权重内存区域中选择 loader 并加载模型 |
-| 3 | ✅ 已读 | DefaultModelLoader | [load\_model](python/sglang/srt/model_loader/loader.py#L962) | 先创建模型结构，再加载权重并进入 eval 模式 |
-| 4 | ✅ 已读 | — | [\_initialize\_model](python/sglang/srt/model_loader/loader.py#L271) | 按模型架构解析具体类并调用构造函数 |
-| 5 | ✅ 已读 | Qwen3_5ForConditionalGeneration | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L1982) | 注入 Qwen3_5ForCausalLM，调用父类构造并设置位置编码信息 |
-| 6 | ✅ 已读 | Qwen3VLForConditionalGeneration | [\_\_init\_\_](python/sglang/srt/models/qwen3_vl.py#L1260) | 创建文本主干、LM head、LogitsProcessor 与可选视觉模块 |
-| 7 | ✅ 已读 | Qwen3_5ForCausalLM | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L1510) | 创建 embedding、按配置选择两类解码层并创建最终归一化 |
-| 8 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L944) | 创建 QKV 投影、RoPE、RadixAttention、dense MLP 与归一化 |
-| 9 | ✅ 已读 | QKVParallelLinear | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L982) | 确定 QKV 合并投影的维度、头划分与权重布局 |
-| 10 | ☑️ 推定 · C | ColumnParallelLinear | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L335) | 配置列并行线性层，创建权重并绑定加载回调 |
-| 11 | ✅ 已读 | LinearBase | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L167) | 保存线性层配置并选择 quant_method 计算实现 |
-| 12 | ✅ 已读 | UnquantizedLinearMethod | [create\_weights](python/sglang/srt/layers/quantization/unquant.py#L229) | 创建并注册未量化线性层的 weight 参数及加载属性 |
-| 13 | ☑️ 推定 · C | Qwen3_5LinearDecoderLayer | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L801) | 创建 GatedDeltaNet、dense MLP、归一化与层间通信组件 |
-| 14 | ✅ 已读 | Qwen3_5GatedDeltaNet | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L267) | 创建 GDN 输入投影、卷积参数、RadixLinearAttention、门控归一化与输出投影 |
-| 15 | ☑️ 推定 · B | Qwen2MoeMLP | [\_\_init\_\_](python/sglang/srt/models/qwen2_moe.py#L177) | 创建 dense gate/up、SiLU 门控与 down 投影 |
-| 16 | ✅ 已读 | DefaultModelLoader | [load\_weights\_and\_postprocess](python/sglang/srt/model_loader/loader.py#L1014) | 调用模型的 load_weights 并执行加载后处理 |
-| 17 | ☑️ 推定 · B | Qwen3_5ForConditionalGeneration | [load\_weights](python/sglang/srt/models/qwen3_5.py#L2040) | 映射 checkpoint 名称，将 QKV、MLP 和 GDN 权重装入参数 |
+| 1 | ✅ 已读 | ModelRunner | [load\_model](python/sglang/srt/model_executor/model_runner.py#L1245) | 启动期加载模型并保存 loader 与外层模型实例 |
+| 2 | ✅ 已读 | — | [load\_model\_with\_memory\_saver](python/sglang/srt/model_executor/model_runner_components/load_model_utils.py#L256) | 在权重内存区域中选择 loader 并加载模型 |
+| 3 | ✅ 已读 | DefaultModelLoader | [load\_model](python/sglang/srt/model_loader/loader.py#L1009) | 先创建模型结构，再加载权重并进入 eval 模式 |
+| 4 | ✅ 已读 | — | [\_initialize\_model](python/sglang/srt/model_loader/loader.py#L280) | 按模型架构解析具体类并调用构造函数 |
+| 5 | ✅ 已读 | Qwen3_5ForConditionalGeneration | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L2409) | 注入 Qwen3_5ForCausalLM，调用父类构造并设置位置编码信息 |
+| 6 | ✅ 已读 | Qwen3VLForConditionalGeneration | [\_\_init\_\_](python/sglang/srt/models/qwen3_vl.py#L1315) | 创建文本主干、LM head、LogitsProcessor 与可选视觉模块 |
+| 7 | ✅ 已读 | Qwen3_5ForCausalLM | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L1790) | 创建 embedding、按配置选择两类解码层并创建最终归一化 |
+| 8 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L1223) | 创建 QKV 投影、RoPE、RadixAttention、dense MLP 与归一化 |
+| 9 | ✅ 已读 | QKVParallelLinear | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L1113) | 确定 QKV 合并投影的维度、头划分与权重布局 |
+| 10 | ☑️ 推定 · C | ColumnParallelLinear | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L418) | 配置列并行线性层，创建权重并绑定加载回调 |
+| 11 | ✅ 已读 | LinearBase | [\_\_init\_\_](python/sglang/srt/layers/linear.py#L249) | 保存线性层配置并选择 quant_method 计算实现 |
+| 12 | ✅ 已读 | UnquantizedLinearMethod | [create\_weights](python/sglang/srt/layers/quantization/unquant.py#L474) | 创建并注册未量化线性层的 weight 参数及加载属性 |
+| 13 | ☑️ 推定 · C | Qwen3_5LinearDecoderLayer | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L1092) | 创建 GatedDeltaNet、dense MLP、归一化与层间通信组件 |
+| 14 | ✅ 已读 | Qwen3_5GatedDeltaNet | [\_\_init\_\_](python/sglang/srt/models/qwen3_5.py#L333) | 创建 GDN 输入投影、卷积参数、RadixLinearAttention、门控归一化与输出投影 |
+| 15 | ☑️ 推定 · B | Qwen2MoeMLP | [\_\_init\_\_](python/sglang/srt/models/qwen2_moe.py#L172) | 创建 dense gate/up、SiLU 门控与 down 投影 |
+| 16 | ☑️ 推定 · B | DefaultModelLoader | [load\_weights\_and\_postprocess](python/sglang/srt/model_loader/loader.py#L1061) | 调用模型的 load_weights 并执行加载后处理 |
+| 17 | ☑️ 推定 · B | Qwen3_5ForConditionalGeneration | [load\_weights](python/sglang/srt/models/qwen3_5.py#L2477) | 映射 checkpoint 名称，将 QKV、MLP 和 GDN 权重装入参数 |
 
 ## 接收请求 → 分词 → 发给 Scheduler
 
@@ -99,15 +99,15 @@
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 18 | ✅ 已读 | OpenAIServingChat | [\_handle\_non\_streaming\_request](python/sglang/srt/entrypoints/openai/serving_chat.py#L1826) | 收集完整结果并构造 chat 响应 |
-| 19 | ✅ 已读 | TokenizerManager | [generate\_request](python/sglang/srt/managers/tokenizer_manager.py#L850) | 统一请求生命周期入口 |
-| 20 | ✅ 已读 | TokenizerManager | [\_init\_req\_state](python/sglang/srt/managers/tokenizer_manager.py#L3582) | 以 rid 登记请求状态 |
-| 21 | ✅ 已读 | TokenizerManager | [\_tokenize\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1069) | 构造单个 tokenized 请求 |
-| 22 | ✅ 已读 | TokenizerManager | [\_tokenize\_texts](python/sglang/srt/managers/tokenizer_manager.py#L995) | 文本与 token 输入的分词路径 |
-| 23 | ✅ 已读 | TokenizerManager | [\_validate\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1283) | 上下文长度与生成预算检查 |
-| 24 | ✅ 已读 | SamplingParams | [normalize](python/sglang/srt/sampling/sampling_params.py#L218) | 将生成参数规范化为采样语义 |
-| 25 | ✅ 已读 | TokenizerManager | [\_create\_tokenized\_object](python/sglang/srt/managers/tokenizer_manager.py#L1462) | 生成跨进程请求对象 |
-| 26 | ✅ 已读 | TokenizerManager | [\_send\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1704) | 提交请求并关联返回状态 |
+| 18 | ✅ 已读 | OpenAIServingChat | [\_handle\_non\_streaming\_request](python/sglang/srt/entrypoints/openai/serving_chat.py#L2304) | 收集完整结果并构造 chat 响应 |
+| 19 | ✅ 已读 | TokenizerManager | [generate\_request](python/sglang/srt/managers/tokenizer_manager.py#L942) | 统一请求生命周期入口 |
+| 20 | ✅ 已读 | TokenizerManager | [\_init\_req\_state](python/sglang/srt/managers/tokenizer_manager.py#L3871) | 以 rid 登记请求状态 |
+| 21 | ✅ 已读 | TokenizerManager | [\_tokenize\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1165) | 构造单个 tokenized 请求 |
+| 22 | ✅ 已读 | TokenizerManager | [\_tokenize\_texts](python/sglang/srt/managers/tokenizer_manager.py#L1087) | 文本与 token 输入的分词路径 |
+| 23 | ✅ 已读 | TokenizerManager | [\_validate\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1388) | 上下文长度与生成预算检查 |
+| 24 | ✅ 已读 | SamplingParams | [normalize](python/sglang/srt/sampling/sampling_params.py#L302) | 将生成参数规范化为采样语义 |
+| 25 | ✅ 已读 | TokenizerManager | [\_create\_tokenized\_object](python/sglang/srt/managers/tokenizer_manager.py#L1620) | 生成跨进程请求对象 |
+| 26 | ✅ 已读 | TokenizerManager | [\_send\_one\_request](python/sglang/srt/managers/tokenizer_manager.py#L1867) | 提交请求并关联返回状态 |
 
 ## Overlap 循环 → 收请求 → 入队
 
@@ -117,14 +117,14 @@ Scheduler 循环已在后台运行，TokenizerManager 通过 ZMQ 发送请求；
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 27 | ✅ 已读 | Scheduler | [event\_loop\_overlap](python/sglang/srt/managers/scheduler.py#L1889) | CPU 调度和 GPU 执行交错推进 |
-| 28 | ✅ 已读 | SchedulerRequestReceiver | [recv\_requests](python/sglang/srt/managers/scheduler_components/request_receiver.py#L88) | 接收本轮请求并做 rank 同步 |
-| 29 | ✅ 已读 | SchedulerRequestReceiver | [\_pull\_raw\_reqs](python/sglang/srt/managers/scheduler_components/request_receiver.py#L125) | 从主进程管道接收消息 |
-| 30 | ☑️ 推定 · B | SchedulerRequestReceiver | [\_broadcast\_reqs\_across\_ranks](python/sglang/srt/managers/scheduler_components/request_receiver.py#L183) | 将请求分发到参与执行的 rank |
-| 31 | ✅ 已读 | Scheduler | [process\_input\_requests](python/sglang/srt/managers/scheduler.py#L2057) | 按消息类型分派处理 |
-| 32 | ✅ 已读 | Scheduler | [handle\_generate\_request](python/sglang/srt/managers/scheduler.py#L2608) | 将 tokenized 输入变为调度请求 |
-| 33 | ✅ 已读 | Req | [\_\_init\_\_](python/sglang/srt/managers/schedule_batch.py#L839) | 建立请求、生成和缓存状态 |
-| 34 | ✅ 已读 | Scheduler | [\_add\_request\_to\_queue](python/sglang/srt/managers/scheduler.py#L3000) | 进入等待队列 |
+| 27 | ✅ 已读 | Scheduler | [event\_loop\_overlap](python/sglang/srt/managers/scheduler.py#L2004) | CPU 调度和 GPU 执行交错推进 |
+| 28 | ✅ 已读 | SchedulerRequestReceiver | [recv\_requests](python/sglang/srt/managers/scheduler_components/request_receiver.py#L92) | 接收本轮请求并做 rank 同步 |
+| 29 | ✅ 已读 | SchedulerRequestReceiver | [\_pull\_raw\_reqs](python/sglang/srt/managers/scheduler_components/request_receiver.py#L129) | 从主进程管道接收消息 |
+| 30 | ☑️ 推定 · B | SchedulerRequestReceiver | [\_broadcast\_reqs\_across\_ranks](python/sglang/srt/managers/scheduler_components/request_receiver.py#L185) | 将请求分发到参与执行的 rank |
+| 31 | ✅ 已读 | Scheduler | [process\_input\_requests](python/sglang/srt/managers/scheduler.py#L2210) | 按消息类型分派处理 |
+| 32 | ✅ 已读 | Scheduler | [handle\_generate\_request](python/sglang/srt/managers/scheduler.py#L2883) | 将 tokenized 输入变为调度请求 |
+| 33 | ✅ 已读 | Req | [\_\_init\_\_](python/sglang/srt/managers/schedule_batch.py#L1015) | 建立请求、生成和缓存状态 |
+| 34 | ✅ 已读 | Scheduler | [\_add\_request\_to\_queue](python/sglang/srt/managers/scheduler.py#L3408) | 进入等待队列 |
 
 ## 选择 Prefill 请求 → 匹配前缀 → 建立批次
 
@@ -134,21 +134,21 @@ Scheduler 循环已在后台运行，TokenizerManager 通过 ZMQ 发送请求；
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 35 | ✅ 已读 | Scheduler | [get\_next\_batch\_to\_run](python/sglang/srt/managers/scheduler.py#L3300) | 选择下一轮 prefill/decode 批次 |
-| 36 | ✅ 已读 | Scheduler | [get\_new\_batch\_prefill](python/sglang/srt/managers/scheduler.py#L3503) | 建立 prefill 批次入口 |
-| 37 | ✅ 已读 | Scheduler | [\_get\_new\_batch\_prefill\_raw](python/sglang/srt/managers/scheduler.py#L3535) | 选择可接纳的等待请求 |
-| 38 | ✅ 已读 | SchedulePolicy | [calc\_priority](python/sglang/srt/managers/schedule_policy.py#L242) | 确定等待队列处理顺序 |
-| 39 | ✅ 已读 | PrefillAdder | [\_\_init\_\_](python/sglang/srt/managers/schedule_policy.py#L527) | 建立 token 与显存接纳预算 |
-| 40 | ⬜ 未读 | Req | [init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1343) | 按已缓存前缀准备下轮输入 |
-| 41 | ⬜ 未读 | RadixCache | [match\_prefix](python/sglang/srt/mem_cache/radix_cache.py#L391) | 查找可复用前缀 |
-| 42 | ⬜ 未读 | RadixCache | [\_match\_prefix\_helper](python/sglang/srt/mem_cache/radix_cache.py#L702) | 沿树匹配 token 序列 |
-| 43 | ⬜ 未读 | RadixCache | [\_split\_node](python/sglang/srt/mem_cache/radix_cache.py#L728) | 部分命中时拆分树节点 |
-| 44 | ✅ 已读 | PrefillAdder | [add\_one\_req](python/sglang/srt/managers/schedule_policy.py#L1246) | 检查预算并接纳请求 |
-| 45 | ✅ 已读 | RadixCache | [inc\_lock\_ref](python/sglang/srt/mem_cache/radix_cache.py#L637) | 保护活跃请求使用的缓存 |
-| 46 | ✅ 已读 | PrefillAdder | [add\_chunked\_req](python/sglang/srt/managers/schedule_policy.py#L1038) | 继续处理分块 prefill 请求 |
-| 47 | ✅ 已读 | PrefillAdder | [\_update\_prefill\_budget](python/sglang/srt/managers/schedule_policy.py#L888) | 扣减本轮 prefill 预算 |
-| 48 | ✅ 已读 | ScheduleBatch | [init\_new](python/sglang/srt/managers/schedule_batch.py#L2278) | 从请求集合建立调度批次 |
-| 49 | ✅ 已读 | ScheduleBatch | [prepare\_for\_extend](python/sglang/srt/managers/schedule_batch.py#L2465) | 准备 prefill token、长度和缓存位置 |
+| 35 | ✅ 已读 | Scheduler | [get\_next\_batch\_to\_run](python/sglang/srt/managers/scheduler.py#L3793) | 选择下一轮 prefill/decode 批次 |
+| 36 | ✅ 已读 | Scheduler | [get\_new\_batch\_prefill](python/sglang/srt/managers/scheduler.py#L3995) | 建立 prefill 批次入口 |
+| 37 | ✅ 已读 | Scheduler | [\_get\_new\_batch\_prefill\_raw](python/sglang/srt/managers/scheduler.py#L4027) | 选择可接纳的等待请求 |
+| 38 | ✅ 已读 | SchedulePolicy | [calc\_priority](python/sglang/srt/managers/schedule_policy.py#L215) | 确定等待队列处理顺序 |
+| 39 | ✅ 已读 | PrefillAdder | [\_\_init\_\_](python/sglang/srt/managers/schedule_policy.py#L596) | 建立 token 与显存接纳预算 |
+| 40 | ⬜ 未读 | Req | [init\_next\_round\_input](python/sglang/srt/managers/schedule_batch.py#L1619) | 按已缓存前缀准备下轮输入 |
+| 41 | ⬜ 未读 | RadixCache | [match\_prefix](python/sglang/srt/mem_cache/radix_cache.py#L373) | 查找可复用前缀 |
+| 42 | ⬜ 未读 | RadixCache | [\_match\_prefix\_helper](python/sglang/srt/mem_cache/radix_cache.py#L674) | 沿树匹配 token 序列 |
+| 43 | ⬜ 未读 | RadixCache | [\_split\_node](python/sglang/srt/mem_cache/radix_cache.py#L700) | 部分命中时拆分树节点 |
+| 44 | ✅ 已读 | PrefillAdder | [add\_one\_req](python/sglang/srt/managers/schedule_policy.py#L1327) | 检查预算并接纳请求 |
+| 45 | ✅ 已读 | RadixCache | [inc\_lock\_ref](python/sglang/srt/mem_cache/radix_cache.py#L596) | 保护活跃请求使用的缓存 |
+| 46 | ✅ 已读 | PrefillAdder | [add\_chunked\_req](python/sglang/srt/managers/schedule_policy.py#L1099) | 继续处理分块 prefill 请求 |
+| 47 | ✅ 已读 | PrefillAdder | [\_update\_prefill\_budget](python/sglang/srt/managers/schedule_policy.py#L858) | 扣减本轮 prefill 预算 |
+| 48 | ✅ 已读 | ScheduleBatch | [init\_new](python/sglang/srt/managers/schedule_batch.py#L2567) | 从请求集合建立调度批次 |
+| 49 | ✅ 已读 | ScheduleBatch | [prepare\_for\_extend](python/sglang/srt/managers/schedule_batch.py#L2749) | 准备 prefill token、长度和缓存位置 |
 
 ## 为 Prefill 分配 KV 空间
 
@@ -158,10 +158,10 @@ Scheduler 循环已在后台运行，TokenizerManager 通过 ZMQ 发送请求；
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 50 | ✅ 已读 | — | [alloc\_for\_extend](python/sglang/srt/mem_cache/allocation.py#L282) | 为新增 prefill token 分配 KV |
-| 51 | ✅ 已读 | ReqToTokenPool | [alloc](python/sglang/srt/mem_cache/memory_pool.py#L320) | 为活跃请求分配映射表行 |
-| 52 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [alloc\_extend](python/sglang/srt/mem_cache/allocator/paged.py#L172) | 按页接纳 prefill 的 KV 增量 |
-| 53 | ⬜ 未读 | — | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L617) | 将逻辑 token 位置映射到 KV 槽位 |
+| 50 | ✅ 已读 | — | [alloc\_for\_extend](python/sglang/srt/mem_cache/allocation.py#L365) | 为新增 prefill token 分配 KV |
+| 51 | ✅ 已读 | ReqToTokenPool | [alloc](python/sglang/srt/mem_cache/memory_pool.py#L438) | 为活跃请求分配映射表行 |
+| 52 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [alloc\_extend](python/sglang/srt/mem_cache/allocator/paged.py#L204) | 按页接纳 prefill 的 KV 增量 |
+| 53 | ⬜ 未读 | — | [assign\_req\_to\_token\_pool](python/sglang/srt/mem_cache/allocation.py#L713) | 将逻辑 token 位置映射到 KV 槽位 |
 
 ## 解析输入 → 提交前向
 
@@ -171,10 +171,10 @@ run_batch 只读 enable_overlap 分支；resolve_forward_inputs 在 worker 调�
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 54 | ✅ 已读 | Scheduler | [run\_batch](python/sglang/srt/managers/scheduler.py#L4058) | 提交一轮模型计算并接收结果 |
+| 54 | ✅ 已读 | Scheduler | [run\_batch](python/sglang/srt/managers/scheduler.py#L4606) | 提交一轮模型计算并接收结果 |
 | 55 | ✅ 已读 | — | [resolve\_forward\_inputs](python/sglang/srt/managers/overlap_utils.py#L87) | 将 overlap 的未来 token 解析为实际输入 |
-| 56 | ✅ 已读 | TpModelWorker | [forward\_batch\_generation](python/sglang/srt/managers/tp_worker.py#L603) | 组织 ForwardBatch、前向与采样 |
-| 57 | ✅ 已读 | ForwardBatch | [init\_new](python/sglang/srt/model_executor/forward_batch_info.py#L744) | 调度视图转换为 GPU 批次视图 |
+| 56 | ✅ 已读 | TpModelWorker | [forward\_batch\_generation](python/sglang/srt/managers/tp_worker.py#L612) | 组织 ForwardBatch、前向与采样 |
+| 57 | ✅ 已读 | ForwardBatch | [init\_new](python/sglang/srt/model_executor/forward_batch_info.py#L972) | 调度视图转换为 GPU 批次视图 |
 
 ## 模型前向 → Qwen 3.5 → logits 与采样
 
@@ -184,33 +184,33 @@ run_batch 只读 enable_overlap 分支；resolve_forward_inputs 在 worker 调�
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 58 | ✅ 已读 | ModelRunner | [forward](python/sglang/srt/model_executor/model_runner.py#L1645) | 模型前向总入口 |
-| 59 | ✅ 已读 | ModelRunner | [\_forward\_raw](python/sglang/srt/model_executor/model_runner.py#L1820) | 选择图执行或 eager 路径 |
-| 60 | ☑️ 推定 · C | EagerRunner | [execute](python/sglang/srt/model_executor/runner/eager_runner.py#L216) | 按 ForwardMode 分派执行 |
-| 61 | ✅ 已读 | EagerRunner | [\_execute\_extend](python/sglang/srt/model_executor/runner/eager_runner.py#L290) | Prefill 的模型执行入口 |
-| 62 | ✅ 已读 | EagerRunner | [\_execute\_decode](python/sglang/srt/model_executor/runner/eager_runner.py#L249) | Decode 的模型执行入口 |
-| 63 | ☑️ 推定 · B | FlashAttentionBackend | [init\_forward\_metadata](python/sglang/srt/layers/attention/flashattention_backend.py#L683) | 准备批次和 KV 索引元数据 |
-| 64 | ✅ 已读 | Qwen3VLForConditionalGeneration | [forward](python/sglang/srt/models/qwen3_vl.py#L1447) | Qwen 3.5 继承的入口：执行文本主干并产出 logits |
-| 65 | ☑️ 推定 · C | — | [general\_mm\_embed\_routine](python/sglang/srt/managers/mm_utils.py#L608) | 非 language_model_only 配置下，纯文本也经此完成 embedding 并调用主干 |
-| 66 | ✅ 已读 | Qwen3_5ForCausalLM | [forward](python/sglang/srt/models/qwen3_5.py#L1602) | 嵌入、混合类型解码层逐层执行与最终归一化 |
-| 67 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [forward](python/sglang/srt/models/qwen3_5.py#L1353) | 普通 Attention 层的注意力、MLP 与残差连接 |
-| 68 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [self\_attention](python/sglang/srt/models/qwen3_5.py#L1305) | QKV 与位置编码准备、RadixAttention 和输出门控 |
-| 69 | ✅ 已读 | ColumnParallelLinear | [forward](python/sglang/srt/layers/linear.py#L493) | QKVParallelLinear 继承的前向入口，调用 quant_method.apply 执行投影 |
-| 70 | ✅ 已读 | UnquantizedLinearMethod | [apply](python/sglang/srt/layers/quantization/unquant.py#L256) | 未量化线性计算的普通分支，以 F.linear 执行输入与权重的投影 |
-| 71 | ✅ 已读 | RadixAttention | [forward](python/sglang/srt/layers/radix_attention.py#L161) | 模型层接入 SGLang 注意力后端 |
-| 72 | ☑️ 推定 · C | FlashAttentionBackend | [forward\_extend](python/sglang/srt/layers/attention/flashattention_backend.py#L1228) | Prefill 注意力与 KV 写入 |
-| 73 | ✅ 已读 | FlashAttentionBackend | [forward\_decode](python/sglang/srt/layers/attention/flashattention_backend.py#L1804) | 读取历史 KV 并计算 decode 注意力 |
-| 74 | ✅ 已读 | MHATokenToKVPool | [set\_kv\_buffer](python/sglang/srt/mem_cache/memory_pool.py#L2434) | 将新 token 的 K/V 写入槽位 |
-| 75 | ☑️ 推定 · C | Qwen3_5LinearDecoderLayer | [forward](python/sglang/srt/models/qwen3_5.py#L881) | 线性注意力层的 GatedDeltaNet、MLP 与残差连接 |
-| 76 | ☑️ 推定 · C | Qwen3_5GatedDeltaNet | [forward](python/sglang/srt/models/qwen3_5.py#L714) | GatedDeltaNet 的输入投影、线性注意力调用与输出门控 |
+| 58 | ✅ 已读 | ModelRunner | [forward](python/sglang/srt/model_executor/model_runner.py#L1811) | 模型前向总入口 |
+| 59 | ✅ 已读 | ModelRunner | [\_forward\_raw](python/sglang/srt/model_executor/model_runner.py#L1988) | 选择图执行或 eager 路径 |
+| 60 | ☑️ 推定 · C | EagerRunner | [execute](python/sglang/srt/model_executor/runner/eager_runner.py#L215) | 按 ForwardMode 分派执行 |
+| 61 | ✅ 已读 | EagerRunner | [\_execute\_extend](python/sglang/srt/model_executor/runner/eager_runner.py#L289) | Prefill 的模型执行入口 |
+| 62 | ✅ 已读 | EagerRunner | [\_execute\_decode](python/sglang/srt/model_executor/runner/eager_runner.py#L248) | Decode 的模型执行入口 |
+| 63 | ✅ 已读 | FlashAttentionBackend | [init\_forward\_metadata](python/sglang/srt/layers/attention/flashattention_backend.py#L866) | 准备批次和 KV 索引元数据 |
+| 64 | ✅ 已读 | Qwen3VLForConditionalGeneration | [forward](python/sglang/srt/models/qwen3_vl.py#L1618) | Qwen 3.5 继承的入口：执行文本主干并产出 logits |
+| 65 | ☑️ 推定 · C | — | [general\_mm\_embed\_routine](python/sglang/srt/managers/mm_utils.py#L804) | 非 language_model_only 配置下，纯文本也经此完成 embedding 并调用主干 |
+| 66 | ✅ 已读 | Qwen3_5ForCausalLM | [forward](python/sglang/srt/models/qwen3_5.py#L1929) | 嵌入、混合类型解码层逐层执行与最终归一化 |
+| 67 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [forward](python/sglang/srt/models/qwen3_5.py#L1656) | 普通 Attention 层的注意力、MLP 与残差连接 |
+| 68 | ✅ 已读 | Qwen3_5AttentionDecoderLayer | [self\_attention](python/sglang/srt/models/qwen3_5.py#L1624) | QKV 与位置编码准备、RadixAttention 和输出门控 |
+| 69 | ✅ 已读 | ColumnParallelLinear | [forward](python/sglang/srt/layers/linear.py#L610) | QKVParallelLinear 继承的前向入口，调用 quant_method.apply 执行投影 |
+| 70 | ✅ 已读 | UnquantizedLinearMethod | [apply](python/sglang/srt/layers/quantization/unquant.py#L501) | 未量化线性计算的普通分支，以 F.linear 执行输入与权重的投影 |
+| 71 | ✅ 已读 | RadixAttention | [forward](python/sglang/srt/layers/radix_attention.py#L163) | 模型层接入 SGLang 注意力后端 |
+| 72 | ✅ 已读 | FlashAttentionBackend | [forward\_extend](python/sglang/srt/layers/attention/flashattention_backend.py#L1449) | Prefill 注意力与 KV 写入 |
+| 73 | ✅ 已读 | FlashAttentionBackend | [forward\_decode](python/sglang/srt/layers/attention/flashattention_backend.py#L2018) | 读取历史 KV 并计算 decode 注意力 |
+| 74 | ✅ 已读 | MHATokenToKVPool | [set\_kv\_buffer](python/sglang/srt/mem_cache/memory_pool.py#L2850) | 将新 token 的 K/V 写入槽位 |
+| 75 | ✅ 已读 | Qwen3_5LinearDecoderLayer | [forward](python/sglang/srt/models/qwen3_5.py#L1181) | 线性注意力层的 GatedDeltaNet、MLP 与残差连接 |
+| 76 | ☑️ 推定 · C | Qwen3_5GatedDeltaNet | [forward](python/sglang/srt/models/qwen3_5.py#L955) | GatedDeltaNet 的输入投影、线性注意力调用与输出门控 |
 | 77 | ✅ 已读 | RadixLinearAttention | [forward](python/sglang/srt/layers/radix_linear_attention.py#L80) | 将 GatedDeltaNet 输入交给 SGLang 线性注意力后端 |
-| 78 | ☑️ 推定 · B | Qwen2MoeMLP | [forward](python/sglang/srt/models/qwen2_moe.py#L249) | Qwen 3.5 dense 复用的门控前馈网络 |
-| 79 | ✅ 已读 | LogitsProcessor | [forward](python/sglang/srt/layers/logits_processor.py#L343) | 选择需要输出的 token 并形成 logits |
-| 80 | ⬜ 未读 | LogitsProcessor | [\_get\_logits](python/sglang/srt/layers/logits_processor.py#L668) | 隐藏状态经过 LM head 得到词表分数 |
-| 81 | ⬜ 未读 | LogitsProcessor | [\_compute\_lm\_head](python/sglang/srt/layers/logits_processor.py#L722) | 执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T |
-| 82 | ☑️ 推定 · C | ModelRunner | [sample](python/sglang/srt/model_executor/model_runner.py#L1955) | 调用 sampler 并返回 token ID |
-| 83 | ⬜ 未读 | ModelRunner | [\_preprocess\_logits](python/sglang/srt/model_executor/model_runner.py#L1927) | 惩罚项、掩码与 logit 偏置 |
-| 84 | ✅ 已读 | Sampler | [forward](python/sglang/srt/layers/sampler.py#L98) | 贪心与概率采样的核心分派 |
+| 78 | ☑️ 推定 · B | Qwen2MoeMLP | [forward](python/sglang/srt/models/qwen2_moe.py#L242) | Qwen 3.5 dense 复用的门控前馈网络 |
+| 79 | ✅ 已读 | LogitsProcessor | [forward](python/sglang/srt/layers/logits_processor.py#L511) | 选择需要输出的 token 并形成 logits |
+| 80 | ⬜ 未读 | LogitsProcessor | [\_get\_logits](python/sglang/srt/layers/logits_processor.py#L876) | 隐藏状态经过 LM head 得到词表分数 |
+| 81 | ⬜ 未读 | LogitsProcessor | [\_compute\_lm\_head](python/sglang/srt/layers/logits_processor.py#L978) | 执行 LM head 词表投影，普通权重路径计算 hidden_states × weight.T |
+| 82 | ☑️ 推定 · C | ModelRunner | [sample](python/sglang/srt/model_executor/model_runner.py#L2124) | 调用 sampler 并返回 token ID |
+| 83 | ⬜ 未读 | ModelRunner | [\_preprocess\_logits](python/sglang/srt/model_executor/model_runner.py#L2096) | 惩罚项、掩码与 logit 偏置 |
+| 84 | ✅ 已读 | Sampler | [forward](python/sglang/srt/layers/sampler.py#L142) | 贪心与概率采样的核心分派 |
 
 ## 保存本批结果 → 交接下一轮输入
 
@@ -220,8 +220,8 @@ publish 发布序列长度等元数据，stash 保存生成 token 等下一轮�
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 85 | ☑️ 推定 · C | Scheduler | [\_relay\_forward\_payload](python/sglang/srt/managers/scheduler.py#L4333) | 将采样结果交给下一轮输入通道 |
-| 86 | ✅ 已读 | FutureMap | [stash](python/sglang/srt/managers/overlap_utils.py#L557) | 保存生成 token 等下一轮输入数据 |
+| 85 | ☑️ 推定 · C | Scheduler | [\_relay\_forward\_payload](python/sglang/srt/managers/scheduler.py#L4965) | 将采样结果交给下一轮输入通道 |
+| 86 | ✅ 已读 | FutureMap | [stash](python/sglang/srt/managers/overlap_utils.py#L622) | 保存生成 token 等下一轮输入数据 |
 
 ## 处理上一批结果 → 结束判断 → 缓存与释放
 
@@ -231,38 +231,38 @@ event_loop_overlap 内的 pop_and_process 从队头取出上一批并调用 proc
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 87 | ✅ 已读 | Scheduler | [process\_batch\_result](python/sglang/srt/managers/scheduler.py#L4424) | 按批次类型处理前向结果 |
-| 88 | ✅ 已读 | SchedulerBatchResultProcessor | [process\_batch\_result\_prefill](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L240) | 处理 prefill 输出和请求状态 |
-| 89 | ✅ 已读 | SchedulerBatchResultProcessor | [process\_batch\_result\_decode](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L870) | 接收新 token 并推进 decode 状态 |
-| 90 | ⬜ 未读 | Req | [update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1674) | 判断长度、终止 token 和停止字符串 |
-| 91 | ⬜ 未读 | RadixCache | [cache\_unfinished\_req](python/sglang/srt/mem_cache/radix_cache.py#L530) | 缓存继续运行请求的前缀 |
-| 92 | ⬜ 未读 | — | [release\_kv\_cache](python/sglang/srt/mem_cache/common.py#L202) | 结束请求时转交缓存并释放资源 |
-| 93 | ⬜ 未读 | RadixCache | [cache\_finished\_req](python/sglang/srt/mem_cache/radix_cache.py#L473) | 完成请求的缓存写回与释放 |
-| 94 | ⬜ 未读 | RadixCache | [insert](python/sglang/srt/mem_cache/radix_cache.py#L451) | 插入可复用 token 前缀 |
-| 95 | ⬜ 未读 | RadixCache | [\_insert\_helper](python/sglang/srt/mem_cache/radix_cache.py#L761) | 维护前缀树节点与 KV 所有权 |
-| 96 | ⬜ 未读 | RadixCache | [dec\_lock\_ref](python/sglang/srt/mem_cache/radix_cache.py#L661) | 释放缓存引用保护 |
-| 97 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [free](python/sglang/srt/mem_cache/allocator/paged.py#L261) | 归还 KV 页面 |
-| 98 | ⬜ 未读 | ReqToTokenPool | [free](python/sglang/srt/mem_cache/memory_pool.py#L373) | 归还请求映射表行 |
-| 99 | ☑️ 推定 · C | Scheduler | [launch\_batch\_sample\_if\_needed](python/sglang/srt/managers/scheduler.py#L4386) | 上一批处理后按需采样本批并交接结果 |
+| 87 | ✅ 已读 | Scheduler | [process\_batch\_result](python/sglang/srt/managers/scheduler.py#L5056) | 按批次类型处理前向结果 |
+| 88 | ✅ 已读 | SchedulerBatchResultProcessor | [process\_batch\_result\_prefill](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L258) | 处理 prefill 输出和请求状态 |
+| 89 | ✅ 已读 | SchedulerBatchResultProcessor | [process\_batch\_result\_decode](python/sglang/srt/managers/scheduler_components/batch_result_processor.py#L923) | 接收新 token 并推进 decode 状态 |
+| 90 | ⬜ 未读 | Req | [update\_finish\_state](python/sglang/srt/managers/schedule_batch.py#L1908) | 判断长度、终止 token 和停止字符串 |
+| 91 | ⬜ 未读 | RadixCache | [checkpoint](python/sglang/srt/mem_cache/radix_cache.py#L519) | 为请求提交已计算 KV 前缀检查点 |
+| 92 | ⬜ 未读 | — | [release\_kv\_cache](python/sglang/srt/mem_cache/common.py#L379) | 结束请求时转交缓存并释放资源 |
+| 93 | ⬜ 未读 | RadixCache | [\_insert\_cache](python/sglang/srt/mem_cache/radix_cache.py#L459) | 将页对齐 KV 前缀写入树并释放重复槽位 |
+| 94 | ⬜ 未读 | RadixCache | [insert](python/sglang/srt/mem_cache/radix_cache.py#L437) | 插入可复用 token 前缀 |
+| 95 | ⬜ 未读 | RadixCache | [\_insert\_helper](python/sglang/srt/mem_cache/radix_cache.py#L728) | 维护前缀树节点与 KV 所有权 |
+| 96 | ⬜ 未读 | RadixCache | [dec\_lock\_ref](python/sglang/srt/mem_cache/radix_cache.py#L620) | 释放缓存引用保护 |
+| 97 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [free](python/sglang/srt/mem_cache/allocator/paged.py#L328) | 归还 KV 页面 |
+| 98 | ⬜ 未读 | ReqToTokenPool | [free](python/sglang/srt/mem_cache/memory_pool.py#L487) | 归还请求映射表行 |
+| 99 | ☑️ 推定 · C | Scheduler | [launch\_batch\_sample\_if\_needed](python/sglang/srt/managers/scheduler.py#L5018) | 上一批处理后按需采样本批并交接结果 |
 
 ## 请求未结束 → 准备下一轮 Decode
 
-**已覆盖 2/10（20.0%），待覆盖 8。**
+**已覆盖 3/10（30.0%），待覆盖 7。**
 
 这些操作位于后续轮次的 get_next_batch_to_run 中；显存不足时才淘汰/撤回。准备后回到提交前向阶段，直到结束。
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 100 | ⬜ 未读 | ScheduleBatch | [merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3406) | 合并完成 prefill 的请求与运行批次 |
-| 101 | ✅ 已读 | Scheduler | [update\_running\_batch](python/sglang/srt/managers/scheduler.py#L3911) | 维护继续生成的请求集合 |
-| 102 | ⬜ 未读 | ScheduleBatch | [filter\_batch](python/sglang/srt/managers/schedule_batch.py#L3319) | 移除结束请求并对齐批次张量 |
-| 103 | ⬜ 未读 | ScheduleBatch | [check\_decode\_mem](python/sglang/srt/managers/schedule_batch.py#L2960) | 检查下一轮 KV 容量 |
-| 104 | ⬜ 未读 | RadixCache | [evict](python/sglang/srt/mem_cache/radix_cache.py#L607) | 淘汰未保护前缀以腾出 KV |
-| 105 | ⬜ 未读 | ScheduleBatch | [retract\_decode](python/sglang/srt/managers/schedule_batch.py#L2967) | 显存不足时撤回部分请求 |
-| 106 | ⬜ 未读 | Req | [reset\_for\_retract](python/sglang/srt/managers/schedule_batch.py#L1716) | 重置被撤回请求以便重新调度 |
-| 107 | ✅ 已读 | ScheduleBatch | [prepare\_for\_decode](python/sglang/srt/managers/schedule_batch.py#L3223) | 为每个请求准备下一 token 的执行状态 |
-| 108 | ⬜ 未读 | — | [alloc\_for\_decode](python/sglang/srt/mem_cache/allocation.py#L551) | 为下一轮 decode token 分配 KV |
-| 109 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [alloc\_decode](python/sglang/srt/mem_cache/allocator/paged.py#L222) | 处理 decode 跨页分配 |
+| 100 | ⬜ 未读 | ScheduleBatch | [merge\_batch](python/sglang/srt/managers/schedule_batch.py#L3800) | 合并完成 prefill 的请求与运行批次 |
+| 101 | ✅ 已读 | Scheduler | [update\_running\_batch](python/sglang/srt/managers/scheduler.py#L4448) | 维护继续生成的请求集合 |
+| 102 | ⬜ 未读 | ScheduleBatch | [filter\_batch](python/sglang/srt/managers/schedule_batch.py#L3712) | 移除结束请求并对齐批次张量 |
+| 103 | ⬜ 未读 | ScheduleBatch | [check\_decode\_mem](python/sglang/srt/managers/schedule_batch.py#L3334) | 检查下一轮 KV 容量 |
+| 104 | ✅ 已读 | RadixCache | [evict](python/sglang/srt/mem_cache/radix_cache.py#L561) | 淘汰未保护前缀以腾出 KV |
+| 105 | ⬜ 未读 | ScheduleBatch | [retract\_decode](python/sglang/srt/managers/schedule_batch.py#L3353) | 显存不足时撤回部分请求 |
+| 106 | ⬜ 未读 | Req | [reset\_for\_retract](python/sglang/srt/managers/schedule_batch.py#L1950) | 重置被撤回请求以便重新调度 |
+| 107 | ✅ 已读 | ScheduleBatch | [prepare\_for\_decode](python/sglang/srt/managers/schedule_batch.py#L3613) | 为每个请求准备下一 token 的执行状态 |
+| 108 | ⬜ 未读 | — | [alloc\_for\_decode](python/sglang/srt/mem_cache/allocation.py#L750) | 为下一轮 decode token 分配 KV |
+| 109 | ⬜ 未读 | PagedTokenToKVPoolAllocator | [alloc\_decode](python/sglang/srt/mem_cache/allocator/paged.py#L279) | 处理 decode 跨页分配 |
 
 ## 输出 token → 解码文本 → 完整 HTTP 响应
 
@@ -272,17 +272,17 @@ event_loop_overlap 内的 pop_and_process 从队头取出上一批并调用 proc
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 110 | ✅ 已读 | SchedulerOutputStreamer | [stream\_output](python/sglang/srt/managers/scheduler_components/output_streamer.py#L118) | 组织生成结果并选择输出类型 |
-| 111 | ☑️ 推定 · C | SchedulerOutputStreamer | [\_stream\_output\_generation](python/sglang/srt/managers/scheduler_components/output_streamer.py#L146) | 按流式间隔构造 token 输出批次 |
-| 112 | ✅ 已读 | DetokenizerManager | [event\_loop](python/sglang/srt/managers/detokenizer_manager.py#L207) | 接收 token 输出并分发解码 |
-| 113 | ✅ 已读 | DetokenizerManager | [handle\_batch\_token\_id\_out](python/sglang/srt/managers/detokenizer_manager.py#L506) | 解码并发送文本输出消息 |
-| 114 | ✅ 已读 | DetokenizerManager | [\_decode\_batch\_token\_id\_output](python/sglang/srt/managers/detokenizer_manager.py#L360) | 维护请求的增量解码状态 |
-| 115 | ✅ 已读 | DetokenizerManager | [\_grouped\_batch\_decode](python/sglang/srt/managers/detokenizer_manager.py#L282) | 将批量 token 增量转为字符串 |
-| 116 | ☑️ 推定 · B | DetokenizerManager | [trim\_matched\_stop](python/sglang/srt/managers/detokenizer_manager.py#L230) | 按停止规则裁剪返回文本 |
-| 117 | ✅ 已读 | TokenizerManager | [handle\_loop](python/sglang/srt/managers/tokenizer_manager.py#L2341) | 接收返回消息并按类型分发 |
-| 118 | ✅ 已读 | TokenizerManager | [\_handle\_batch\_output](python/sglang/srt/managers/tokenizer_manager.py#L2362) | 更新 ReqState 并唤醒等待者 |
-| 119 | ✅ 已读 | TokenizerManager | [\_wait\_one\_response](python/sglang/srt/managers/tokenizer_manager.py#L1841) | 等待并产出请求结果 |
-| 120 | ☑️ 推定 · B | OpenAIServingChat | [\_build\_chat\_response](python/sglang/srt/entrypoints/openai/serving_chat.py#L1862) | 将完整生成结果包装成 OpenAI 响应 |
+| 110 | ✅ 已读 | SchedulerOutputStreamer | [stream\_output](python/sglang/srt/managers/scheduler_components/output_streamer.py#L119) | 组织生成结果并选择输出类型 |
+| 111 | ☑️ 推定 · C | SchedulerOutputStreamer | [\_stream\_output\_generation](python/sglang/srt/managers/scheduler_components/output_streamer.py#L147) | 按流式间隔构造 token 输出批次 |
+| 112 | ✅ 已读 | DetokenizerManager | [event\_loop](python/sglang/srt/managers/detokenizer_manager.py#L203) | 接收 token 输出并分发解码 |
+| 113 | ✅ 已读 | DetokenizerManager | [handle\_batch\_token\_id\_out](python/sglang/srt/managers/detokenizer_manager.py#L490) | 解码并发送文本输出消息 |
+| 114 | ✅ 已读 | DetokenizerManager | [\_decode\_batch\_token\_id\_output](python/sglang/srt/managers/detokenizer_manager.py#L344) | 维护请求的增量解码状态 |
+| 115 | ✅ 已读 | DetokenizerManager | [\_grouped\_batch\_decode](python/sglang/srt/managers/detokenizer_manager.py#L278) | 将批量 token 增量转为字符串 |
+| 116 | ☑️ 推定 · B | DetokenizerManager | [trim\_matched\_stop](python/sglang/srt/managers/detokenizer_manager.py#L226) | 按停止规则裁剪返回文本 |
+| 117 | ✅ 已读 | TokenizerManager | [handle\_loop](python/sglang/srt/managers/tokenizer_manager.py#L2563) | 接收返回消息并按类型分发 |
+| 118 | ✅ 已读 | TokenizerManager | [\_handle\_batch\_output](python/sglang/srt/managers/tokenizer_manager.py#L2584) | 更新 ReqState 并唤醒等待者 |
+| 119 | ✅ 已读 | TokenizerManager | [\_wait\_one\_response](python/sglang/srt/managers/tokenizer_manager.py#L2028) | 等待并产出请求结果 |
+| 120 | ☑️ 推定 · B | OpenAIServingChat | [\_build\_chat\_response](python/sglang/srt/entrypoints/openai/serving_chat.py#L2338) | 将完整生成结果包装成 OpenAI 响应 |
 
 ## 条件分支：Decode CUDA Graph
 
@@ -292,8 +292,8 @@ event_loop_overlap 内的 pop_and_process 从队头取出上一批并调用 proc
 
 | 序号 | 状态 | 类名 | 方法名 | 作用 |
 | ---: | --- | --- | --- | --- |
-| 121 | ⬜ 未读 | DecodeCudaGraphRunner | [can\_run\_graph](python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py#L676) | 判断批次是否满足图重放条件 |
-| 122 | ⬜ 未读 | DecodeCudaGraphRunner | [execute](python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py#L1449) | 重放已捕获的执行图 |
+| 121 | ⬜ 未读 | DecodeCudaGraphRunner | [can\_run\_graph](python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py#L702) | 判断批次是否满足图重放条件 |
+| 122 | ⬜ 未读 | DecodeCudaGraphRunner | [execute](python/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py#L1529) | 重放已捕获的执行图 |
 
 ## 重算与后续查询
 
@@ -313,95 +313,95 @@ python quick_learn/update_overlap_progress.py --check  # 检查是否与源码�
 
 | 序号 | 判定 | 依据 |
 | ---: | --- | --- |
-| 1 | D | 新增中文说明 L1164,1167,1171,1177,1178,1180,1182,1183,1185,1190,1217,1235,1238,1285,1288 |
-| 2 | D | 新增中文说明 L279,282,288,289,291,293,294,296,321,341 |
-| 3 | D | 新增中文说明 L969,982,984,988,990,992,994,995,997,999,1000 |
-| 4 | D | 新增中文说明 L277,285,291,292,294,296,297,299,302,303,325,327,334,335 |
-| 5 | D | 新增中文说明 L1987 |
-| 6 | D | 新增中文说明 L1265,1303,1317,1318,1336 |
-| 7 | D | 新增中文说明 L1524,1565,1571,1574,1575,1577,1578 |
-| 8 | D | 新增中文说明 L955,967,968,969,997,1009,1013,1014,1018 |
-| 9 | D | 新增中文说明 L991 |
+| 1 | D | 新增中文说明 L1246,1249,1253,1259,1260,1262,1264,1265,1267,1272,1311,1313,1361,1364 |
+| 2 | D | 新增中文说明 L269,272,278,279,281,283,284,286,343,363 |
+| 3 | D | 新增中文说明 L1016,1029,1031,1035,1037,1039,1041,1042,1044,1046,1047 |
+| 4 | D | 新增中文说明 L286,294,300,301,303,305,306,308,311,312,334 |
+| 5 | D | 新增中文说明 L2414 |
+| 6 | D | 新增中文说明 L1320,1358,1372,1373,1391 |
+| 7 | D | 新增中文说明 L1804,1831,1874,1877,1878 |
+| 8 | D | 新增中文说明 L1226,1235,1249,1250,1251,1279,1291,1295,1296,1300 |
+| 9 | D | 新增中文说明 L1122 |
 | 10 | C | chain=qwen_construct_qkv_base;anchors=qkv_projection_init->linear_base_init \| chain=qwen_construct_qkv_weights;anchors=qkv_projection_init->unquant_linear_weights |
-| 11 | D | 新增中文说明 L186 |
-| 12 | D | 新增中文说明 L248 |
+| 11 | D | 新增中文说明 L268 |
+| 12 | D | 新增中文说明 L476,493 |
 | 13 | C | chain=qwen_construct_linear;anchors=qwen_model_init->qwen_gdn_init |
-| 14 | D | 新增中文说明 L389,390,392 |
+| 14 | D | 新增中文说明 L467 |
 | 15 | B | branch=model_construction;direct=5;covered_before_branch=6/7 |
-| 16 | D | 新增中文说明 L1058 |
-| 17 | B | branch=model_loading;direct=5;covered_before_branch=5/6 |
-| 18 | D | 新增中文说明 L1834,1835,1836,1837,1838,1841,1842,1846 |
-| 19 | D | 新增中文说明 L856,859,860,865,888,891,895,898,902,904,905,906,911,915,917,918,920,921,922,923,924,928,930,940 |
-| 20 | D | 新增中文说明 L3588,3604,3606,3623,3628,3629 |
-| 21 | D | 新增中文说明 L1081,1085,1110,1113,1116,1241,1243,1244,1245,1246,1247,1248,1249 |
-| 22 | D | 新增中文说明 L1001,1037 |
-| 23 | D | 新增中文说明 L1288,1289,1290 |
-| 24 | D | 新增中文说明 L253 |
-| 25 | D | 新增中文说明 L1463,1466,1467,1468,1471,1472,1475,1478,1481,1482,1492,1505,1506,1507,1517,1525 |
-| 26 | D | 新增中文说明 L1708,1721 |
-| 27 | D | 新增中文说明 L1888,1891,1893,1894,1895,1896,1897,1901,1902,1905,1916,1922,1923,1926,1932,1934,1935,1937,1942,1943,1944,1946,1947,1949,1950,1951,1952,1953,1954,1956,1978,1979,1988 |
-| 28 | D | 新增中文说明 L92,102,103,109,110,111,114,116,118 |
-| 29 | D | 新增中文说明 L127,131,148,158,167,168 |
+| 16 | B | branch=model_loading;direct=4;covered_before_branch=4/6 |
+| 17 | B | branch=model_loading;direct=4;covered_before_branch=4/6 |
+| 18 | D | 新增中文说明 L2312,2313,2314,2315,2316,2319,2320 |
+| 19 | D | 新增中文说明 L948,951,952,957,980,987,991,994,998,1000,1001,1002,1007,1011,1013,1015,1019,1032 |
+| 20 | D | 新增中文说明 L3877,3893,3895,3912,3917,3918 |
+| 21 | D | 新增中文说明 L1178,1182,1219,1222,1346,1348,1349,1350,1351,1352,1353,1354 |
+| 22 | D | 新增中文说明 L1093,1133 |
+| 23 | D | 新增中文说明 L1393,1394,1395 |
+| 24 | D | 新增中文说明 L353 |
+| 25 | D | 新增中文说明 L1621,1624,1625,1626,1629,1630,1633,1636,1639,1640,1650,1663,1664,1665,1675,1683 |
+| 26 | D | 新增中文说明 L1871,1886 |
+| 27 | D | 新增中文说明 L2003,2006,2008,2009,2010,2011,2012,2017,2018,2021,2032,2038,2045,2047,2048,2050,2055,2056,2057,2059,2060,2061,2063,2064,2065,2066,2067,2068,2070,2092,2093,2102 |
+| 28 | D | 新增中文说明 L96,109,110,116,120,122 |
+| 29 | D | 新增中文说明 L130,133,149,159,168 |
 | 30 | B | branch=scheduler_ingress;direct=6;covered_before_branch=6/7 |
-| 31 | D | 新增中文说明 L2059,2060,2061,2065,2070,2082,2083 |
-| 32 | D | 新增中文说明 L2613,2618,2621,2626,2638,2640,2687,2702,2703,2704,2770,2772,2940 |
-| 33 | D | 新增中文说明 L1025,1029,1043,1047,1142 |
-| 34 | D | 新增中文说明 L3001,3008,3011 |
-| 35 | D | 新增中文说明 L3304,3306,3307,3308,3309,3310,3311,3312,3313,3314,3315,3316,3317,3318,3319,3320,3321,3322,3323,3324,3325,3350,3351,3352,3365,3366,3367,3394,3400,3405,3422,3423,3441,3442,3444,3447,3449,3450,3452 |
-| 36 | D | 新增中文说明 L3513,3521,3531,3532 |
-| 37 | D | 新增中文说明 L3541,3557,3558,3561,3562,3563,3597,3606,3608,3609,3611,3612,3618,3619,3632,3633,3636,3638,3639,3640,3641,3642,3644,3647,3648,3657,3658,3679,3703,3711,3713,3717,3720,3723,3743,3789,3793,3811,3813,3814,3823,3824,3825,3830,3837 |
-| 38 | D | 新增中文说明 L245,246,256,260 |
-| 39 | D | 新增中文说明 L536,546,547,551,557,558,571 |
+| 31 | D | 新增中文说明 L2212,2213,2214,2219,2238 |
+| 32 | D | 新增中文说明 L2890,2897,2900,2904,2911,2913,2963,2978,2979,2980,3072,3074,3257 |
+| 33 | D | 新增中文说明 L1194,1197,1214,1218,1326 |
+| 34 | D | 新增中文说明 L3409,3422,3426 |
+| 35 | D | 新增中文说明 L3797,3799,3800,3801,3802,3803,3804,3805,3806,3807,3808,3809,3810,3811,3812,3813,3814,3815,3816,3817,3818,3837,3838,3839,3851,3852,3853,3880,3886,3891,3908,3909,3928,3929,3931,3934,3936 |
+| 36 | D | 新增中文说明 L4005,4013,4017,4023,4024 |
+| 37 | D | 新增中文说明 L4033,4046,4047,4050,4051,4052,4086,4099,4101,4102,4104,4105,4109,4123,4124,4127,4129,4130,4131,4132,4133,4135,4138,4139,4148,4149,4177,4210,4217,4224,4249,4297,4301,4323,4325,4326,4335,4340,4347 |
+| 38 | D | 新增中文说明 L221,222,230,234 |
+| 39 | D | 新增中文说明 L605,615,616,620,626,627,650 |
 | 40 | U | 无直接证据，且未满足补全规则 |
 | 41 | U | 无直接证据，且未满足补全规则 |
 | 42 | U | 无直接证据，且未满足补全规则 |
 | 43 | U | 无直接证据，且未满足补全规则 |
-| 44 | D | 新增中文说明 L1250,1271,1272,1274,1275,1276,1277,1279,1280,1285,1294,1297,1301,1336,1339,1340,1393,1395,1396,1426,1427,1435,1441,1443,1445,1446,1447,1449,1450,1452,1457,1489,1508 |
-| 45 | D | 新增中文说明 L638,642,643,645,647,648,649,650,651,652,655,656,657 |
-| 46 | D | 新增中文说明 L1074 |
-| 47 | D | 新增中文说明 L891,898,908,909,911,912,913,916,917,935 |
-| 48 | D | 新增中文说明 L2281,2283,2291,2293,2296,2297,2301,2304,2305,2308,2309,2310,2312,2313 |
-| 49 | D | 新增中文说明 L2466,2468,2477,2479,2481,2483,2485,2487,2489,2492,2493,2524,2544,2682,2743 |
-| 50 | D | 新增中文说明 L292,293,294,295,296,297,298,301,302,304,307,310,332,342,355,359,377,391,412 |
-| 51 | D | 新增中文说明 L322,344 |
+| 44 | D | 新增中文说明 L1330,1344,1345,1347,1358,1486 |
+| 45 | D | 新增中文说明 L597,601,602,604,606,607,608,609,610,611,614,615,616 |
+| 46 | D | 新增中文说明 L1100,1150 |
+| 47 | D | 新增中文说明 L861,870,906 |
+| 48 | D | 新增中文说明 L2570,2572,2580,2582,2585,2586,2590,2592,2593,2594,2597,2598,2599,2601,2602 |
+| 49 | D | 新增中文说明 L2750,2752,2761,2763,2765,2767,2769,2771,2773,2776,2827,2830,2848,2980,2983,2992,2993,2996,2999,3060 |
+| 50 | D | 新增中文说明 L375,376,377,378,379,380,381,384,385,387,390,393,412,424,438,442,460,474,493 |
+| 51 | D | 新增中文说明 L440,455 |
 | 52 | U | 无直接证据，且未满足补全规则 |
 | 53 | U | 无直接证据，且未满足补全规则 |
-| 54 | D | 新增中文说明 L4060,4064,4075,4092,4094,4101,4102,4103,4104,4106,4113,4137,4138,4142,4238,4241,4247,4251,4253,4255,4261,4277 |
-| 55 | D | 新增中文说明 L109,110,111 |
-| 56 | D | 新增中文说明 L605,614,621,623,642,645,663,688,691 |
-| 57 | D | 新增中文说明 L804,807,809,811,813,815,817 |
-| 58 | D | 新增中文说明 L1647,1653,1655,1667,1670,1671,1673,1676,1677,1678,1680,1681,1720 |
-| 59 | D | 新增中文说明 L1822,1828,1841,1858,1914 |
+| 54 | D | 新增中文说明 L4608,4612,4632,4649,4651,4658,4659,4660,4661,4663,4670,4694,4695,4699,4873,4876,4882,4886,4888,4890,4896,4911 |
+| 55 | D | 新增中文说明 L118,119,120 |
+| 56 | D | 新增中文说明 L614,624,639,641,660,663,682,708,711 |
+| 57 | D | 新增中文说明 L984,1039,1042,1044,1046,1048,1050,1052 |
+| 58 | D | 新增中文说明 L1813,1819,1821,1833,1836,1837,1839,1842,1843,1844,1846,1847,1884 |
+| 59 | D | 新增中文说明 L1990,1996,2009,2026,2083 |
 | 60 | C | chain=eager_extend_model;anchors=raw_forward->eager_extend \| chain=eager_decode_model;anchors=raw_forward->eager_decode \| chain=eager_extend_linear_model;anchors=raw_forward->eager_extend \| chain=eager_decode_linear_model;anchors=raw_forward->eager_decode |
-| 61 | D | 新增中文说明 L292,296,389,392,393 |
-| 62 | D | 新增中文说明 L255,256,257,258,259,260,261,280,281,282,284 |
-| 63 | B | branch=attention_backend;direct=3;covered_before_branch=4/5 |
-| 64 | D | 新增中文说明 L1449,1451,1456,1472,1473,1475,1476,1477,1478,1511,1514,1515,1517,1521,1525 |
+| 61 | D | 新增中文说明 L291,295,400,401 |
+| 62 | D | 新增中文说明 L254,255,256,257,258,259,260,279,280,281,283 |
+| 63 | D | 新增中文说明 L874,878,880,886,887 |
+| 64 | D | 新增中文说明 L1620,1622,1627,1643,1644,1646,1647,1648,1649,1682,1685,1686,1688,1692,1696 |
 | 65 | C | chain=qwen_text_embedding;anchors=causal_lm->qwen_model |
-| 66 | D | 新增中文说明 L1611,1613,1614,1631,1636 |
-| 67 | D | 新增中文说明 L1356,1358,1363,1365,1376,1383,1400,1408 |
-| 68 | D | 新增中文说明 L1308,1312,1329 |
-| 69 | D | 新增中文说明 L498,500,506,507,508 |
-| 70 | D | 新增中文说明 L263,310 |
-| 71 | D | 新增中文说明 L167,175,182,292 |
-| 72 | C | chain=eager_extend_model;anchors=radix_attention->store_kv |
-| 73 | D | 新增中文说明 L1829,1833,1834,1836,1837,1840,1842,1843,1844,1845,1846,1847,1848,1849,1850,1854,1855,1858,1859,1861,1947,1995,2016,2034,2170 |
-| 74 | D | 新增中文说明 L2437,2438,2439,2440,2441,2442,2443,2446,2448,2453,2473,2474,2477,2483,2518 |
-| 75 | C | chain=eager_extend_linear_model;anchors=qwen_model->radix_linear_attention \| chain=eager_decode_linear_model;anchors=qwen_model->radix_linear_attention |
-| 76 | C | chain=eager_extend_linear_model;anchors=qwen_model->radix_linear_attention \| chain=eager_decode_linear_model;anchors=qwen_model->radix_linear_attention |
-| 77 | D | 新增中文说明 L116,118,120,121 |
-| 78 | B | branch=dense_model;direct=5;covered_before_branch=8/9 |
-| 79 | D | 新增中文说明 L346,353,354,355,356,360 |
+| 66 | D | 新增中文说明 L1948,1966,1971 |
+| 67 | D | 新增中文说明 L1664,1680,1685 |
+| 68 | D | 新增中文说明 L1627,1632,1651,1652 |
+| 69 | D | 新增中文说明 L624,626,632,633,634 |
+| 70 | D | 新增中文说明 L508,547 |
+| 71 | D | 新增中文说明 L169,177,184,299 |
+| 72 | D | 新增中文说明 L2010 |
+| 73 | D | 新增中文说明 L2040,2043,2044,2045,2046,2047,2048,2051,2052,2053,2054,2055,2057,2058,2060,2061,2065,2067,2068,2069,2070,2071,2073,2074,2075,2077,2078,2092,2093,2094,2095,2097,2098,2108,2197,2245,2266,2268,2270,2272,2279,2281,2299,2300,2301,2302,2304,2436 |
+| 74 | D | 新增中文说明 L2853,2854,2855,2856,2857,2858,2859,2862,2864,2870,2890,2891,2894,2900,2939 |
+| 75 | D | 新增中文说明 L1202,1208 |
+| 76 | C | chain=eager_extend_linear_model;anchors=qwen_linear_layer->radix_linear_attention \| chain=eager_decode_linear_model;anchors=qwen_linear_layer->radix_linear_attention |
+| 77 | D | 新增中文说明 L142,143 |
+| 78 | B | branch=dense_model;direct=6;covered_before_branch=8/9 |
+| 79 | D | 新增中文说明 L514,520,522,523,524,525,526 |
 | 80 | U | 无直接证据，且未满足补全规则 |
 | 81 | U | 无直接证据，且未满足补全规则 |
 | 82 | C | chain=worker_sample;anchors=worker_forward->sample \| chain=overlap_delayed_sample;anchors=overlap_loop->sample |
 | 83 | U | 无直接证据，且未满足补全规则 |
-| 84 | D | 新增中文说明 L108 |
+| 84 | D | 新增中文说明 L152 |
 | 85 | C | chain=overlap_relay;anchors=run_batch->future_stash |
-| 86 | D | 新增中文说明 L558 |
-| 87 | D | 新增中文说明 L4429 |
-| 88 | D | 新增中文说明 L245 |
-| 89 | D | 新增中文说明 L875 |
+| 86 | D | 新增中文说明 L623 |
+| 87 | D | 新增中文说明 L5061 |
+| 88 | D | 新增中文说明 L263 |
+| 89 | D | 新增中文说明 L928 |
 | 90 | U | 无直接证据，且未满足补全规则 |
 | 91 | U | 无直接证据，且未满足补全规则 |
 | 92 | U | 无直接证据，且未满足补全规则 |
@@ -413,34 +413,34 @@ python quick_learn/update_overlap_progress.py --check  # 检查是否与源码�
 | 98 | U | 无直接证据，且未满足补全规则 |
 | 99 | C | chain=overlap_delayed_sample;anchors=overlap_loop->sample |
 | 100 | U | 无直接证据，且未满足补全规则 |
-| 101 | D | 新增中文说明 L3913,3993 |
+| 101 | D | 新增中文说明 L4450,4541 |
 | 102 | U | 无直接证据，且未满足补全规则 |
 | 103 | U | 无直接证据，且未满足补全规则 |
-| 104 | U | 无直接证据，且未满足补全规则 |
+| 104 | D | 新增中文说明 L562,567,569,571,579 |
 | 105 | U | 无直接证据，且未满足补全规则 |
 | 106 | U | 无直接证据，且未满足补全规则 |
-| 107 | D | 新增中文说明 L3262 |
+| 107 | D | 新增中文说明 L3636,3656,3664 |
 | 108 | U | 无直接证据，且未满足补全规则 |
 | 109 | U | 无直接证据，且未满足补全规则 |
-| 110 | D | 新增中文说明 L125 |
+| 110 | D | 新增中文说明 L126 |
 | 111 | C | chain=token_message;anchors=stream_output->detokenizer_loop |
-| 112 | D | 新增中文说明 L209,210,211,215,220,221,225 |
-| 113 | D | 新增中文说明 L517,521,522,528 |
-| 114 | D | 新增中文说明 L361,366,370,373,374,380,383,397,399,434 |
-| 115 | D | 新增中文说明 L319,325 |
+| 112 | D | 新增中文说明 L205,206,207,211,216,217,221 |
+| 113 | D | 新增中文说明 L501,505,506,512 |
+| 114 | D | 新增中文说明 L345,350,354,357,358,364,367,381,383,418 |
+| 115 | D | 新增中文说明 L309,315 |
 | 116 | B | branch=detokenize;direct=4;covered_before_branch=4/5 |
-| 117 | D | 新增中文说明 L2344,2348,2349,2355 |
-| 118 | D | 新增中文说明 L2364,2370,2378,2380,2392,2505,2517,2521,2522,2652,2660,2666,2679 |
-| 119 | D | 新增中文说明 L1847,1854,1855,1856,1861,1878,1879,1880,1887,1894,1895,1909,1919,1938,1947,1952,1961 |
+| 117 | D | 新增中文说明 L2566,2570,2571,2577 |
+| 118 | D | 新增中文说明 L2586,2592,2600,2602,2614,2726,2738,2742,2743,2884,2890,2896,2909 |
+| 119 | D | 新增中文说明 L2033 |
 | 120 | B | branch=response;direct=4;covered_before_branch=4/5 |
 | 121 | U | 无直接证据，且未满足补全规则 |
 | 122 | U | 无直接证据，且未满足补全规则 |
 
 </details>
 
-- 路线版本：overlap_nonstream v4；固定分母：122。
+- 路线版本：overlap_nonstream v5；固定分母：122。
 - 统计对象：当前工作区，包含未提交修改；日期不作为已读证据。
-- HEAD：`e88da3ffe90e8803bea4c67e33bf210e4d632952`。
+- HEAD：`41e029e21bbd7c2552f1cee21792ed04e84638f4`。
 - 固定对照基线：`6388b6cfb1d93c253714a408f1d66a093302acd7`。
-- 源码指纹：`494a35cd7eb5d15c3f69b6019c8167774478a86cc37504e7652c18c04ffd4795`。
-- 范围指纹：`2e5c996152a0a9ef36bea93b0149823652fe148fc5122a268b79bc43ee659eb3`。
+- 源码指纹：`389f81c3df1d0c0b18eab3fc3e5718c53bd45d0c456a9cb3c7764eedcddbd500`。
+- 范围指纹：`1511df5b4dab2f09af9359a2c997d123534a504e67afca7194de650bf1cdfdb4`。

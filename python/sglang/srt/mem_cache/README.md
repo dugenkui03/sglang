@@ -1,6 +1,6 @@
 # `mem_cache/`
 
-该目录包含负责管理键值缓存(Key/Value Cache, KV Cache)和状态空间模型(State Space Model, SSM)状态内存的实现：由谁分配槽位(Slot)、由谁在设备(Device)上存放实际数据、由谁将数据镜像到主机(Host)和磁盘，以及由哪个基数树缓存(Radix Cache)决定保留哪些缓存。目录布局见 [#25371](https://github.com/sgl-project/sglang/issues/25371)。
+该目录包含负责管理键值缓存(Key/Value Cache, KV Cache)和状态空间模型(State Space Model, SSM)状态存储的实现：由谁分配槽位(Slot)、由谁在 GPU 显存(GPU memory)等设备端存放实际数据、由谁将数据镜像到 CPU 内存(CPU memory)和磁盘，以及由哪个基数树缓存(Radix Cache)决定保留哪些缓存。目录布局见 [#25371](https://github.com/sgl-project/sglang/issues/25371)。
 
 ## 分层(Layers)
 
@@ -26,7 +26,7 @@ flowchart LR
 
 另外两组实现位于上述分层之外：
 
-- **基数树缓存(Radix Cache)** 是独立的一条管理维度。针对不同模型的变体，如 `radix_cache.py`、`swa_radix_cache.py`、`mamba_radix_cache.py`、`hiradix_cache.py` 和 `chunk_cache.py`，正在向**统一基数树缓存(Unified Radix Cache)**收敛。实现位于 `unified_cache/`，相关讨论见 [#20415](https://github.com/sgl-project/sglang/issues/20415)。其全注意力(Full Attention)、滑动窗口注意力(Sliding Window Attention, SWA)和 Mamba 的组件模型(Component Model)，见 [`unified_cache/components/README.md`](unified_cache/components/README.md)。
+- **基数树缓存(Radix Cache)** 是独立的一条管理维度。针对不同模型的变体，如 `radix_cache.py` 和 `pure_swa_radix_cache.py`，正在向**统一基数树缓存(Unified Radix Cache)**收敛。实现位于 `unified_cache/`，相关讨论见 [#20415](https://github.com/sgl-project/sglang/issues/20415)。其全注意力(Full Attention)、滑动窗口注意力(Sliding Window Attention, SWA)和 Mamba 的组件模型(Component Model)，见 [`unified_cache/components/README.md`](unified_cache/components/README.md)。
 - **构造(Construction)** 逻辑贯穿各层：`kv_cache_configurator.py`、`kv_cache_builder.py`、`cache_init_params.py`、`allocation_sizing.py`、`kv_cache_dtype.py`、`kv_vmm_backing.py` 和 `hybrid_cache/hybrid_pool_assembler.py` 负责确定形状(Shape)，并构建上述对象。
 
 ## 类(Class)应该放在哪？

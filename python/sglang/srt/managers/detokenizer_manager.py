@@ -43,6 +43,7 @@ from sglang.srt.managers.io_struct import (
 )
 from sglang.srt.managers.multi_tokenizer_mixin import MultiHttpWorkerDetokenizerMixin
 from sglang.srt.observability.cpu_monitor import start_cpu_monitor_thread
+from sglang.srt.plugins import load_plugins
 from sglang.srt.runtime_context import (
     get_device,
     get_model,
@@ -74,26 +75,21 @@ DETOKENIZER_MAX_STATES = int(os.environ.get("SGLANG_DETOKENIZER_MAX_STATES", 1 <
 @dataclasses.dataclass
 class DecodeStatus:
     """
-        Store the status of incremental(increases in value or worth, often by a regular amount) decoding.
-        GPU 输出 token ID → 追加到 decode_ids → 解码成新文本放进 decoded_text_chunks → 请求结束时合并进 decoded_text
+        Store the status of incremental decoding.
+        GPU 输出 token ID → 追加到 decode_ids → 新文本放进 decoded_text_chunks → 需要完整文本时合并进 decoded_text
     """
 
-    # 用输入“你数三个数” 作示例
-
-    # tokenID，包括两部分：
-    #   1. 你数三个数 对应的输入 tokenID
-    #   2. 输出的tokenID
-    decode_ids: List[int] # NOTE
+    # 用输入“你数三个数”作示例：输出可能依次为“1”“12”“123”。
+    # 数据类(dataclass)要求无默认值字段放在有默认值字段之前。
+    decoded_text: str  # 已合并的输出文本；未合并的新片段暂存在 decoded_text_chunks。
+    # token ID 包含解码所需的上下文 token 和新增输出 token。
+    decode_ids: List[int]
     surr_offset: int  # 上下文窗口起点
     read_offset: int  # 新 token 起点
-
-    # 没有默认值，dataclass 要求它排在有默认值的 decoded_text_chunks 前面
-    decoded_text: str # 和输出tokenID对应的文本，比如输出可能依次是： 1，然后是 12，然后是 123 # NOTE
-    decoded_text_chunks: List[str] = dataclasses.field(default_factory=list) # NOTE
-    decoded_text_len: int = dataclasses.field(init=False)
-
     # Offset that's sent to tokenizer for incremental update.
     sent_offset: int = 0  # 已发给 TokenizerManager 的字符数，防止重复发送
+    decoded_text_len: int = dataclasses.field(init=False)
+    decoded_text_chunks: List[str] = dataclasses.field(default_factory=list)
 
     def __post_init__(self):
         self.decoded_text_len = len(self.decoded_text)
@@ -127,7 +123,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         # NOTE 交互参考
         # Init inter-process communication：两个管道：
         #   Scheduler - recv_from_scheduler -> DetoenizerManager：接收gpu推理结果的tokenID
-        #   DetoenizerManager - ID，send_to_tokenizer -> TokenizerManager：将tokenID解码后的结果文本给到 TokenizerManager 
+        #   DetoenizerManager - ID，send_to_tokenizer -> TokenizerManager：将tokenID解码后的结果文本给到 TokenizerManager
         self.init_ipc_channels(port_args, server_args)
 
         # Init tokenizer
@@ -150,7 +146,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         # In multi-tokenizer mode, results are pushed back to each TokenizerWorker
         # directly via SocketMapping inside multi_http_worker_event_loop, so the
         # single send_to_tokenizer socket is unused.
-        if server_args.tokenizer_worker_num == 1:
+        if get_serving().tokenizer_worker_num == 1:
             # Detokenizer 进程                                       TokenizerManager 进程
             # PUSH socket（connect）--- 文本（tokenizer_ipc_name）---> PULL socket（bind）
             self.send_to_tokenizer = get_zmq_socket(
@@ -158,18 +154,17 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             )
 
     def init_tokenizer(self, server_args: ServerArgs):
-        """ 加载 tokenizer 之后只用 decode
-        """
-        if server_args.skip_tokenizer_init:
+        """加载 tokenizer，后续只用于解码(decode)。"""
+        if get_serving().skip_tokenizer_init:
             self.tokenizer = None
             self.vocab_size = None
         else:
             self.tokenizer = get_tokenizer(
                 get_serving().tokenizer_path,
-                tokenizer_mode=server_args.tokenizer_mode,
+                tokenizer_mode=get_serving().tokenizer_mode,
                 trust_remote_code=get_model().trust_remote_code,
-                revision=server_args.revision,
-                tokenizer_backend=server_args.tokenizer_backend,
+                revision=get_model().revision,
+                tokenizer_backend=get_serving().tokenizer_backend,
             )
             try:
                 self.vocab_size = len(self.tokenizer)
@@ -179,8 +174,9 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
     def init_running_status(self, server_args: ServerArgs):
         # NOTE 初始化一个有序、有容量限制的字典，保存 请求 id 到结果的映射
         self.decode_status = LimitedCapacityDict(capacity=DETOKENIZER_MAX_STATES)
-
-        self.disable_tokenizer_batch_decode = server_args.disable_tokenizer_batch_decode
+        self.disable_tokenizer_batch_decode = (
+            get_serving().disable_tokenizer_batch_decode
+        )
         self.is_tool_call_parser_gpt_oss = get_serving().tool_call_parser == "gpt-oss"
 
         self.soft_watchdog = Watchdog.create(
@@ -214,8 +210,8 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             # step 1
             # NOTE 阻塞获取 Scheduler 的消息
             with self.soft_watchdog.disable():
-                recv_obj = sock_recv(self.recv_from_scheduler) 
-           
+                recv_obj = sock_recv(self.recv_from_scheduler)
+
             # step 2
             # _request_dispatcher 保存了不同的数据类型对应的处理方式
             # BatchTokenIDOutput 对应 handle_batch_token_id_out
@@ -234,7 +230,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             return output
 
         matched = finished_reason.get("matched", None)
-        if not matched:
+        if matched is None:
             return output
 
         # TODO(lmzheng): handle the case where multiple stop strs are hit
@@ -290,9 +286,6 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         n = len(ids_list)
         if n == 0:
             return []
-        logger.info(
-            f"[detok-debug] 输入 n={n} ids_list={ids_list} skip={skip_list} space={space_list}"
-        )
 
         # Empty token spans decode to "" but tokenizer.batch_decode (and the
         # slow per-row decode_without_hf_kwargs path) still pays per-row
@@ -302,15 +295,12 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
         if not all(ids_list):
             keep_idx = [i for i, ids in enumerate(ids_list) if ids]
             if not keep_idx:
-                logger.info(f"[detok-debug] 全部为空，直接返回 {n} 个空串")
                 return [""] * n
             ids_list = [ids_list[i] for i in keep_idx]
             skip_list = [skip_list[i] for i in keep_idx]
             space_list = [space_list[i] for i in keep_idx]
-        logger.info(f"[detok-debug] keep_idx={keep_idx}（None 表示没有空列表）")
 
         if not getattr(self.tokenizer, "is_fast", False):
-            logger.info("[detok-debug] 分支：slow tokenizer，逐条 decode_without_hf_kwargs")
             decoded = [
                 decode_without_hf_kwargs(self.tokenizer, ids, skip)
                 for ids, skip in zip(ids_list, skip_list)
@@ -323,9 +313,6 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                 for s, sp in zip(skip_list, space_list)
             ):
                 # NOTE NOTE NOTE 结果 tokenID -> 输出文本
-                logger.info(
-                    f"[detok-debug] 分支：fast，选项相同，一次 batch_decode（skip={first_skip}, space={first_space}）"
-                )
                 decoded = self.tokenizer.batch_decode(
                     ids_list,
                     skip_special_tokens=first_skip,
@@ -336,7 +323,6 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                 groups: Dict[Tuple[bool, bool], List[int]] = defaultdict(list)
                 for idx, (skip, space) in enumerate(zip(skip_list, space_list)):
                     groups[(skip, space)].append(idx)
-                logger.info(f"[detok-debug] 分支：fast，选项不同，按组 batch_decode groups={dict(groups)}")
 
                 decoded = [""] * len(ids_list)
                 for (skip, space), indices in groups.items():
@@ -349,12 +335,10 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
                         decoded[idx] = text
 
         if keep_idx is None:
-            logger.info(f"[detok-debug] 输出 results={decoded}")
             return decoded
         results = [""] * n
         for i, text in zip(keep_idx, decoded):
             results[i] = text
-        logger.info(f"[detok-debug] 输出 decoded={decoded} → 放回原位 results={results}")
         return results
 
     def _decode_batch_token_id_output(self, recv_obj: BatchTokenIDOutput):
@@ -370,7 +354,7 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             # 每个请求第一个结果token返回回走到这个分支
             if rid not in self.decode_status:
                 s = DecodeStatus(
-                    decoded_text=recv_obj.decoded_texts[i], # recv_obj.decoded_texts[i] 在这里还是空字符串
+                    decoded_text=recv_obj.decoded_texts[i], # Scheduler 传来的已有解码文本，通常初始为空字符串
                     decode_ids=self._clamp_decode_ids( # 对 decode_ids 做无害处理后赋值给 DecodeStatus
                         recv_obj.decode_ids[i], vocab_size
                     ),
@@ -563,7 +547,6 @@ class DetokenizerManager(MultiHttpWorkerDetokenizerMixin):
             output_token_ids_logprobs_idx=recv_obj.output_token_ids_logprobs_idx,
             output_token_entropy_val=recv_obj.output_token_entropy_val,
             output_token_sampling_mask=recv_obj.output_token_sampling_mask,
-            output_token_sampling_logprobs=recv_obj.output_token_sampling_logprobs,
             output_hidden_states=recv_obj.output_hidden_states,
             routed_experts=routed_experts,
             indexer_topk=indexer_topk,
@@ -614,6 +597,7 @@ def run_detokenizer_process(
 ):
     kill_itself_when_parent_died()
     setproctitle.setproctitle("sglang::detokenizer")
+    load_plugins()
     configure_logger(server_args)
     publish(server_args, role="detokenizer")
     parent_process = psutil.Process().parent()
@@ -623,7 +607,7 @@ def run_detokenizer_process(
         # NOTE
         manager = detokenizer_manager_class(server_args, port_args)
         # 进入主循环，不再返回
-        if server_args.tokenizer_worker_num == 1:
+        if get_serving().tokenizer_worker_num == 1:
             manager.event_loop()
         else:
             manager.multi_http_worker_event_loop()

@@ -3,8 +3,8 @@
 # 遇到命令失败、未定义变量或管道中任一命令失败时立即退出脚本。
 set -euo pipefail
 
-# 当前分支使用独立的 Worker 本地 Python 环境，可通过环境变量覆盖路径。
-SGLANG_PYTHON_ENV="${SGLANG_PYTHON_ENV:-/tmp/sglang-learn-debug}"
+# 使用与 main 分支匹配的共享 Python 环境，可通过环境变量覆盖路径。
+SGLANG_PYTHON_ENV="${SGLANG_PYTHON_ENV:-/home/tiger/workspace/envs/sglang-qwen38-debug}"
 
 # 让 Python 优先从当前调试工作树加载 SGLang 源码。
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"

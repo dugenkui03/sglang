@@ -12,8 +12,16 @@ def version(args, extra_argv):
     print(f"git revision: {get_git_commit_hash()[:7]}")
 
 
+COOKBOOK_URL = "https://docs.sglang.io/cookbook"
+COOKBOOK_EPILOG = (
+    f"Deploying a specific model? Its cookbook page at {COOKBOOK_URL} carries the "
+    "recommended command for it: GPU count, parallelism, quantization and the "
+    "flags that matter for that model."
+)
+
+
 def main():
-    """
+    r"""
     NOTE 类似于这样的服务启动命令入口是这里
         sglang serve \
             --trust-remote-code \                   // 是否可执行模型仓库中的代码
@@ -22,7 +30,7 @@ def main():
             --mem-fraction-static 0.85 \            // 模型加载和 KV Cache 占用的最大显存比例
             --attention-backend flashinfer \
             --chunked-prefill-size 32768 \          // 组批prefill的时候最多新计算的 token：到达阈值后会把请求分块，会产生 Scheduler.chunked_req
-            --max-prefill-tokens 32768 \            // 组批prefill的时候最多计算的 token 数量，达到阈值后讲当前请求整个放进 prefill 批，不会把请求分块
+            --max-prefill-tokens 32768 \            // Prefill 输入预算；无分块且批次为空时，首请求可超限整条入批
             --reasoning-parser qwen3 \              // 推理结果解析器
             --tool-call-parser qwen3_coder \        // tool-call 结果解析器
             --mamba-full-memory-ratio 4.59 \
@@ -39,7 +47,10 @@ def main():
     )
     logger.info("hello dugenkui")
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        epilog=COOKBOOK_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
     # complex sub commands
     subparsers = parser.add_subparsers(dest="subcommand", required=True)

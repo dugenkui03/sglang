@@ -1,6 +1,6 @@
 # TreeNode：前缀 KV（Key-Value）缓存树上的一个节点
 
-调度器上的 `tree_cache` 默认是一个 `RadixCache`，里面只有一棵基数树（Radix Tree），根是 `root_node`。`TreeNode` 是这棵树上的一个节点，**保存一段连续的 token 和这些 token 的 KV 编号**。下文代码都在 `python/sglang/srt/mem_cache/radix_cache.py`。
+本文以 `RadixCache` 为例，它包含一棵根为 `root_node` 的基数树(Radix Tree)。当前默认构造路径通常使用 `UnifiedRadixCache`，具体选择见 `registry.py`。`TreeNode` 是这棵树上的一个节点，**保存一段连续的 token 和这些 token 的 KV 编号**。下文代码都在 `python/sglang/srt/mem_cache/radix_cache.py`。
 
 ## 1. 一个节点存一段 token
 
@@ -33,7 +33,7 @@ flowchart LR
 ```
 
 - 甲的完整前缀是 A 的 `[10, 20]` 加 B 的 `[30, 40]`，共 4 个 token，但 `len(B.key)` 只有 2。
-- 新请求调用 `match_prefix()` 时从根往下逐段比对，返回命中部分拼起来的 KV 编号（存到 `req.prefix_indices`）和走到的最深节点（存到 `req.last_node`）。
+- `match_prefix()` 返回命中长度和最深节点；`match_kv_cache()` 将它们写入 `req.prefix_len`、`req.last_node`。分配时通过 `prefix_device_indices(req)` 读取编号；已持有 KV 的续算请求从 `req.kv.req_pool_idx` 对应行读取。
 
 ## 2. 节点分裂：新请求在一段中间分叉
 
@@ -55,23 +55,23 @@ flowchart LR
 
 - 切分由 `_split_node(key, child, split_len)` 完成：新节点拿走前 `split_len` 个 token（`new_node.key = child.key[:split_len]`），原节点只留后半段（`child.key = child.key[split_len:]`），新节点复制原节点的 `lock_ref`、`hit_count`。
 - 乙到达时，`match_prefix()` 发现只匹配到节点的一部分（`_match_prefix_helper()` 里 `prefix_len < len(child.key)`）就先切开；乙命中 `[10, 20]`，直接复用 KV 编号 `[1, 2]`。
-- 乙的 KV 写回树时（`cache_finished_req()` / `cache_unfinished_req()` 调 `insert()`），只为 `[50, 60]` 新建节点 C 挂到 A 下；`[5, 6]` 是乙 prefill 时新分配的 KV 编号。
+- 乙的 KV 写回树时（`checkpoint()` → `_insert_cache()` → `insert()`），只为 `[50, 60]` 新建节点 C 挂到 A 下；`[5, 6]` 是乙 prefill 时新分配的 KV 编号。
 
 ## 3. 核心字段
 
 | 字段 | 含义 | 在哪读写 |
 | --- | --- | --- |
-| `key` / `value` | 本节点这段 token id / 同长度的 KV 编号；`value is None` 表示这段 KV 已从显存淘汰（`evicted` 属性） | `_insert_helper()` 创建，`_split_node()` 切分，`evict()` 释放 |
+| `key` / `value` | 本节点这段 token id / 同长度的 KV 编号；`value is None` 表示节点没有有效编号；普通 `RadixCache.evict()` 归还编号并删除叶子，不会把 `value` 改成 `None` | `_insert_helper()` 创建，`_split_node()` 切分，`evict()` 释放 |
 | `children` / `parent` | 子节点字典（键是子节点首 token 或首页）/ 父节点 | 匹配、插入时往下走；`inc_lock_ref()`、`dec_lock_ref()` 沿 `parent` 往上走 |
 | `lock_ref` | 正在使用这个节点的请求数，大于 0 时不会被淘汰；根在初始化时设为 1，永不淘汰 | `inc_lock_ref()` / `dec_lock_ref()` |
 | `last_access_time` | 最近一次被匹配或插入经过的时间 | 默认的 LRU（Least Recently Used）淘汰策略按它排序 |
-| `hit_count` | `insert()` 经过本节点的次数（分块请求的后续块不计） | LFU（Least Frequently Used）、SLRU（Segmented Least Recently Used）淘汰策略读取；HiCache（Hierarchical Cache）达到 `write_through_threshold` 就把 KV 备份到 CPU 内存 |
-| `host_value` 等 | CPU 内存上的 KV 编号、存储操作的引用计数等 | 仅 HiCache 使用 |
+| `hit_count` | `insert()` 经过本节点的次数（分块请求的后续块不计） | LFU（Least Frequently Used）、SLRU（Segmented Least Recently Used）淘汰策略读取 |
+| CPU 内存(CPU memory)镜像 | 由统一缓存的主机池及组件管理 | 不属于这里的 `TreeNode` 字段 |
 
 ## 4. lock_ref 与可淘汰 / 受保护的 token 数
 
-- 组批时 `PrefillAdder._req_inc_lock_ref()` 调 `inc_lock_ref(req.last_node)`：从该节点沿 `parent` 走到根（不含根），每个节点 `lock_ref += 1`；某节点从 0 变成 1 时，把它的 `len(node.key)` 个 token 从 `evictable_size_` 挪到 `protected_size_`。
-- 请求结束时 `cache_finished_req()` 调 `dec_lock_ref()` 反向操作；`cache_unfinished_req()` 先解锁旧的 `last_node`，再锁新的。
+- 组批时 `PrefillAdder._commit_prefill_admission()` 调 `tree_cache.lock(req.last_node)`，内部调用 `inc_lock_ref()`：从该节点沿 `parent` 走到根（不含根），每个节点 `lock_ref += 1`；某节点从 0 变成 1 时，把它的 `len(node.key)` 个 token 从 `evictable_size_` 挪到 `protected_size_`。
+- 请求结束时 `release_kv_cache()` 经 `unlock(req.lock)` 调 `dec_lock_ref()`；续算时 `checkpoint()` 更新缓存树，解锁旧路径并锁住新的匹配节点。
 - `evictable_size_`、`protected_size_` 的单位是 token 数，不是节点数。
 - `evict()` 只从 `lock_ref == 0` 的叶子开始淘汰；删掉一个叶子后，父节点如果变成未锁的叶子，也加入候选。
 

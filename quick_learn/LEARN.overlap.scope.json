@@ -1,7 +1,7 @@
 {
-  "version": 4,
+  "version": 5,
   "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
-  "scope": "先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。 不计入已排除的 5 个 Overlap 协作方法。",
+  "scope": "先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。 不计入已排除的 5 个 Overlap 协作方法。 main 合并后的接口映射：旧 cache_unfinished_req/cache_finished_req 已移除，缓存写回改为 checkpoint → _insert_cache，结束释放仍由 release_kv_cache 负责；方法总数不变。",
   "representatives": "模型固定为 Qwen3_5ForConditionalGeneration（dense）：构造函数在 qwen3_5.py，forward 继承 qwen3_vl.py 的 Qwen3VLForConditionalGeneration；self.model 是 qwen3_5.py 的 Qwen3_5ForCausalLM。qwen3_5_text.py 中的同名类是另一个文本模型入口，不计入这条路线。初始化取 DefaultModelLoader 的常规加载路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。QKV 线性投影补读 QKVParallelLinear、ColumnParallelLinear、LinearBase 的构造，以及 UnquantizedLinearMethod 的参数创建和普通 F.linear 前向分支；共用方法只计一次。",
   "excluded": [
     "通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter",
@@ -772,14 +772,14 @@
         [
           "cache_running",
           "radix",
-          "RadixCache.cache_unfinished_req",
-          "缓存继续运行请求的前缀"
+          "RadixCache.checkpoint",
+          "为请求提交已计算 KV 前缀检查点"
         ],
         [
           "cache_finished",
           "radix",
-          "RadixCache.cache_finished_req",
-          "完成请求的缓存写回与释放"
+          "RadixCache._insert_cache",
+          "将页对齐 KV 前缀写入树并释放重复槽位"
         ],
         [
           "evict_prefix",
@@ -1261,9 +1261,10 @@
     {
       "id": "prefix_insert",
       "kind": "call",
-      "label": "完成请求的缓存写回",
+      "label": "结束请求时提交 KV 检查点并写入前缀树",
       "nodes": [
         "release_request",
+        "cache_running",
         "cache_finished",
         "insert_prefix",
         "insert_prefix_tree"

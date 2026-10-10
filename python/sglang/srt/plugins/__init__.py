@@ -131,7 +131,7 @@ def load_plugins_by_group(
 
 def _get_excluded_dists() -> set[str]:
     """Compute dist names to skip when ``SGLANG_PLATFORM`` is set.
-    tip 默认返回空字符串，暂时跳过
+    tip 未指定平台时返回空集合，不排除插件分发包
 
     Returns dist names that provide a platform plugin but are NOT the one
     selected by ``SGLANG_PLATFORM``.  This prevents unselected platform
@@ -199,7 +199,7 @@ def load_plugins():
     )
 
     # tip
-    # 
+    #
     # 对于
     #   [project.entry-points."sglang.srt.plugins"]
     #   hello = "demo_plugin:register"

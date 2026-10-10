@@ -11,11 +11,11 @@ import torch
 from cutlass import Float32, Int32
 from quack.compile_utils import make_fake_tensor as fake_tensor
 
+from sglang.kernels.jit.cute_aot_cache import get_jit_cache
 from sglang.kernels.jit.utils import is_arch_support_pdl
 from sglang.kernels.ops.attention.flash_attn.cute.batch_invariance import (
     is_batch_invariant,
 )
-from sglang.kernels.ops.attention.flash_attn.cute.cache_utils import get_jit_cache
 from sglang.kernels.ops.attention.flash_attn.cute.testing import is_fake_mode
 
 if os.environ.get("CUTE_DSL_PTXAS_PATH", None) is not None:
@@ -27,6 +27,11 @@ if os.environ.get("CUTE_DSL_PTXAS_PATH", None) is not None:
     cute_dsl_ptxas.patch()
 
 
+from sglang.kernels.ops.attention.fa4_sm120.dispatch import (
+    get_forward_host,
+    try_cached_paged_decode,
+    try_cached_varlen,
+)
 from sglang.kernels.ops.attention.flash_attn.cute import fa_logging, utils
 from sglang.kernels.ops.attention.flash_attn.cute.block_sparsity import (
     BlockSparseTensorsTorch,
@@ -57,11 +62,6 @@ from sglang.kernels.ops.attention.flash_attn.cute.flash_fwd_sm90 import (
 from sglang.kernels.ops.attention.flash_attn.cute.flash_fwd_sm100 import (
     DescaleTensors,
     FlashAttentionForwardSm100,
-)
-from sglang.kernels.ops.attention.fa4_sm120.dispatch import (
-    get_forward_host,
-    try_cached_paged_decode,
-    try_cached_varlen,
 )
 from sglang.kernels.ops.attention.flash_attn.cute.shearing_bias import ShearingBias
 
@@ -105,6 +105,15 @@ def _get_device_arch():
 def _get_device_num_sms(device: torch.device) -> int:
     """Return the stable SM count without querying CUDA on every launch."""
     return torch.cuda.get_device_properties(device).multi_processor_count
+
+
+def _tmem_load_red_max_enabled() -> bool:
+    """Whether the SM100 forward kernel takes the softmax row max from the sm_103
+    tcgen05.ld.red TMEM load (on by default; ignored on other architectures).
+
+    SGLANG_FA4_TMEM_LOAD_RED_MAX=0 falls back to the FMNMX reduction.
+    """
+    return os.environ.get("SGLANG_FA4_TMEM_LOAD_RED_MAX", "1") != "0"
 
 
 def _validate_head_dims(
@@ -232,7 +241,14 @@ torch2cute_dtype_map = {
 }
 
 
-_shear_bias_workspace: dict = {}
+# Avoid allocating a torch.cuda.Stream wrapper on every relative-bias call.
+_get_current_stream_raw = torch._C._cuda_getCurrentRawStream
+_shear_bias_workspace: dict[tuple[int, int], torch.Tensor] = {}
+
+
+def clear_shear_bias_workspace() -> None:
+    """Drop cached eager-mode sheared-bias staging buffers."""
+    _shear_bias_workspace.clear()
 
 
 def _round_up_to_tile(size: int, tile_size: int) -> int:
@@ -242,20 +258,25 @@ def _round_up_to_tile(size: int, tile_size: int) -> int:
 
 
 def _shear_bias_empty(shape, dtype, device):
-    # Grow-only per-device workspace: the sheared-bias staging tensor is large
+    # Grow-only per-stream workspace: the sheared-bias staging tensor is large
     # (total_q x num_head x rel_extent_padded) and call shapes vary, so per-call
     # torch.empty fragments the caching allocator until GPU memory is exhausted.
     # Contents never persist across calls (written by the shear kernel, read by
-    # the fwd kernel within the same call); assumes attention calls on a device
-    # are serialized. Bypassed under graph capture (a capture-pool pointer must
-    # not leak into eager use) and fake mode (a fake tensor must not be cached).
+    # the fwd kernel within the same call). Different streams need distinct
+    # buffers because their producer-consumer pairs can overlap. Bypassed under
+    # graph capture (a capture-pool pointer must not leak into eager use) and
+    # fake mode (a fake tensor must not be cached).
     if is_fake_mode() or torch.cuda.is_current_stream_capturing():
         return torch.empty(shape, dtype=dtype, device=device)
     nbytes = math.prod(shape) * dtype.itemsize
-    buf = _shear_bias_workspace.get(device)
+    device_index = device.index
+    if device_index is None:
+        device_index = torch.cuda.current_device()
+    workspace_key = (device_index, _get_current_stream_raw(device_index))
+    buf = _shear_bias_workspace.get(workspace_key)
     if buf is None or buf.numel() < nbytes:
         buf = torch.empty(nbytes, dtype=torch.uint8, device=device)
-        _shear_bias_workspace[device] = buf
+        _shear_bias_workspace[workspace_key] = buf
     return buf[:nbytes].view(dtype).view(shape)
 
 
@@ -1235,6 +1256,7 @@ def _flash_attn_fwd(
             return out, lse
 
     batch_invariant = is_batch_invariant()
+    tmem_load_red_max = _tmem_load_red_max_enabled()
     compile_key = (
         dtype,
         head_dim,
@@ -1297,6 +1319,7 @@ def _flash_attn_fwd(
         sfk.ndim if sfk is not None else None,
         sfv.ndim if sfv is not None else None,
         batch_invariant,
+        tmem_load_red_max,
         fa_logging.get_fa_log_level(),
     )
 
@@ -1521,6 +1544,7 @@ def _flash_attn_fwd(
                             q_sf_interleaved=q_sf_interleaved,
                             kv_sf_interleaved=kv_sf_interleaved,
                             batch_invariant=batch_invariant,
+                            tmem_load_red_max=tmem_load_red_max,
                         )
                     ),
                 )
@@ -1577,6 +1601,7 @@ def _flash_attn_fwd(
                 page_table_tensor,
                 window_size_left,
                 window_size_right,
+                None,  # mValue
                 current_stream,
                 options="--enable-tvm-ffi",
             )
@@ -1675,6 +1700,7 @@ def _flash_attn_fwd(
                 page_table,
                 window_size_left,
                 window_size_right,
+                None,  # mValue
             )
         else:
             call_args = [
@@ -1851,9 +1877,17 @@ def _flash_attn_fwd(
     return out, lse
 
 
-_flash_attn_fwd.compile_cache = get_jit_cache("fwd")
-_flash_attn_fwd.compile_cache_shear_bias = get_jit_cache("fwd_shear_bias")
-_flash_attn_fwd.compile_cache_prepare_shear_bias = get_jit_cache(
+def _get_jit_cache(name: str):
+    return get_jit_cache(
+        name,
+        source_paths=(os.path.dirname(os.path.abspath(__file__)),),
+        enable_tvm_ffi=True,
+    )
+
+
+_flash_attn_fwd.compile_cache = _get_jit_cache("fwd")
+_flash_attn_fwd.compile_cache_shear_bias = _get_jit_cache("fwd_shear_bias")
+_flash_attn_fwd.compile_cache_prepare_shear_bias = _get_jit_cache(
     "fwd_prepare_shear_bias"
 )
 
@@ -2521,7 +2555,7 @@ def _flash_attn_fwd_combine(
         )
 
 
-_flash_attn_fwd_combine.compile_cache = get_jit_cache("fwd_combine")
+_flash_attn_fwd_combine.compile_cache = _get_jit_cache("fwd_combine")
 
 
 def flash_attn_combine(

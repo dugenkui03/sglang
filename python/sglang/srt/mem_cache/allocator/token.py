@@ -56,10 +56,10 @@ class TokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
         if self.need_sort and need_size > len(self.free_pages):
             self.merge_and_sort_free() # 整理 release_pages，将 release_pages -> free_pages
 
-        # 如果空间仍然不够用，则不反悔 KV Index
+        # 如果空间仍然不够用，则返回 None，不分配 KV 编号
         if need_size > len(self.free_pages):
             return None
-        
+
         # 返回前 need_size 个 KV Index
         select_index = self.free_pages[:need_size]
         # tip 更新 free_pages
@@ -78,10 +78,23 @@ class TokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
         else:
             self.free_group.append(self._copy_for_free_group(free_index))
 
-    def get_cpu_copy(self, indices, mamba_indices=None):
-        return self._kvcache.get_cpu_copy(indices, mamba_indices=mamba_indices)
+    def free_page_ids(self, page_ids: torch.Tensor):
+        # page_size == 1: page ids are token ids.
+        self.free(page_ids)
 
-    def load_cpu_copy(self, kv_cache_cpu, indices, mamba_indices=None):
+    def get_cpu_copy(self, indices, mamba_indices=None, req_pool_index=None):
+        return self._kvcache.get_cpu_copy(
+            indices,
+            mamba_indices=mamba_indices,
+            req_pool_index=req_pool_index,
+        )
+
+    def load_cpu_copy(
+        self, kv_cache_cpu, indices, mamba_indices=None, req_pool_index=None
+    ):
         return self._kvcache.load_cpu_copy(
-            kv_cache_cpu, indices, mamba_indices=mamba_indices
+            kv_cache_cpu,
+            indices,
+            mamba_indices=mamba_indices,
+            req_pool_index=req_pool_index,
         )

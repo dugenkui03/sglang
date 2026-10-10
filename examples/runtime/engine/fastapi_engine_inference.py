@@ -23,7 +23,7 @@ engine = None
 
 # Use FastAPI's lifespan manager to initialize/shutdown the engine
 @asynccontextmanager
-async def sglang_engine_lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):
     """Manages SGLang engine initialization during server startup."""
     global engine
     # Initialize the SGLang engine when the server starts
@@ -34,7 +34,7 @@ async def sglang_engine_lifespan(app: FastAPI):
         model_path=os.getenv("MODEL_PATH"), tp_size=int(os.getenv("TP_SIZE"))
     )
     print("SGLang engine loaded.")
-    yield # fast api 关闭的时候执行
+    yield  # 恢复后执行下面的关闭阶段代码
     # Clean up engine resources when the server stops (optional, depends on engine needs)
     print("Shutting down SGLang engine...")
     # engine.shutdown() # Or other cleanup if available/necessary
@@ -42,8 +42,8 @@ async def sglang_engine_lifespan(app: FastAPI):
 
 # lifespan：FastAPI 的生命周期钩子
 #   1. yield 之前的代码在服务启动时执行一次（这里创建 SGLang Engine）
-#   2. yield 之后的代码在服务关闭时执行一次（这里关闭 SGLang Engine）
-app = FastAPI(lifespan=sglang_engine_lifespan)
+#   2. yield 之后的代码在服务关闭时执行一次（本示例尚未启用 engine.shutdown）
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/generate")
@@ -85,7 +85,7 @@ def start_server(args, timeout=60):
         "python",
         "-m",
         "uvicorn",
-        "fastapi_engine_inference:app", # app = FastAPI(lifespan=sglang_engine_lifespan)
+        "fastapi_engine_inference:app", # app = FastAPI(lifespan=lifespan)
         f"--host={args.host}",
         f"--port={args.port}",
     ]
@@ -133,7 +133,7 @@ def send_requests(server_url, prompts, max_new_tokens, temperature):
     """Sends generation requests to the running server for a list of prompts."""
     # Iterate through prompts and send requests
     for i, prompt in enumerate(prompts):
-        print(f"\n[{i+1}/{len(prompts)}] Sending prompt: '{prompt}'")
+        print(f"\n[{i + 1}/{len(prompts)}] Sending prompt: '{prompt}'")
         payload = {
             "prompt": prompt,
             "max_new_tokens": max_new_tokens,
@@ -170,13 +170,12 @@ if __name__ == "__main__":
         help="Time in seconds to wait for the server to be ready (default: %(default)s)",
     )
     args = parser.parse_args()
-    print(f"args: {vars(args)}")
 
     # Pass the model to the child uvicorn process via an env var
     # 设置环境bian liang
     os.environ["MODEL_PATH"] = args.model_path
     # The tensor parallelism size，几张GPU卡则一般并行度是几
-    os.environ["TP_SIZE"] = str(args.tp_size) 
+    os.environ["TP_SIZE"] = str(args.tp_size)
 
     # Start the server
     process = start_server(args, timeout=args.startup_timeout)

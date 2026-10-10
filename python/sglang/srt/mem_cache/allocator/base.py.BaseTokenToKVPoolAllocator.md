@@ -1,6 +1,6 @@
 # BaseTokenToKVPoolAllocator：KV 编号分配器
 
-> 只管 KV（Key-Value）编号的分配和归还，不存 K/V 本身；默认实现是 `token.py` 的 `TokenToKVPoolAllocator`（`page_size = 1`，一个编号对应一个 token）。下文路径相对 `python/sglang/srt/mem_cache/`
+> 只管 KV（Key-Value）编号的分配和归还，不存 K/V 本身；下文以 GPU 上按 token 分配的 `token.py` 中 `TokenToKVPoolAllocator` 为例（`page_size = 1`，一个编号对应一个 token）。下文路径相对 `python/sglang/srt/mem_cache/`
 
 ## 1. 内存结构
 
@@ -26,9 +26,10 @@ alloc(4)    free_pages 只有 3 个，先 merge_and_sort_free：
             再返回 [1, 3, 4, 5]，free_pages = [6]
 ```
 
-- `free_pages`、`release_pages` 都是 GPU 上的 int64 一维张量，空闲编号 = 两者之和：`available_size()` 返回 `(len(free_pages) + len(release_pages)) * page_size`。
+- `free_pages`、`release_pages` 都是 GPU 显存(GPU memory)中的 int64 一维张量，空闲编号 = 两者之和：`available_size()` 返回 `(len(free_pages) + len(release_pages)) * page_size`。
 - 0 号保留：`clear()` 里 `torch.arange(1, self.size + 1)`，0 号给补齐出来的空 token 写占位输出。
 - `need_sort` 只在 PD 分离时为真（`kv_cache_configurator.py` 里 `need_sort=get_disagg().disaggregation_mode in ("decode", "prefill")`）；不分离时归还的编号直接拼回 `free_pages`，`release_pages` 一直为空。
+- 当前淘汰入口 `evict_from_tree_cache()` 委托分配器的 `evict_to_free_tokens()` 检查空闲量并回收缺口，分页分片场景还会继续检查实际可分配容量。
 - `merge_and_sort_free()`：`free_pages = torch.cat((free_pages, release_pages))` → `torch.sort(...)` → 清空 `release_pages`，排序后分出去的编号更连续。
 
 ## 2. 核心字段
