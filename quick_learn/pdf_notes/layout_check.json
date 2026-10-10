@@ -1,0 +1,14 @@
+{
+  "pdf": "user_guide_zh/SGLang源码学习笔记.pdf",
+  "pages": 60,
+  "entries": 280,
+  "module_notes": 2,
+  "page_overflow": [],
+  "verbatim_source_check": "passed",
+  "authored_explanations": 0,
+  "coverage": {
+    "learning_comment_anchors": 1406,
+    "covered_anchors": 1406,
+    "missing": []
+  }
+}

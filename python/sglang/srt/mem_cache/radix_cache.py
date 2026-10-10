@@ -605,12 +605,16 @@ class RadixCache(BasePrefixCache):
         return self._total_size_helper()
 
     def evict(self, params: EvictParams) -> EvictResult:
+        """NOTE 可能是相对轻量的元数据回收"""
         if self.disable:
             return EvictResult()
 
         start_time = time.perf_counter()
+        # NOTE 需要释放的 token 数量（对应到 KV Index 数量）
         num_tokens = params.num_tokens
+        # NOTE 获取现在可以被淘汰的节点
         leaves = list(self.evictable_leaves)
+        # NOTE 对可淘汰的节点进行排序
         eviction_heap = [
             (self.eviction_strategy.get_priority(node), node) for node in leaves
         ]
@@ -618,6 +622,7 @@ class RadixCache(BasePrefixCache):
 
         num_evicted = 0
         while num_evicted < num_tokens and len(eviction_heap):
+            # TODO 按照淘汰优先级获取要被淘汰的节点，结果类型分别是 
             _priority, x = heapq.heappop(eviction_heap)
 
             # Tree values are page-aligned copies of a kv row: page-exact segment.

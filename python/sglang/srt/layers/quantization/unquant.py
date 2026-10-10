@@ -204,6 +204,7 @@ class UnquantizedEmbeddingMethod(QuantizeMethodBase):
         # NOTE 给 layer/VocabParalellelEmbedding 创建变量 weight 并赋 torch.empty(...)
         layer.register_parameter("weight", weight)
         # NOTE 给 layer/VocabParalellelEmbedding 数值属性，包括 weight_loader() 方法
+        #     在 x 地方统一加载模型
         set_weight_attrs(weight, extra_weight_attrs)
 
     def apply(
@@ -258,6 +259,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """
+            NTOE 参数说明 layer 是线性层（此处为 qkv_proj），x 是输入 hidden_states，bias 是可选偏置
+        """
         if use_intel_amx_backend(layer):
             x_shapes = x.shape
             if len(x_shapes) == 3:
@@ -302,6 +306,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 return output.view(*x_shapes[:-1], -1)
             return F.linear(x, layer.weight, bias)
 
+        # NOTE  F -> torch.nn.functional
+        #   通用核心：F.linear 即 x @ layer.weight.T + bias；bias=None 时不加偏置
+        #   
         return F.linear(x, layer.weight, bias)
 
     def apply_into(

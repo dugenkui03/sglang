@@ -623,7 +623,9 @@ class BaseFusedOp(nn.Module, ABC):
     # torch.compile mode switching keep working.
     @debug_kernel_api
     def forward(self, *args, backend: Optional[KernelBackend] = None, **kwargs):
-        """Run the op on ``backend``, or on the best eligible path when omitted."""
+        """Run the op on ``backend``, or on the best eligible path when omitted.
+            
+        """
         if backend is not None:
             # Explicit per-call selection is strict: an unimplemented backend
             # raises so the caller's intent never degrades silently.

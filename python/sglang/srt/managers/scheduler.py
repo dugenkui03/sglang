@@ -1105,6 +1105,8 @@ class Scheduler(
         (
             self.max_total_num_tokens,
             self.max_prefill_tokens,
+            # NOTE 当前 worker 能够并发执行的请求
+            #    这个值也对应 req_to_token_pool 的 req slot 数量
             self.max_running_requests,
             self.max_queued_requests,
             self.max_req_len,
@@ -3486,9 +3488,12 @@ class Scheduler(
         beam_width: Optional[int] = None,
         running_batch: Optional[ScheduleBatch] = None,
     ) -> int:
+        # 
         pp_budget = get_parallel().pp_max_micro_batch_size - running_bs
+        # tip 当前可用的 req slot
         available = self.req_to_token_pool.available_size()
 
+        # tip 正在 decode 的 请求
         active_batch = running_batch or self.running_batch
         available = max(
             available - self.beam_coordinator.pending_member_rows(active_batch), 0
@@ -3558,7 +3563,7 @@ class Scheduler(
         # 也没有未完成的 chunked_req
         #
         # tip
-        #   running_batch is full：槽位、max_running_requests 等资源被 running_batch 占满了
+        #   running_batch is full：槽位、max_running_requests(worker能够最大并行执行的请求数量) 等资源被 running_batch 占满了
         #   chunked_req：提示词太长的时候，按照 --chunked-prefill-size 分成多块做多轮 prefill
         #            chunked_req 是在在前的chunk处理时已经锁定了槽位资源
         if (

@@ -26,10 +26,17 @@ class OverlapRouteTests(unittest.TestCase):
         names = {
             node[2] for branch in self.scope["branches"] for node in branch["nodes"]
         }
-        self.assertEqual(len(names), 127)
+        self.assertEqual(len(names), 122)
         self.assertIn("Scheduler.event_loop_overlap", names)
         self.assertIn("Scheduler.launch_batch_sample_if_needed", names)
-        self.assertIn("GenerationBatchResult.copy_to_cpu", names)
+        for excluded in (
+            "Scheduler.is_disable_overlap_for_batch",
+            "Scheduler._forward_isolation",
+            "FutureMap.publish",
+            "GenerationBatchResult.copy_to_cpu",
+            "Scheduler._apply_war_barrier",
+        ):
+            self.assertNotIn(excluded, names)
         self.assertIn("Qwen3_5ForConditionalGeneration.__init__", names)
         self.assertIn("Qwen3_5ForConditionalGeneration.load_weights", names)
         self.assertIn("Qwen3VLForConditionalGeneration.forward", names)
@@ -64,7 +71,8 @@ class OverlapRouteTests(unittest.TestCase):
 
     def test_no_future_map_init_evidence_is_borrowed_to_complete_request_branch(self):
         status, _ = infer_coverage(self.scope, {"future_stash": [560]})
-        self.assertEqual(status["future_publish"], "U")
+        self.assertEqual(status["future_stash"], "D")
+        self.assertNotIn("future_publish", status)
         with self.assertRaises(ValueError):
             infer_coverage(self.scope, {"future_init": [259]})
 

@@ -2524,6 +2524,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         # NOTE 分配槽位和 KV 编号，并把命中编号和新编号写入 req_to_token，
         (
             out_cache_loc,
+            # NTOE 保存本次请求对应的 req slot 
             req_pool_indices_tensor,
             req_pool_indices_cpu,
         ) = alloc_for_extend(self)
@@ -2682,6 +2683,23 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         # NOTE 【Step 5】写回批字段；input_ids 先留在 pinned CPU，前向时再拷到 GPU
         self.input_ids = None
         self.prefill_input_ids_cpu = pinned_input_ids
+        # NOTE 保存本批次请求的 req slot
+        # Scheduler.get_new_batch_prefill()
+        # → ScheduleBatch.prepare_for_extend()
+        #     │
+        #     ├─ ① alloc_for_extend()
+        #     │    │
+        #     │    ├─ alloc_req_slots()
+        #     │    │    → HybridReqToTokenPool.alloc()
+        #     │    │    → ReqToTokenPool.alloc()
+        #     │    │        ├─ alloc_rows()：从 free_slots 取空闲槽位，假设为 [5, 9]
+        #     │    │        └─ req.req_pool_idx = 分配的编号：分别保存 5、9
+        #     │    │
+        #     │    └─ torch.tensor(...).to(batch.device)
+        #     │         → 将编号列表转成 GPU Tensor：[5, 9]
+        #     │
+        #     └─ ② self.req_pool_indices = req_pool_indices_tensor
+        #          → 保存到 ScheduleBatch ← 本批请求编号列表
         self.req_pool_indices = req_pool_indices_tensor
         self.req_pool_indices_cpu = req_pool_indices_cpu
         self.orig_seq_lens = orig_seq_lens_tensor
@@ -3221,15 +3239,12 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         )
 
     def prepare_for_decode(self):
-        """
-        TODO
-        """
         self.forward_mode = ForwardMode.DECODE
         # Decode embeds the last output token via embed_tokens; clear the stale
         # prefill-time tensor so it doesn't leak into ForwardBatch.
         self.input_embeds = None
 
-        # Clear context parallel metadata - CP is only for prefill, not decode
+        # Clear context parallel metadata - CP is only for prefill, not decode tip 
         if hasattr(self, "attn_cp_metadata") and self.attn_cp_metadata is not None:
             self.attn_cp_metadata = None
 
@@ -3240,6 +3255,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             self.mamba_track_mask_cpu = None
             self.mamba_track_mask_next_cpu = None
             self.mamba_decode_batch_idx_cpu = None
+            # TODO spec 链路直接调用 sepc_prepare_for_decode
             spec_prepare_for_decode(self)
             return
 
@@ -3259,7 +3275,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
         # Allocate memory (DSV4-NPU c{4,128}_state alloc lens are computed inside
         # the allocator, triggered from mem_cache/common.py.)
-        # note 从预先分好的 KV 池里取空闲的 KV 编号
+        # note 从 KV 池里取空闲的 KV 编号，并且 ReqToTokenPool 中也预先写入了分配的 kv index
         self.out_cache_loc = alloc_for_decode(self, token_per_req=1)
 
         # Update req-level memory management fields
@@ -3269,6 +3285,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
 
         # New-tensor avoids racing model_worker_batch refs queued for
         # overlap forward.
+        # tip 进行decode 选中的每个请求的 seq length 都要 + 1
         self.seq_lens = self.seq_lens + 1
         self.seq_lens_cpu = self.seq_lens_cpu + 1
         self.orig_seq_lens = self.orig_seq_lens + 1

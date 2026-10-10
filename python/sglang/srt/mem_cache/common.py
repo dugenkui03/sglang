@@ -114,6 +114,9 @@ def maybe_cache_unfinished_req(req: Req, tree_cache: BasePrefixCache, **kwargs):
 
 
 def evict_from_tree_cache(tree_cache: BasePrefixCache | None, num_tokens: int):
+    """
+        NOTE 判断能否从 RadixCache 获取 num_tokens 个 KV Index，不能则尝试释放
+    """
     if tree_cache is None:
         return
 
@@ -135,8 +138,9 @@ def evict_from_tree_cache(tree_cache: BasePrefixCache | None, num_tokens: int):
             )
     else:
         # Standard allocator: evict only the shortfall (mirrors the SWA arm)
-        available_size = allocator.available_size()
+        available_size = allocator.available_size() # 当前闲置的 KV Index 数量
         if available_size < num_tokens:
+            # 要求 num_tokens 这么多空间，但是目前只有available_size，因此尝试释放 num_tokens=num_tokens - available_size 个 KV Index
             tree_cache.evict_for_alloc(
                 EvictParams(num_tokens=num_tokens - available_size)
             )

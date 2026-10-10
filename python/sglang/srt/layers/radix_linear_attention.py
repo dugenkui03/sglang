@@ -113,7 +113,12 @@ class RadixLinearAttention(nn.Module):
                 )
             return output
         else:
+            # NOTE 核心入口
+            #   RadixLinearAttention.forward()
+            #     → get_attn_backend()：取得 HybridLinearAttnBackend 对象       // 这里
             return get_attn_backend().forward(
+                # tip HybridLinearAttnBackend#forward() 的 layer 类型是 RadixAttention
+                #   python 没有严格的类型检查，使用的时候读取对象如果有对应的 方法、字段，则代码正常运行
                 layer=self,
                 forward_batch=forward_batch,
                 mixed_qkv=mixed_qkv,

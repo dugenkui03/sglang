@@ -150,11 +150,14 @@ def _set_kv_buffer_impl(
     size_limit: int,
     alt_stream: Optional[torch.cuda.Stream] = None,
     v_row_dim: Optional[int] = None,  # head_num * v_head_dim; defaults to row_dim
-) -> None:
+) -> None:  
+    """ 写入 kv 到缓存
+    """
     v_row_dim = row_dim if v_row_dim is None else v_row_dim
     row_bytes = row_dim * store_dtype.itemsize
     v_row_bytes = v_row_dim * store_dtype.itemsize
     if (_is_cuda or _is_hip) and can_use_store_cache(row_bytes, v_row_bytes):
+        # NOTE gpu 链路
         return store_cache(
             k.view(-1, row_dim),
             v.view(-1, v_row_dim),
@@ -316,7 +319,7 @@ class ReqToTokenPool:
 
     def alloc(self, reqs: list[Req]) -> Optional[List[int]]:
         """
-        NOTE 给 list[Req] 分配 请求编号
+            NOTE 获取 list[Req] 对应的 req slot：已有则重复使用，没有则分配
         """
         # Indices of reqs that already have a req_pool_idx and will reuse
         # their existing slot (e.g. chunked prefill continuing across chunks).
@@ -338,7 +341,7 @@ class ReqToTokenPool:
             return None
         offset = 0
         for r in reqs:
-            # NOTE 分配 req slot
+            # NOTE 如果是新请求、没有 req_pool_idx 则使用 select_index 的槽位
             if r.req_pool_idx is None:
                 r.req_pool_idx = select_index[offset]
                 offset += 1
@@ -354,6 +357,7 @@ class ReqToTokenPool:
             return []
         # Pop from the tail: O(need_size), unlike a prefix pop which is
         # O(len(free_slots)).
+        # NOTE 从 free_slots 中分配 need_size 个 req slot
         select_index = self.free_slots[-need_size:]
         del self.free_slots[-need_size:]
         self.req_generation[select_index] += 1
@@ -2369,7 +2373,8 @@ class MHATokenToKVPool(KVCache):
 
     def _get_key_buffer(self, layer_id: int):
         """
-        NOTE 读取 K 向量的方法
+            NOTE 读取 K 向量的方法，读取的是当前 transformer layer 的所有的 K cache
+                这里只获取数据的引用，并没有发生数据复制或者搬运、不占用 显存、内存
         """
         # for internal use of referencing
         local_layer_id = layer_id - self.start_layer
@@ -2388,7 +2393,7 @@ class MHATokenToKVPool(KVCache):
 
     def get_key_buffer(self, layer_id: int):
         """
-        NOTE 读取 V 向量的方法
+            NOTE 读取 V 向量的方法
         """
         # note: get_key_buffer is hooked with synchronization for layer-wise KV cache loading
         # it is supposed to be used only by attention backend not for information purpose
@@ -2426,26 +2431,31 @@ class MHATokenToKVPool(KVCache):
         return self.v_head_dim
 
     def get_kv_buffer(self, layer_id: int):
+        """
+            layer id 是 kv pool 中缓存编号，k_buffer[layer_id][kv_index] 中的 layer_id
+        """
         return self.get_key_buffer(layer_id), self.get_value_buffer(layer_id)
 
     def set_kv_buffer(
         self,
         layer: RadixAttention,
-        loc_info,  # 要写的位置
-        cache_k: torch.Tensor,  # k 向量
-        cache_v: torch.Tensor,  # v 向量
-        k_scale: Optional[float] = None,
-        v_scale: Optional[float] = None,
-        layer_id_override: Optional[int] = None,
-        dcp_kv_mask: Optional[torch.Tensor] = None,
+        loc_info,  # [N] 整数 Tensor，或包装它的 KVWriteLoc；每项是一个写入槽位
+        cache_k: torch.Tensor,  # [N, H_kv, D_k]：本轮待写入的 K
+        cache_v: torch.Tensor,  # [N, H_kv, D_v]：本轮待写入的 V
+        k_scale: Optional[float] = None,  # K 缩放系数，也可传入单元素 Tensor
+        v_scale: Optional[float] = None,  # V 缩放系数，也可传入单元素 Tensor
+        layer_id_override: Optional[int] = None,  # 外层映射后的缓存层编号
+        dcp_kv_mask: Optional[torch.Tensor] = None,  # [N] bool；True 表示本卡写该 token
     ):
         """
-        NOTE 写 KV 向量到缓存的地方
+            NOTE 将本轮 K/V 写入本卡当前层的缓存
         """
+        # NOTE 获取 kv index，kv index 对应这个 token 在所有层的 kv 值保存位置
         loc, _, _ = unwrap_write_loc(loc_info)
         # Catch stale slot ids here instead of as illegal-addr / silent KV
         # corruption in the store_kvcache write (gated on SGLANG_ENABLE_ASYNC_ASSERT).
         maybe_detect_oob(loc, 0, self.size + self.page_size, "set_kv_buffer (MHA)")
+        # NOTE 获取 transformer layer，每层 transformer layer 都有 kv数据，都保存在缓存中
         layer_id = (
             layer_id_override if layer_id_override is not None else layer.layer_id
         )
@@ -2465,14 +2475,17 @@ class MHATokenToKVPool(KVCache):
             )
             return
 
+        # NOTE 输入与缓存 dtype 不同时，先按可选 scale 缩放，再转换成缓存的数据类型
+        #   如果类型相同 scale 也就没用了，所以不做处理
         if cache_k.dtype != self.dtype:
             if k_scale is not None:
-                cache_k.div_(k_scale)
+                cache_k.div_(k_scale) # 逐个元素相除
             if v_scale is not None:
                 cache_v.div_(v_scale)
             cache_k = cache_k.to(self.dtype)
             cache_v = cache_v.to(self.dtype)
 
+        # TODO 算子/operator 按底层存储 dtype 重新解释同一批字节（例如 FP8 -> uint8），这里不再做数值转换
         if self.store_dtype != self.dtype:
             cache_k = cache_k.view(self.store_dtype)
             cache_v = cache_v.view(self.store_dtype)
@@ -2507,6 +2520,7 @@ class MHATokenToKVPool(KVCache):
             v_buf[pages, :, offs, :] = cache_v
             return
 
+        # NOTE 重要，常规写入入口
         self._store_kv_layer(layer_id - self.start_layer, loc, cache_k, cache_v)
 
     def _store_kv_layer(
@@ -2516,6 +2530,8 @@ class MHATokenToKVPool(KVCache):
         cache_k: torch.Tensor,
         cache_v: torch.Tensor,
     ):
+        """ 写入kv 到 缓存，调用  _set_kv_buffer_impl
+        """
         # Per-layer physical write into K/V buffer ``layer_idx``. Override for
         # layouts that change buffer identity (e.g. PageMajorMHATokenToKVPool's
         # 4-D strided views). ``loc`` and the cache tensors are already dtype-cast
@@ -2542,6 +2558,8 @@ class MHATokenToKVPool(KVCache):
             )
             return
 
+        # NOTE 普通布局的写入语义：k_buffer[layer_idx][loc[i]] = cache_k[i]，V 同理。
+        # 下方实现根据设备选择写入内核或 Tensor 索引赋值。
         _set_kv_buffer_impl(
             cache_k,
             cache_v,
@@ -3755,7 +3773,53 @@ class MHATokenToKVPoolMXFP8(MHATokenToKVPool):
 
 
 class HybridLinearKVPool(KVCache):
-    """KV cache with separate pools for full and linear attention layers."""
+    """KV cache with separate pools for full and linear attention layers.
+    
+    Scheduler.__init__()
+    → Scheduler.init_model_worker()
+        │
+        ├─ ① init_tp_model_worker()：创建 ModelRunner、加载模型和权重
+        │
+        ├─ ② init_memory_pools()：创建缓存池
+        │    → Scheduler.init_target_memory_pool()
+        │    → TpModelWorker.alloc_memory_pool()
+        │    → ModelRunner.alloc_memory_pool()
+        │    → KVCacheConfigurator.configure()
+        │    → KVCacheConfigurator._init_pools()
+        │    → _build_token_to_kv_pool()
+        │    → _build_hybrid_linear_kv_pool()
+        │    → HybridLinearKVPool(...)  ← 在这里创建对象
+        │
+        ├─ ③ init_all_attention_backends()：创建注意力后端
+        └─ ④ init_all_cuda_graphs()
+
+    NOTE HybridLinearKVPool 对象组合了 MHATokenToKVPool，真正保存数据的是  MHATokenToKVPool
+    HybridLinearKVPool 
+    └─ full_kv_pool：MHATokenToKVPool 对象
+        ├─ k_buffer：存放 K 的 GPU Tensor
+        └─ v_buffer：存放 V 的 GPU Tensor
+
+    继承关系：
+        object：Python 所有类的基础类
+        │
+        ├─ abc.ABC：抽象基类（Abstract Base Class），支持约束子类必须实现的接口
+        │   └─ KVCache：定义缓存读写接口，并提供容量、数据类型等公共管理逻辑
+        │       ├─ MHATokenToKVPool：分配并读写全注意力层各 token 的 K/V 缓存
+        │       └─ HybridLinearKVPool：统一管理全注意力与线性注意力两类缓存，并转换层编号
+        │
+        └─ MambaPool：保存线性注意力需要的卷积状态和递推状态
+
+    组合关系：
+        HybridLinearKVPool 对象
+        │
+        ├─ full_kv_pool：MHATokenToKVPool 对象
+        │   ├─ k_buffer：各全注意力层的 K 张量（Tensor）
+        │   └─ v_buffer：各全注意力层的 V 张量（Tensor）
+        │
+        └─ mamba_pool：MambaPool 对象，由外部创建后传入
+            ├─ 卷积状态（Convolution State）：保留短卷积所需的近期输入
+            └─ 递推状态（Recurrent State）：随 token 更新，汇总历史信息 
+    """
 
     cpu_copy_carries_mamba = True
 
@@ -3801,6 +3865,7 @@ class HybridLinearKVPool(KVCache):
         # identity for a static pool, `translate_kv_loc_dense` for the unified pool.
         self._full_translate = lambda ids: ids
         self.use_mla = use_mla
+        # NOTE qwen 3.5 链路这个对象最终是 MHATokenToKVPool
         if full_kv_pool is not None:
             # Shared-KV-pool path: the caller built a UnifiedMHATokenToKVPool
             # aliasing the shared byte buffer.
@@ -3933,6 +3998,25 @@ class HybridLinearKVPool(KVCache):
         return self.full_kv_pool.maybe_get_custom_mem_pool()
 
     def _transfer_full_attention_id(self, layer_id: int):
+        """NOTE 这个方法是将 attention layer id 转换成 full_kv_pool 编号
+        Qwen3.5 在 full attention layer 和 linear attention 保存的数据不一样
+
+        HybridLinearKVPool
+        ├─ full_kv_pool：全注意力层
+        │    └─ K/V 缓存：按 token 保存历史 K、V
+        │
+        └─ mamba_pool：线性注意力层
+             ├─ 卷积状态：保留短卷积需要的近期输入
+             └─ 递推状态：随 token 更新，汇总历史信息
+
+        模型层编号     层类型        full_kv_pool 中的编号
+        0、1、2       线性注意力     不存入这个池
+        3            全注意力       0
+        4、5、6       线性注意力     不存入这个池
+        7            全注意力       1
+
+        对应映射为 {3: 0, 7: 1}；本方法只查映射，不搬运缓存数据。
+        """
         if layer_id not in self.full_attention_layer_id_mapping:
             raise ValueError(
                 f"{layer_id=} not in full attention layers: {self.full_attention_layer_id_mapping.keys()}"
@@ -3946,6 +4030,11 @@ class HybridLinearKVPool(KVCache):
         self.full_kv_pool.register_layer_transfer_counter(None)
 
     def _wait_for_layer(self, layer_id: int):
+        """
+           针对 hi cache 场景，等待缓存转移到 GPU 显存
+            CPU 缓存 → GPU 显存
+            L3 外部存储 → CPU 缓存 → GPU 显存
+        """
         if self.layer_transfer_counter is not None:
             self.layer_transfer_counter.wait_until(layer_id - self.start_layer)
 
@@ -3964,8 +4053,11 @@ class HybridLinearKVPool(KVCache):
         return self.full_kv_pool.get_value_buffer(layer_id)
 
     def get_kv_buffer(self, layer_id: int):
-        self._wait_for_layer(layer_id)
-        layer_id = self._transfer_full_attention_id(layer_id)
+        """ NOTE 读取 KV Cache
+        """
+        self._wait_for_layer(layer_id) # 如果用了 hi cache 则这里等待 kv 数据放到 kv cache
+        layer_id = self._transfer_full_attention_id(layer_id) # 计算要获取 kv cache 中第几层缓存，k_buffer[layer_num][kv_index] 中的 layer_num、是缓存的 layer_num
+        # MHATokenToKVPool
         return self.full_kv_pool.get_kv_buffer(layer_id)
 
     def get_raw_kv_buffer(
@@ -4022,13 +4114,35 @@ class HybridLinearKVPool(KVCache):
         v_scale: float = 1.0,
         dcp_kv_mask: Optional[torch.Tensor] = None,
     ):
+        """NOTE 缓存写入调用链（FlashAttention、普通 NHD 布局、CUDA JIT 分支）。
+
+        FlashAttentionBackend.forward_decode() / forward_extend()
+        → HybridLinearKVPool.set_kv_buffer()  ← 当前方法
+            │
+            ├─ ① unwrap_write_loc()：取出写入位置
+            ├─ ② _transfer_full_attention_id()：映射缓存层编号
+            └─ ③ self.full_kv_pool.set_kv_buffer()：转交全注意力缓存池
+                 → MHATokenToKVPool.set_kv_buffer()
+                 → MHATokenToKVPool._store_kv_layer()
+                 → _set_kv_buffer_impl()
+                 → store_cache()
+                     │
+                     ├─ _jit_kvcache_module()：取得编译后的模块
+                     └─ module.store_cache()：Python → C++ 绑定
+                          → StoreKVCacheKernel<...>::run()：C++ 入口，kvcache.cuh
+                          → LaunchKernel(...).enable_pdl(...)(kernel, params)
+                          → store_kvcache()：GPU 写入内核，kvcache.cuh
+        """
         # Write-location info lives in the metadata (`KVWriteLoc`). `full_loc` is the
         # unified pool's pre-translated PHYSICAL loc (None for a static pool, where
         # `loc` is already physical) — either way the pool writes a PHYSICAL loc.
-        loc, _, full_loc = unwrap_write_loc(loc)
-        layer_id = self._transfer_full_attention_id(layer.layer_id)
+        loc, _, full_loc = unwrap_write_loc(loc) # tip 取出要写入 kv 值的位置信息
+        layer_id = self._transfer_full_attention_id(layer.layer_id) # tip 这是第几层 kv
+
         if not self.use_mla:
+            # 这里是 loc 链路
             write_loc = full_loc if full_loc is not None else loc
+            # NOTE full_kv_pool 类型是 MHATokenToKVPool
             self.full_kv_pool.set_kv_buffer(
                 layer,
                 write_loc,

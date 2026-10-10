@@ -423,6 +423,29 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
     input_ids: torch.Tensor
 
     # The indices of requests in the req_to_token_pool
+    #
+    # tip 赋值逻辑
+    # Scheduler.get_new_batch_prefill()
+    # → ScheduleBatch.prepare_for_extend()
+    #     │
+    #     ├─ ① alloc_for_extend()
+    #     │    │
+    #     │    ├─ alloc_req_slots()
+    #     │    │    → HybridReqToTokenPool.alloc()
+    #     │    │    → ReqToTokenPool.alloc()
+    #     │    │        ├─ alloc_rows()：从 free_slots 取空闲槽位，假设为 [5, 9]
+    #     │    │        └─ req.req_pool_idx = 分配的编号：分别保存 5、9
+    #     │    │
+    #     │    └─ torch.tensor(...).to(batch.device)
+    #     │         → 将编号列表转成 GPU Tensor：[5, 9]
+    #     │
+    #     └─ ② self.req_pool_indices = req_pool_indices_tensor
+    #          → 保存到 ScheduleBatch ← 本批请求编号列表
+    #
+    # TpModelWorker.forward_batch_generation()
+    # → ForwardBatch.init_new()
+    #     └─ req_pool_indices = batch.req_pool_indices
+    #          → ForwardBatch 也持有这份 Tensor
     req_pool_indices: torch.Tensor
     # The sequence length
     seq_lens: torch.Tensor

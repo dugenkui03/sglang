@@ -24,6 +24,7 @@ def _jit_kvcache_module(k_row_bytes: int, v_row_bytes: int) -> Module:
         "kvcache",
         *args,
         cuda_files=["elementwise/kvcache.cuh"],
+        # NOTE   Python 调用名       对应的 C++ 函数
         cuda_wrappers=[("store_cache", f"StoreKVCacheKernel<{args}>::run")],
     )
 
@@ -67,6 +68,7 @@ def store_cache(
     reserved_skip_index: int = 0,
 ) -> None:
     """Store key and value tensors into KV cache at specified indices.
+    NOTE 将 K/V 写入到 KV Cache
 
     Args:
         k (torch.Tensor): Key tensor of shape (batch_size, H * D).
@@ -87,6 +89,7 @@ def store_cache(
     """
     row_bytes = row_bytes or k.shape[-1] * k.element_size()
     v_row_bytes = v_row_bytes or v.shape[-1] * v.element_size()
+    # NOTE module 代表的是编译好的代码模块，里面提供可以调用的 GPU 操作函数
     module = _jit_kvcache_module(row_bytes, v_row_bytes)
     if num_split <= 0:
         # A split must divide BOTH rows, so require the alignment on each.
@@ -98,6 +101,7 @@ def store_cache(
             num_split = 1
     if size_limit <= 0:
         size_limit = k_cache.shape[0]
+    # NOTE 调用模块中的写入函数，启动 GPU 内核，将 K/V 写到指定缓存槽位
     module.store_cache(
         k,
         v,

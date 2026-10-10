@@ -1,7 +1,7 @@
 {
-  "version": 3,
+  "version": 4,
   "baseline_commit": "6388b6cfb1d93c253714a408f1d66a093302acd7",
-  "scope": "先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。",
+  "scope": "先读 Qwen3_5ForConditionalGeneration 的模型初始化与权重加载，再跟非流式文本生成请求：从 OpenAIServingChat._handle_non_streaming_request 到完整响应；调度只沿 event_loop_overlap，包含共享的 Prefill/Decode、KV、Qwen 3.5 dense 推理、采样与回包。补入 QKV 投影及父类的核心构造与未量化前向方法。 不计入已排除的 5 个 Overlap 协作方法。",
   "representatives": "模型固定为 Qwen3_5ForConditionalGeneration（dense）：构造函数在 qwen3_5.py，forward 继承 qwen3_vl.py 的 Qwen3VLForConditionalGeneration；self.model 是 qwen3_5.py 的 Qwen3_5ForCausalLM。qwen3_5_text.py 中的同名类是另一个文本模型入口，不计入这条路线。初始化取 DefaultModelLoader 的常规加载路径；普通 Attention 后端取 FlashAttention，线性注意力跟到 GatedDeltaNet 与 RadixLinearAttention 接口；前缀缓存取基础 RadixCache，KV 槽位取 paged allocator。同类实现不重复扩展分母。QKV 线性投影补读 QKVParallelLinear、ColumnParallelLinear、LinearBase 的构造，以及 UnquantizedLinearMethod 的参数创建和普通 F.linear 前向分支；共用方法只计一次。",
   "excluded": [
     "通用日志、序列化、socket 包装、字符串拼接、简单 getter/setter",
@@ -13,7 +13,8 @@
     "非流式处理入口之前的 HTTP 路由与请求转换、原生 generate 和 SSE 响应分支；需要时另外查看全核心总览",
     "简单队列/属性操作和 pop_and_process 局部包装函数不单独计数，时序在路线说明中保留",
     "启动期权重加载重叠、远程/IPC/其他 loader 变体；本次只补齐常规模型构造和权重加载",
-    "LinearBase.forward 抽象占位、PyTorch nn.Module 通用机制及 F.linear 底层算子实现"
+    "LinearBase.forward 抽象占位、PyTorch nn.Module 通用机制及 F.linear 底层算子实现",
+    "Overlap 协作细节：Scheduler.is_disable_overlap_for_batch、Scheduler._forward_isolation、FutureMap.publish、GenerationBatchResult.copy_to_cpu、Scheduler._apply_war_barrier；仅保留必要时序说明，不纳入方法计数"
   ],
   "branch_threshold": {
     "numerator": 2,
@@ -56,7 +57,6 @@
     "result": "python/sglang/srt/managers/scheduler_components/batch_result_processor.py",
     "streamer": "python/sglang/srt/managers/scheduler_components/output_streamer.py",
     "detokenizer": "python/sglang/srt/managers/detokenizer_manager.py",
-    "batch_result": "python/sglang/srt/managers/utils.py",
     "load_utils": "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py",
     "loader": "python/sglang/srt/model_loader/loader.py",
     "mm_utils": "python/sglang/srt/managers/mm_utils.py",
@@ -477,12 +477,6 @@
       "stage": "6",
       "label": "Overlap 结果与后续输入衔接",
       "nodes": [
-        [
-          "future_publish",
-          "overlap",
-          "FutureMap.publish",
-          "发布下一轮序列长度等元数据"
-        ],
         [
           "future_stash",
           "overlap",
@@ -980,34 +974,10 @@
       "label": "Overlap 执行隔离、结果交接与同步",
       "nodes": [
         [
-          "overlap_gate",
-          "scheduler",
-          "Scheduler.is_disable_overlap_for_batch",
-          "判断是否需要先处理上一批结果"
-        ],
-        [
-          "forward_isolation",
-          "scheduler",
-          "Scheduler._forward_isolation",
-          "隔离批次可变状态并保留跨流张量引用"
-        ],
-        [
           "relay_payload",
           "scheduler",
           "Scheduler._relay_forward_payload",
           "将采样结果交给下一轮输入通道"
-        ],
-        [
-          "copy_result",
-          "batch_result",
-          "GenerationBatchResult.copy_to_cpu",
-          "异步复制结果到 CPU 并记录完成事件"
-        ],
-        [
-          "apply_war_barrier",
-          "scheduler",
-          "Scheduler._apply_war_barrier",
-          "保护本批共享读取，约束后续调度写入"
         ],
         [
           "delay_sample",
@@ -1519,7 +1489,7 @@
     }
   ],
   "route_id": "overlap_nonstream",
-  "expected_method_count": 127,
+  "expected_method_count": 122,
   "route_sections": [
     {
       "id": "model_init",
@@ -1611,12 +1581,10 @@
     },
     {
       "id": "submit",
-      "label": "决定本轮重叠 → 解析输入 → 提交前向",
+      "label": "解析输入 → 提交前向",
       "nodes": [
-        "overlap_gate",
         "run_batch",
         "resolve_inputs",
-        "forward_isolation",
         "worker_forward",
         "forward_batch"
       ],
@@ -1660,11 +1628,8 @@
       "id": "relay",
       "label": "保存本批结果 → 交接下一轮输入",
       "nodes": [
-        "future_publish",
         "relay_payload",
-        "future_stash",
-        "copy_result",
-        "apply_war_barrier"
+        "future_stash"
       ],
       "note": "publish 发布序列长度等元数据，stash 保存生成 token 等下一轮输入。copy_to_cpu 安排异步复制；随后将 batch 快照与结果放入 result_queue。若延迟采样，relay/stash/copy 在延迟采样后执行。"
     },
@@ -1733,7 +1698,7 @@
       "note": "这是 _forward_raw 中替代 Eager 的路径，不是 HTTP 回包之后执行。capture 在图准备阶段，不属于本次运行中请求路线，因此不计入本路线。"
     }
   ],
-  "origin": "路线 v3（2026-10-07）：在 v2 的 121 项基础上补入 4 个 QKV/线性层构造与参数创建方法、2 个线性投影前向方法，共 127 项。继承的 forward 按实际定义只计一次；统计基线与 D/C/B 规则保持不变。分母变化不代表学习退步，也不与全核心总览混算。",
+  "origin": "路线 v4（2026-10-08）：在 v3 的 127 项基础上移除 5 个 Overlap 协作方法，共 122 项：Scheduler.is_disable_overlap_for_batch、Scheduler._forward_isolation、FutureMap.publish、GenerationBatchResult.copy_to_cpu、Scheduler._apply_war_barrier。保留 Overlap 主循环与其余核心执行方法；统计基线与 D/C/B 规则保持不变。分母缩小带来的覆盖率变化不代表新增学习，也不与全核心总览混算。",
   "priority_nodes": [
     "qwen_entry_init",
     "qwen_parent_init",
@@ -1766,12 +1731,7 @@
     "match_prefix",
     "allocate_request",
     "map_slots",
-    "overlap_gate",
-    "forward_isolation",
-    "future_publish",
     "relay_payload",
-    "copy_result",
-    "apply_war_barrier",
     "delay_sample",
     "finish_request",
     "release_request",

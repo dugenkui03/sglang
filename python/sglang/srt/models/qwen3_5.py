@@ -384,6 +384,12 @@ class Qwen3_5GatedDeltaNet(nn.Module):
         conv_weights = self.conv1d.weight.view(
             self.conv1d.weight.size(0), self.conv1d.weight.size(2)
         )
+
+        # NOTE 
+        #   读写 KV cache
+        #   计算注意力分数
+        #   softmax
+        #   V 的加权和
         self.attn = RadixLinearAttention(
             layer_id=layer_id,
             num_q_heads=self.num_k_heads // self.attn_tp_size,
@@ -938,7 +944,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
     def __init__(
         self,
         config: Qwen3_5TextConfig,
-        layer_id: int,
+        layer_id: int, # transformer layer num
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
         alt_stream: Optional[torch.cuda.Stream] = None,
@@ -946,7 +952,8 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.config = config
-        self.hidden_size = config.hidden_size
+        # tip token 向量维度
+        self.hidden_size = config.hidden_size 
         self.attn_tp_rank = get_parallel().attn_tp_rank
         self.attn_tp_size = get_parallel().attn_tp_size
         # A Qwen3.5 draft is rewritten to the MTP arch (model_config._config_draft_model),
@@ -956,12 +963,18 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         self.kv_tp_rank = self.attn_tp_rank // dcp_size
         self.total_num_heads = config.num_attention_heads
         assert self.total_num_heads % self.attn_tp_size == 0
+
+        # NOTE Tensor Parallelism（TP，张量并行）有关。它的核心是：把同一层的权重矩阵和计算拆到多张 GPU，让它们协作完成这一层
+        # tag self.attn_tp_size、self.kv_tp_size 等参数配置可知 QKV head 数量不一样
+        #   但是，QKV 维度一定是一样的
         self.num_heads = self.total_num_heads // self.attn_tp_size
         self.total_num_kv_heads = config.num_key_value_heads
         if self.total_num_kv_heads >= self.kv_tp_size:
             assert self.total_num_kv_heads % self.kv_tp_size == 0
         else:
             assert self.kv_tp_size % self.total_num_kv_heads == 0
+        
+        # TODO self.kv_tp_size
         self.num_kv_heads = max(1, self.total_num_kv_heads // self.kv_tp_size)
         self.head_dim = config.head_dim or (self.hidden_size // self.num_heads)
         self.q_size = self.num_heads * self.head_dim
@@ -981,6 +994,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         if self.attn_output_gate:
             logger.warning_once("using attn output gate!")
 
+        # TODO 用于将位置信息放进 QK
         self.rotary_emb = get_rope(
             head_size=self.head_dim,
             rotary_dim=self.head_dim,
@@ -992,15 +1006,16 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             dtype=torch.get_default_dtype(),
         )
 
-        # Q stays sharded across attention TP ranks; K/V are replicated within
+        # NOTE 计算 QKV 的矩阵
+        # Q stays sharded across attention TP(tensor parallelism) ranks; K/V are replicated within
         # each DCP group.
         self.qkv_proj = QKVParallelLinear(
-            config.hidden_size,
-            self.head_dim,
+            config.hidden_size, # token的向量维度
+            self.head_dim, # 头数
             self.total_num_heads * (1 + self.attn_output_gate),
             self.total_num_kv_heads,
             bias=False,
-            quant_config=quant_config,
+            quant_config=quant_config, # NOTE 默认为空
             tp_rank=self.attn_tp_rank,
             tp_size=self.attn_tp_size,
             kv_tp_rank=self.kv_tp_rank,
@@ -1008,6 +1023,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             prefix=add_prefix("qkv_proj", prefix),
         )
 
+        # TODO
         self.o_proj = RowParallelLinear(
             self.total_num_heads * self.head_dim,
             config.hidden_size,
@@ -1019,6 +1035,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             prefix=add_prefix("o_proj", prefix),
         )
 
+        # TODO
         self.attn = RadixAttention(
             self.num_heads,
             self.head_dim,
@@ -1095,9 +1112,22 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         self.alt_stream = alt_stream
 
     def _apply_qk_norm(
-        self, q: torch.Tensor, k: torch.Tensor
+        self, 
+        q: torch.Tensor, 
+        k: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Apply Q/K normalization with optional alt_stream overlap."""
+        """Apply Q/K normalization with optional alt_stream overlap.
+        
+            NOTE 对 KV 进行归一化，目的是控制 Q @ K.T 的结果尺度（我之前一直以为是在计算之后控制的）
+                Q 放大 10 倍，K 也放大 10 倍
+                → Q @ K.T 就会放大 100 倍
+                q.shape = [num_tokens, self.q_size]
+                        = [num_tokens, self.num_heads * self.head_dim]
+
+                k.shape = [num_tokens, self.kv_size]
+                        = [num_tokens, self.num_kv_heads * self.head_dim]
+                num_tokens：本轮传入的 token 数
+        """
         if (
             self.alt_stream is not None
             and get_is_capture_mode()
@@ -1121,7 +1151,14 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
                 self.head_dim,
             )
         else:
+            # NOTE 对 q、k 分别尽心归一化
+
+            # 将 tensor_q 搞成 [x, head_dim] 维度的tensor，【每个head是一行】
             q_by_head = q.reshape(-1, self.head_dim)
+            # 每个元素：res_i = x_i / sqrt(mean(x_all ** 2) + eps) * (1 + weight_i)
+            # x_all：当前 token、当前 Q 头的完整输入向量；x_i 是其中第 i 个元素。
+            # mean(x_all ** 2)：先逐个平方，再求平均，即 sum(x_all ** 2) / head_dim。
+            # weight_i：模型学习的第 i 维参数；res_i：归一化并缩放后的第 i 个元素。 
             q_by_head = self.q_norm(q_by_head)
             k_by_head = k.reshape(-1, self.head_dim)
             k_by_head = self.k_norm(k_by_head)
@@ -1159,13 +1196,22 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         return q, k, v, gate
 
     def forward_prepare_native(self, positions, hidden_states):
+        """
+            NOTE 计算qkv 并 norm(q,k) 来控制数据尺度
+        """
         if _use_aiter and isinstance(hidden_states, tuple):
             hidden_states = _select_fused_ar_input_for_linear(
                 hidden_states, self.qkv_proj
             )
-        # NOTE 计算输入向量的 qkv：
+        # NOTE 第一部分 
+        # 
+        # 计算输入向量的 qkv：
         #   1)输入向量有多个；2)每个输入向量分别和3个 q_weight/k_weight/v_weight 计算后得到每个token对应的 qkv
+        #   
+        # 调用链路： -> QKVParallelinear.super().. -> ColumnParallelinear.forward() -> UnquantizedLinearMethod.apply()
         qkv, _ = self.qkv_proj(hidden_states)
+
+
         if self.attn_output_gate:
             q_gate, k, v = qkv.split(
                 [self.q_size * 2, self.kv_size, self.kv_size], dim=-1
@@ -1176,10 +1222,32 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             q = q.reshape(*orig_shape, -1)
             # gate stays as 3D strided view; fused_sigmoid_mul handles it directly
         else:
+            # 
+            # NOTE 第二部分
+            # 
+            # qkv 是 [num_tokens, output_size_per_partition]
+            #   split(size_list, dim) 沿着 dim 维度，将一个 tensor 拆分成多个 tensor，拆分规则按照 size_list 来
+            #
+            # Qwen3_5AttentionDecoderLayer.__init__() 时：
+            #   self.q_size = self.num_heads * self.head_dim // q_head数量 * q_dim
+            #   self.kv_size = self.num_kv_heads * self.head_dim // kv_head * kv_dim
             q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
             gate = None
-
+        
+        # NOTE 第三部分
+        #
+        # 目的是控制 Q @ K.T 的结果尺度（我之前一直以为是在计算之后控制的）
+        #     Q 放大 10 倍，K 也放大 10 倍
+        #     → Q @ K.T 就会放大 100 倍
+        #   对 qk 进行归一化，控制向量数值的尺度
         q, k = self._apply_qk_norm(q, k)
+
+# tag all_reduce 为啥 是元素相加
+#   o_proj 前：
+#   两卡的数据表示不同的头 → 逻辑上应该拼接
+
+#   o_proj 后：
+#   两卡的数据表示对同一组最终输出维度的贡献 → 应该相加
         q, k = self.rotary_emb(positions, q, k)
         return q, k, v, gate
 

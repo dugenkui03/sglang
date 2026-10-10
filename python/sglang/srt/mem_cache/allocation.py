@@ -331,7 +331,9 @@ def alloc_for_extend(
     # Allocate req slots (raises RuntimeError if the pool is exhausted)
     # NOTE 每个请求一个槽位，写入 req.req_pool_idx；分块续算的请求复用原来的槽位
     req_pool_indices = alloc_req_slots(
-        batch.req_to_token_pool, batch.reqs, batch.tree_cache
+        batch.req_to_token_pool, # tip slot -> KV index
+        batch.reqs, 
+        batch.tree_cache
     )
     req_pool_indices_cpu = torch.tensor(
         req_pool_indices, dtype=torch.int64, pin_memory=pin_memory
@@ -500,18 +502,23 @@ def _alloc_extend_loc_with_kv_reuse(
 
 
 def alloc_paged_token_slots_decode(
-    tree_cache: BasePrefixCache,
-    seq_lens: torch.Tensor,
+    tree_cache: BasePrefixCache, # RadixCache 当前项目缓存
+    seq_lens: torch.Tensor, # 包含本轮 token 后的长度，形状 [请求数]
     seq_lens_cpu: torch.Tensor,
-    last_loc: torch.Tensor,
-    token_per_req: int = 1,
-    req_pool_indices: Optional[torch.Tensor] = None,
-    batch=None,
+    last_loc: torch.Tensor, # NOTE 每个请求上一个已有 token 的 KV 槽位编号，GPU Tensor，形状 [请求数]
+    token_per_req: int = 1, # 本轮每请求新增 token 数
+    req_pool_indices: Optional[torch.Tensor] = None, # 请求对应的 req slot
+    batch=None, # ScheduleBatch
 ) -> torch.Tensor:
-    """Allocate paged KV cache for decode batch."""
+    """Allocate paged KV cache for decode batch.
+
+    NOTE 为本批请求的新 token 分配 KV 槽位
+    
+    """
     allocator = tree_cache.token_to_kv_pool_allocator
     # Over estimate the number of tokens: assume each request needs a new page.
     num_tokens = len(seq_lens) * allocator.page_size
+    # NOTE 为 num_tokens 释放 cache 空间
     evict_from_tree_cache(tree_cache, num_tokens)
 
     # DSV4-NPU allocator also needs req_pool_indices for C128 KV allocation and
@@ -551,13 +558,16 @@ def alloc_paged_token_slots_decode(
 def alloc_for_decode(batch: ScheduleBatch, token_per_req: int) -> torch.Tensor:
     """
     Allocate KV cache for decode batch and write to req_to_token_pool.
+    NOTE 为 ScheduleBatch 请求分配 kv index，并且将这个预分配的编号放到 req_to_token_pool/ReqToTokenPool 中
 
     Returns:
         out_cache_loc: allocated cache locations
+        note 返回给每个请求分配的 kv index 列表
     """
 
-    batch.maybe_evict_swa()
+    batch.maybe_evict_swa() # slide window attention
 
+    # 每个请求对应的 seq length
     seq_lens_gpu = batch.seq_lens
     bs = seq_lens_gpu.shape[0]
 
@@ -570,6 +580,7 @@ def alloc_for_decode(batch: ScheduleBatch, token_per_req: int) -> torch.Tensor:
             batch.req_pool_indices, seq_lens_gpu - 1
         ]
         seq_lens_next = seq_lens_gpu + token_per_req
+        # tip out_cache_loc 是最终返回结果，也是给每个请求分配的 kv index 下标
         out_cache_loc = alloc_paged_token_slots_decode(
             tree_cache=batch.tree_cache,
             seq_lens=seq_lens_next,
@@ -585,9 +596,10 @@ def alloc_for_decode(batch: ScheduleBatch, token_per_req: int) -> torch.Tensor:
         locs = batch.encoder_lens + seq_lens_gpu
     else:
         locs = seq_lens_gpu.clone()
-
+    # NOTE 将预先分配的 kv index【写入 req_to_token_pool】
     batch.req_to_token_pool.write(
-        (batch.req_pool_indices, locs), out_cache_loc.to(torch.int32)
+        (batch.req_pool_indices, locs),  # tip 前者是 req slot，后者是 req 中的 token 位置、从0开始
+        out_cache_loc.to(torch.int32) # kv index
     )
 
     # DSV4-NPU hook: no-op on non-DSV4 paths.

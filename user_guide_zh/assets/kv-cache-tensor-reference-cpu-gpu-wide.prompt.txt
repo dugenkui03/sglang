@@ -1,0 +1,83 @@
+Mode: built-in image_gen (one initial generation and three focused corrections).
+Final image: /home/tiger/workspace/sglang/user_guide_zh/assets/kv-cache-tensor-reference-cpu-gpu-wide.png
+
+INITIAL GENERATION PROMPT
+Use case: scientific-educational
+Asset type: a Chinese educational infographic for a SGLang source-code learning guide.
+Create ONE polished landscape 16:9 high-resolution infographic. No overall title, no watermark, no company logos. White background, restrained blue/orange technical illustration, clean aligned rounded panels, crisp and large Simplified Chinese typography, readable monospace code labels. Show hardware physically containing the relevant software/data objects. A few tasteful CPU/GPU chip and RAM illustrations help beginners understand location. Prioritize clarity and correct arrows over decorative details.
+
+Core lesson: In the ordinary GPU KV-cache path, returning an existing PyTorch Tensor or creating a .view(...) only obtains a reference/shared view and CPU metadata; it does NOT read/copy all the GPU KV values and does not create KV-data bandwidth traffic. The later attention GPU kernel actually reads the selected KV data from GPU memory. Do not imply zero CPU memory/cost, zero total hardware traffic, or automatic CPU copies of GPU tensors.
+
+Composition: two large adjacent hardware enclosures. Left about 40%: "CPU + 主机内存". Right about 60%: "GPU", internally divide into "显存 HBM" and "计算单元 SM". Keep ample whitespace, clearly visible boundaries, noncrossing routed arrows, and a compact legend along the bottom. There is no headline above the enclosures.
+
+LEFT enclosure, software/control:
+- A compact tree card named "缓存池对象（软件）":
+  "HybridLinearKVPool"
+  "└ full_kv_pool: MHATokenToKVPool"
+  "   ├ k_buffer[layer]"
+  "   └ v_buffer[layer]"
+  These represent CPU-side software objects and references, NOT the actual KV numbers in CPU RAM.
+- Below, a short call label "_get_key_buffer() / _get_value_buffer()" leading to a blue card:
+  "① 取得 Tensor 引用 / 共享视图"
+  "显存地址 · shape · dtype"
+  "get_paged_mha_kv_cache()"
+  ".view(...)：共享原有显存"
+  Small annotation: "无 K/V 数据复制；仅有少量 CPU 开销"
+- A separate lower control box:
+  "② 发起注意力计算"
+  "flash_attn_with_kvcache()"
+  "CUDA 启动接口 / 驱动"
+- One THIN GRAY arrow from the lower control box to the GPU SM kernel, labeled "提交计算任务". This is control flow, NOT a KV tensor transfer.
+
+RIGHT enclosure:
+- HBM area has ONE substantial storage rectangle:
+  "当前层 K/V 缓存（已分配）"
+  A visibly large horizontal array/grid of numbered token slots. Gray unused/unselected slots and exactly two orange-highlighted slots labelled "100" and "205"; show both K and V strips aligned to the same slots. Other slots use a few simple labels and ellipses. Explicitly write "整层缓存仍在原处".
+- Draw ONE BLUE DASHED arrow from the CPU blue Tensor card to this storage rectangle, labeled "引用同一块显存". A nearby small note "引用关系，不是数据传输". Do NOT draw any orange KV arrow from HBM back to CPU.
+- Inside the HBM area, a small adjacent input card:
+  "Q 与索引数据"
+  "示例：1 个请求，page_size = 1"
+  "page_table = [[100, 205]]"
+  "cache_seqlens = [2]"
+  The page-size-one example is deliberate: page ids 100 and 205 correspond to token slots 100 and 205. Tensor index data and Q are in GPU memory for the kernel, not magically CPU arrays accessed directly by the GPU.
+- The SM area contains a GPU execution tile:
+  "③ Attention GPU 内核"
+  "按页表读取有效 K/V"
+  "QKᵀ → 缩放/掩码 → softmax"
+  "→ V 加权和"
+- ORANGE solid arrows go from the two selected HBM KV slots and the Q/index inputs INTO the SM kernel. Label the KV arrow "真实读取 K/V：使用显存带宽".
+- An ORANGE return arrow from the SM kernel goes to a small HBM rectangle named "注意力输出 Tensor", labelled "写回结果". These orange arrows remain entirely inside the GPU enclosure.
+- Do not show a CPU→GPU copying step for obtaining references. Do not show HBM executing the attention kernel; computation is in SM. Do not show all allocated KV slots being read for this two-token example.
+
+Bottom legend with samples of the actual line styles:
+"蓝色虚线：地址引用"
+"灰色细线：控制调用"
+"橙色实线：显存数据读写"
+
+Small readable scope note at bottom:
+"普通缓存路径；不含反量化与 HiCache 回迁"
+
+All visible text should be concise and correctly spelled. No giant paragraphs, no unrelated model layers, no L3 storage panel, no motherboard decoration obscuring the logical relationships. Hardware and software locations, reference vs data flow, and the two selected cache slots must be unambiguous.
+
+CORRECTION 1
+Edit this infographic with a narrowly scoped correction to hardware placement and arrow connections. Preserve the landscape format, all existing Chinese wording and code labels, CPU/GPU enclosures, typography, colors, legend, no overall title, and overall clean visual style.
+
+Correct these closely related spatial/connection details:
+1. The "注意力输出 Tensor" box MUST be inside the "显存 HBM" enclosure, not inside the "计算单元 SM" enclosure. Move it into the lower HBM area (resize/reflow the HBM Q/input card slightly if needed). It must visibly reside in HBM. The SM enclosure should contain only the attention computation tile, no tensor memory storage. Draw the orange "写回结果" arrow from Attention GPU 内核 into this HBM output Tensor box, with an unmistakable arrowhead at the output box.
+2. The BLUE DASHED "引用同一块显存" arrow from the CPU Tensor-view card must terminate at the OUTER FRAME of the entire "当前层 K/V 缓存（已分配）" rectangle. Do not point it into slot 100 or any individual K/V cell. The CPU is referring to the entire layer's cache storage.
+3. Ensure the orange K/V read route represents BOTH highlighted token slots 100 and 205, for BOTH K and V, feeding the attention kernel. Use a clear orange collector/brace or simple tidy lines. Keep the page-table example [[100, 205]], page_size = 1, cache_seqlens = [2] exactly. There must be no orange K/V data arrow back to CPU.
+Keep arrowheads visible, routed lines non-overlapping with text, and gray CPU control submission arrow going to the kernel. Preserve every other label. This is an accuracy/layout correction, not a redesign.
+
+CORRECTION 2
+在这张图上只修正下半部分的布局和箭头，保持顶部、文字、配色、两大硬件区域、图例和其他内容不变。当前灰色“提交计算任务”箭头错误地停在“注意力输出 Tensor”旁边，必须纠正。
+
+1. 将底部“注意力输出 Tensor”的整个外框缩短，完整放入“显存 HBM”框内；它的右边界必须在 HBM 右边界左侧，不能跨入 SM 区。结果 Tensor 小立体块也留在 HBM 框内。“计算单元 SM”框内只保留 Attention GPU 内核。橙色“写回结果”箭头从内核出来，指向 HBM 中的输出 Tensor。
+2. 灰色“提交计算任务”箭头从左下 CPU 的“② 发起注意力计算”框出发，绕行面板下方的留白通道，再向上进入右侧“③ Attention GPU 内核”框，箭头必须明确终止在内核框上。灰线不得指向或穿过输出 Tensor。文字“提交计算任务”紧邻灰色控制线，不要放在输出 Tensor 框内。
+3. 补充一根橙色箭头，从 HBM 的“Q 与索引数据”框右侧连到 Attention GPU 内核左侧，表示内核读取 Q 和索引。保留现有 K/V 数据读取箭头。
+所有数据留在 GPU 内；蓝色虚线仍指向整个缓存矩形的外边界。保持无大标题、横版比例、字迹清晰。可以小幅缩放下半部卡片，为上述三根线腾出独立通道，但不要改变其他文字或含义。
+
+CORRECTION 3
+只修正一根箭头，其余像素、文字和布局全部保持不变：图中 Q Tensor 右侧的橙色箭头方向画反了。Q 是注意力内核的输入，必须从 Q 指向 Attention GPU 内核，不能由内核指向 Q。
+
+删除 Q Tensor 右边指向左的橙色三角箭头。将这根橙色折线单独连成：从 Q Tensor 的右侧边缘（约 x=1255,y=633）出发，向右到空隙，再向上，然后向右进入 Attention GPU 内核左边缘（约 x=1306,y=525）。唯一的三角箭头放在“Attention GPU 内核”边框处，朝右；Q 这一端是普通线段起点，不画箭头。不要把它连到 K/V 读取线，不要修改“写回结果”箭头、灰色提交计算箭头、蓝色引用虚线或任何其他内容。
+

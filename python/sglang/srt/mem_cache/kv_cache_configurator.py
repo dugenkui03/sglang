@@ -1956,8 +1956,12 @@ class KVCacheConfigurator:
         return token_capacity
 
     def resolve_max_num_reqs(self, token_capacity: int) -> int:
-        """Compute max concurrent requests (per dp worker) from the finalized
-        token capacity."""
+        """
+            NOTE 启动参数 --max-running-requests 控制的是上限，实际并发数根据实际资源会调整
+            
+            Compute max concurrent requests (per dp worker) from the finalized
+            token capacity.
+        """
         # Estimate pool size (used as upper bound when user specifies max_running_requests)
         estimated = int(token_capacity / self.model_config.context_len * 512)
         estimated = max(min(estimated, 4096), 2048)

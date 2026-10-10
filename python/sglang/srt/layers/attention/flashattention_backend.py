@@ -166,6 +166,33 @@ class FlashAttentionBackend(AttentionBackend):
         ), "Sliding window and cross attention are not supported together"
 
         self.is_encoder_decoder = model_runner.model_config.is_encoder_decoder
+
+        # NOTE
+        #
+        #【decode 链路】forward_metadata 创建和使用
+        #   page_size = 2、req_pool_indices = [5, 9]
+        #
+        # ScheduleBatch.prepare_for_decode()
+        # → alloc_for_decode()：为本轮两个 token 分配槽位，假设得到 [2, 9]
+        #     └─ req_to_token_pool.write()：更新请求到 KV 槽位的映射
+        #          ├─ req_to_token[5] 的有效部分：[6, 7] → [6, 7, 2]
+        #          └─ req_to_token[9] 的有效部分：[8]    → [8, 9]
+        #
+        # 随后，模型前向阶段：
+        #
+        # EagerRunner._execute_decode()
+        # → HybridLinearAttnBackend.init_forward_metadata()
+        # → FlashAttentionBackend.init_forward_metadata()
+        #     │
+        #     ├─ ① 按 forward_batch.req_pool_indices = [5, 9] 选取请求行
+        #     │      [[6, 7, 2],
+        #     │       [8, 9, 0]]                  ← 无效位置的 0 仅作示例
+        #     │
+        #     ├─ ② 每隔 page_size=2 取一个槽位，再除以 2 得到页号（page size 大小范围内的数据肯定是在同一页）
+        #     │      [[6, 2], [8, 0]] // 2
+        #     │      → page_table = [[3, 1], [4, 0]]
+        #     │
+        #     └─ ③ self.forward_metadata = metadata：保存本轮元数据
         self.forward_metadata: FlashAttentionMetadata = None
         # extra metadata for handling speculative decoding topk > 1, extended draft decode and verify
         self.forward_metadata_spec_decode_expand: FlashAttentionMetadata = None
@@ -683,6 +710,25 @@ class FlashAttentionBackend(AttentionBackend):
     def init_forward_metadata(self, forward_batch: ForwardBatch):
         """Initialize forward metadata hence all layers in the forward pass can reuse it."""
         metadata = FlashAttentionMetadata()
+        # NOTE
+        # ScheduleBatch.prepare_for_decode()
+        #     └─ self.seq_lens = self.seq_lens + 1
+        #          → [2, 1] + 1 = [3, 2]
+        #
+        # 随后，模型前向阶段：
+        #
+        # TpModelWorker.forward_batch_generation()
+        #     └─ ForwardBatch.init_new()
+        #          → forward_batch.seq_lens = batch.seq_lens，即 [3, 2]
+        #
+        # EagerRunner._execute_decode()
+        # → HybridLinearAttnBackend.init_forward_metadata()
+        # → FlashAttentionBackend.init_forward_metadata()
+        #     │
+        #     ├─ ① seqlens_in_batch = forward_batch.seq_lens
+        #     ├─ ② metadata.cache_seqlens_int32 = seqlens_in_batch.to(torch.int32)
+        #     │      → [3, 2]，形状 [2]
+        #     └─ ③ self.forward_metadata = metadata：保存本轮元数据
         seqlens_in_batch = forward_batch.seq_lens
         batch_size = forward_batch.batch_size
         device = seqlens_in_batch.device
@@ -1171,11 +1217,24 @@ class FlashAttentionBackend(AttentionBackend):
         self.forward_metadata = metadata
 
     def get_paged_mha_kv_cache(
-        self,
+        self, # FlashAttentionBackend
         layer: RadixAttention,
         *,
         head_group_num: int = 1,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """取得当前层 K/V 缓存的分页视图，普通路径共享已有显存。
+
+        返回形状：K = [P, page_size, H_k, D_k]，V = [P, page_size, H_v, D_v]。
+        P：由 -1 自动推导；head_group_num=1 时为总缓存槽位数 / page_size。
+        page_size：每页的 token 槽位数；页数按缓存容量计算，包含空闲与预留槽位。
+        H_k / H_v：本卡 K/V 头数（tp_k_head_num / tp_v_head_num）各除以 head_group_num。
+        D_k / D_v：每个 K/V 头的向量维度，分别是 head_dim / v_head_dim。
+        这里的 P 是缓存页数，不是请求数；当前层已选定，所以返回形状没有 layer 维度。
+        例：head_group_num=1、page_size=16，K 从 [1024, 4, 128] 变为 [64, 16, 4, 128]。
+        """
+
+        # tip HybridLinearKVPool(组合了 MHATokenToKVPool）
+        #   NOTE 获取的是当前 layer_id 的所有 kv cache 的数据引用
         key_cache, value_cache = self.token_to_kv_pool.get_kv_buffer(layer.layer_id)
         return (
             key_cache.view(
@@ -1806,7 +1865,7 @@ class FlashAttentionBackend(AttentionBackend):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        layer: RadixAttention,
+        layer: RadixAttention, # RadixAttention
         forward_batch: ForwardBatch,
         save_kv_cache=True,
         # For multi-head latent attention
@@ -1821,25 +1880,87 @@ class FlashAttentionBackend(AttentionBackend):
         rel_bias=None,
         rel_bias_event=None,
     ) -> torch.Tensor:
+        """
+        NOTE：forward 计算
+            FlashAttentionBackend.forward_decode()
+                │
+                ├─ ① 写入本轮 K/V cache
+                │    → HybridLinearKVPool.set_kv_buffer()：解析槽位、映射层编号
+                │    → MHATokenToKVPool.set_kv_buffer()：按需缩放、转换 dtype
+                │    → MHATokenToKVPool._store_kv_layer()：选中当前层的缓存
+                │    → _set_kv_buffer_impl()：进入 CUDA JIT 写入分支
+                │    → store_cache()
+                │        │
+                │        ├─ _jit_kvcache_module()：取得编译后的模块
+                │        └─ module.store_cache()：Python → C++ 绑定
+                │             → StoreKVCacheKernel<...>::run()：C++ 入口，kvcache.cuh
+                │             → LaunchKernel(...).enable_pdl(...)(...)：启动 GPU 内核
+                │             → store_kvcache()：将 K/V 写入指定缓存槽位
+                │
+                ├─ ② 准备注意力输入
+                │    → get_paged_mha_kv_cache()：取得当前层的 K/V 缓存视图（普通路径）
+                │        ├─ HybridLinearKVPool.get_kv_buffer()
+                │        │    ├─ _wait_for_layer()：按需等待本层 KV 回迁完成
+                │        │    ├─ _transfer_full_attention_id()：模型层号 → 缓存层号
+                │        │    └─ self.full_kv_pool.get_kv_buffer()
+                │        │         → MHATokenToKVPool.get_kv_buffer()
+                │        │             ├─ get_key_buffer()
+                │        │             │    → _get_key_buffer()：返回 k_buffer[local_layer_id] 的引用/视图
+                │        │             └─ get_value_buffer()
+                │        │                  → _get_value_buffer()：返回 v_buffer[local_layer_id] 的引用/视图
+                │        └─ key_cache.view(...) / value_cache.view(...)：创建共享显存的分页视图
+                │    → page_table：每个请求的 K/V 存在哪些缓存页
+                │    → cache_seqlens：每个请求有多少个有效 token（包含本轮）
+                │    → q_reshaped：把 Q 整理为 [token数, 本卡Q头数, head_dim]
+                │
+                ├─ ③ flash_attn_with_kvcache()：核心注意力计算
+                │    → 按页表读取 K/V
+                │    → Q @ K.T → 缩放与掩码 → softmax → V 的加权和
+                │
+                └─ ④ o.view(...)：展平各头的输出并返回
+                    → [token数, 本卡Q头数 × v_head_dim]
+        """
         if score_mod is not None and self.fa_impl_ver != 4:
             raise RuntimeError("score_mod is only supported by the FA4 backend.")
         if k is not None:
             assert v is not None
             if save_kv_cache:
+                # NOTE 第一部分 写入 kv cache
+                #
+                #
+                # 获取缓存写入的 kv index 编号
+                #   
+                # out_cache_loc = [100, 205]
+                #
+                #   请求 A 本轮计算出的 K、V → 写入当前层缓存的第 100 个 token 槽位
+                #   请求 B 本轮计算出的 K、V → 写入当前层缓存的第 205 个 token 槽位
                 cache_loc = (
-                    forward_batch.out_cache_loc
-                    if not layer.is_cross_attention
+                    forward_batch.out_cache_loc # NOTE 看 decoder-only 链路就行
+                    if not layer.is_cross_attention # tip 是否是交叉注意力（相对的 qwen3.5 是 decoder-only 模型
                     else forward_batch.encoder_out_cache_loc
                 )
-                if not self.use_mla:
+                if not self.use_mla: # tip: 如果当前模型不使用 MLA(Multi-head Latent Attention)
+
+                    # NOTE scale 是缩放系数：写入前除以它，使用时乘以他来、可能会带来误差，主要是避免使用低精度类型保存数据时数据超过边界值
+                    #      示例（普通 FP8，非 MXFP8；假设共用 scale=4）：
+                    #        原始 K/V： [1000, 1004, -500]   BF16（每个元素 16 位）
+                    #                       ↓ 除以 scale=4
+                    #        缩放后：   [ 250,  251, -125]
+                    #                       ↓ 转成 FP8 E4M3FN（最大有限值 448，舍入到可表示值）
+                    #        实际存储： [ 256,  256, -128]   FP8（每个元素 8 位，另存共享的 scale）
+                    #                       ↓ 使用时乘以 scale=4（可融合在注意力内核中）
+                    #        近似还原： [1024, 1024, -512]   存在量化误差
                     k_scale = k_descale if self.kv_cache_is_mxfp8 else layer.k_scale
                     v_scale = v_descale if self.kv_cache_is_mxfp8 else layer.v_scale
+
+                    # NOTE 将本轮新算出的 K/V 按 cache_loc 写入当前层的 KV 缓存
+                    #   token_to_kv_pool -> HybridLinearKVPool(组合了 MHATokenToKVPool）
                     self.token_to_kv_pool.set_kv_buffer(
-                        layer,
-                        KVWriteLoc(cache_loc, self.forward_metadata.swa_out_cache_loc),
-                        k,
+                        layer, # RadixAttention
+                        KVWriteLoc(cache_loc, self.forward_metadata.swa_out_cache_loc), # kv 要写入的位置
+                        k, # 本次所有输入token 对应的多个 k 向量，形状：[token_num, k_head_num, head_dim]
                         v,
-                        k_scale,
+                        k_scale, # 缩放系数
                         v_scale,
                     )
                 else:
@@ -1925,6 +2046,7 @@ class FlashAttentionBackend(AttentionBackend):
         if not self.use_mla:
             # Do multi-head attention
 
+            # NOTE 获取本层 transformer layer 的所有的 kv cache的引用（数据还是放在 GPU）
             key_cache, value_cache = self.get_paged_mha_kv_cache(
                 layer,
             )
@@ -1972,6 +2094,7 @@ class FlashAttentionBackend(AttentionBackend):
                     **kwargs,
                 )
             else:
+                # NOTE page 的概念同我们之前了解的：kv cache 分配的时候是以 page size 为单位
                 page_table = metadata.page_table
                 if is_swa_layer and self.use_sliding_window_kv_pool:
                     if metadata.swa_page_table is not None:
@@ -1992,8 +2115,24 @@ class FlashAttentionBackend(AttentionBackend):
                     window_size = (-1, -1)
                     pa_swa_active = True
 
+                # NOTE  Q 整理为 [num_tokens, q_head_num, head_dim]；普通 decode 每个请求处理一个 token
+                #
+                # 【contiguous()：保证数据在GPU显存中连续排列；已经连续就直接返回，否则复制整理
+                # q = torch.tensor([
+                #     [1., 2., 3., 4.],  # token 0：两个头拼在一起
+                #     [5., 6., 7., 8.],  # token 1
+                # ])  # shape=[2, 4]：[token数, 本卡头数 × 每头维度]
+                #
+                # q_reshaped = q.contiguous().view(-1, 2, 2)
+                # # tensor([
+                # #     [[1., 2.], [3., 4.]],  # token 0：head 0、head 1
+                # #     [[5., 6.], [7., 8.]],  # token 1：head 0、head 1
+                # # ])
+                # # shape=[2, 2, 2]：[token数, 本卡头数, 每头维度]
                 q_reshaped = q.contiguous().view(
-                    -1, layer.tp_q_head_num, layer.head_dim
+                    -1,  # num_tokens 自动计算
+                    layer.tp_q_head_num, 
+                    layer.head_dim
                 )
 
                 # Default: single-token self-attention
@@ -2009,6 +2148,12 @@ class FlashAttentionBackend(AttentionBackend):
                     sched_meta = metadata.scheduler_metadata
                 if self._decode_uses_static_max_seqlen_k:
                     kwargs["max_seqlen_k"] = metadata.max_seq_len_k
+                # NOTE 5. 核心：
+                #       1）内核按页表读取 K/V
+                #       2）融合 QK 分数
+                #       3）缩放与掩码
+                #       4）softmax
+                #       5）V 加权求和
                 result = flash_attn_with_kvcache(
                     q=q_reshaped,
                     k_cache=key_cache,
@@ -2144,6 +2289,7 @@ class FlashAttentionBackend(AttentionBackend):
             else:
                 o = result
 
+        # NOTE 6. 展平本卡各 Q 头的输出为 [num_tokens, 本卡 Q 头数 * v_head_dim]，供模型层后续输出投影使用。
         return o.view(-1, layer.tp_q_head_num * layer.v_head_dim)
 
     def init_cuda_graph_state(self, max_bs: int, max_num_tokens: int):

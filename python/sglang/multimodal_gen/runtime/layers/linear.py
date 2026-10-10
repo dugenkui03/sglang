@@ -430,10 +430,17 @@ class ColumnParallelLinear(LinearBase):
         param.load_column_parallel_weight(loaded_weight=loaded_weight)
 
     def forward(self, input_: torch.Tensor) -> tuple[torch.Tensor, Parameter | None]:
+        """
+        NOTE QKVParallelinear implement ColumnParallelLinear 并使用当前方法对token进行向量化
+
+        TAG 这里没有 super.forward()
+        """
         bias = self.bias if not self.skip_bias_add else None
 
         # Matrix multiply.
         assert self.quant_method is not None
+        # NOTE quant_method 是 UnquantizedLinearMethod
+        #   因为调用 init() 方法时【quant_config: QuantizationConfig | None = None】参数为 null
         output_parallel = self.quant_method.apply(self, input_, bias)
         if self.gather_output:
             # All-gather across the partitions.

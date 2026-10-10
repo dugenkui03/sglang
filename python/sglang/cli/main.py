@@ -1,7 +1,10 @@
 import argparse
+import logging
 
 from sglang.cli.utils import get_git_commit_hash
 from sglang.version import __version__
+
+logger = logging.getLogger(__name__)
 
 
 def version(args, extra_argv):
@@ -28,6 +31,14 @@ def main():
             --mamba-radix-cache-strategy extra_buffer \
             --mamba-ssm-dtype float32
   """
+    # 入口阶段尚未配置服务日志，先启用 INFO 级别日志。
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(filename)s:%(lineno)d %(funcName)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger.info("hello dugenkui")
+
     parser = argparse.ArgumentParser()
 
     # complex sub commands
@@ -54,6 +65,8 @@ def main():
     version_parser.set_defaults(func=version)
 
     args, extra_argv = parser.parse_known_args()
+    logger.info("args（已解析参数）: %s", vars(args))
+    logger.info("extra_argv（剩余参数）: %s", extra_argv)
 
     if args.subcommand == "serve":
         # NOTE 如果是服务启动命令， serve 逻辑分支

@@ -1,0 +1,3663 @@
+{
+  "base_catalog_sha256": "f3c2eda98e74b95f0dc86ab637fe1ed3ebf620b3de5f1c040942b4cfe4cc80ec",
+  "scope": "已读 Qwen3.5 dense 文本推理主链路及关联基础代码；保留必要变量和控制流，源行节选、明确省略、纠正注释。",
+  "items": [
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "set_global_state",
+      "keep": [
+        [
+          210,
+          212
+        ]
+      ],
+      "reason": "保留全局状态赋值，供 HTTP handler 使用。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "lifespan",
+      "keep": [
+        [
+          274,
+          275
+        ],
+        [
+          278,
+          281
+        ],
+        [
+          307,
+          309
+        ],
+        [
+          322,
+          329
+        ],
+        [
+          412,
+          412
+        ],
+        [
+          430,
+          439
+        ],
+        [
+          448,
+          449
+        ]
+      ],
+      "reason": "保留单 tokenizer 生命周期、OpenAI chat handler 注入、预热和 yield；其余协议、监控、工具、多 worker 与 gRPC 分支省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "validate_json_request",
+      "keep": [],
+      "reason": "JSON content-type 校验属于 HTTP 边界检查，不展开。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "generate_request",
+      "keep": [
+        [
+          912,
+          921
+        ],
+        [
+          925,
+          926
+        ],
+        [
+          960,
+          967
+        ],
+        [
+          969,
+          969
+        ]
+      ],
+      "reason": "保留 /generate 的非流式请求入口及最终响应；流式主体省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "openai_v1_chat_completions",
+      "keep": [
+        [
+          1750,
+          1767
+        ]
+      ],
+      "reason": "保留 OpenAI chat 路由、FastAPI app 引用说明及 handle_request 调用。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "_setup_and_run_http_server",
+      "keep": [
+        [
+          2549,
+          2573
+        ],
+        [
+          2582,
+          2592
+        ],
+        [
+          2626,
+          2627
+        ],
+        [
+          2636,
+          2638
+        ],
+        [
+          2657,
+          2658
+        ],
+        [
+          2695,
+          2702
+        ],
+        [
+          2705,
+          2706
+        ],
+        [
+          2711,
+          2711
+        ]
+      ],
+      "reason": "保留全局 manager 状态、lifespan 参数和单 tokenizer uvicorn 启动；省略鉴权、观测、HTTP2/TLS 与多 worker 实现，保留分支头以解释默认分支。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "name": "launch_server",
+      "keep": [
+        [
+          2811,
+          2866
+        ],
+        [
+          2873,
+          2884
+        ]
+      ],
+      "reason": "保留三进程职责、子进程启动和 Python HTTP 服务绑定；Rust server 分支仅保留判断头。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat.__init__",
+      "keep": [
+        [
+          252,
+          267
+        ],
+        [
+          284,
+          287
+        ],
+        [
+          310,
+          312
+        ],
+        [
+          337,
+          347
+        ]
+      ],
+      "reason": "保留 managers、模板默认参数、模型默认采样参数和 tokenizer 特殊符号处理；其他模型专用 parser 初始化省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._convert_to_internal_request",
+      "keep": [
+        [
+          972,
+          987
+        ],
+        [
+          1019,
+          1029
+        ],
+        [
+          1031,
+          1034
+        ],
+        [
+          1036,
+          1054
+        ],
+        [
+          1069,
+          1070
+        ],
+        [
+          1074,
+          1074
+        ],
+        [
+          1079,
+          1079
+        ],
+        [
+          1091,
+          1091
+        ],
+        [
+          1108,
+          1108
+        ],
+        [
+          1115,
+          1115
+        ]
+      ],
+      "reason": "保留 ChatCompletionRequest→模板→采样参数→GenerateReqInput。Qwen3.5 即使纯文本也可能 is_multimodal=True，保留 prompt 文本路由但省略媒体载荷、LoRA、路由与观测字段。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._process_messages",
+      "keep": [
+        [
+          1117,
+          1125
+        ],
+        [
+          1136,
+          1136
+        ],
+        [
+          1141,
+          1144
+        ],
+        [
+          1191,
+          1206
+        ],
+        [
+          1218,
+          1221
+        ]
+      ],
+      "reason": "保留模板参数合并、已有 input_ids 快路和默认 Jinja 模板调用；工具约束和特殊模型规则省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._apply_jinja_template",
+      "keep": [
+        [
+          1223,
+          1261
+        ],
+        [
+          1274,
+          1275
+        ],
+        [
+          1348,
+          1361
+        ],
+        [
+          1367,
+          1367
+        ],
+        [
+          1374,
+          1378
+        ],
+        [
+          1392,
+          1414
+        ],
+        [
+          1448,
+          1464
+        ]
+      ],
+      "reason": "保留普通模板路径：messages→模板渲染→tokenizer.encode→prompt_ids→结果。保留自定义编码分支判断以及普通分支 else 以标明省略处；去掉自定义模型、多次失败重试和媒体处理主体。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._handle_streaming_request",
+      "keep": [],
+      "reason": "本打印版选择非流式文本生成，省略流式请求包装。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._generate_chat_stream",
+      "keep": [],
+      "reason": "本打印版选择非流式文本生成，省略 SSE 增量生成与工具/推理解析。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+      "name": "OpenAIServingChat._handle_non_streaming_request",
+      "keep": [
+        [
+          1826,
+          1860
+        ]
+      ],
+      "reason": "完整保留非流式 chat 路径：TokenizerManager 异步生成器→取最终结果→构造 OpenAI 响应。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "ReqState.get_text",
+      "keep": [
+        [
+          259,
+          266
+        ]
+      ],
+      "reason": "保留文本累积与读取，和非流式最终回包相连。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.__init__",
+      "keep": [
+        [
+          427,
+          437
+        ],
+        [
+          447,
+          449
+        ],
+        [
+          452,
+          454
+        ],
+        [
+          458,
+          471
+        ]
+      ],
+      "reason": "保留模型配置、tokenizer、IPC 管道和 rid_to_state 的初始化；其余弹性扩容、LoRA、观测、多模态传输初始化省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.init_tokenizer_and_processor",
+      "keep": [
+        [
+          521,
+          531
+        ],
+        [
+          534,
+          546
+        ],
+        [
+          548,
+          576
+        ],
+        [
+          578,
+          582
+        ],
+        [
+          588,
+          589
+        ]
+      ],
+      "reason": "保留普通 tokenizer 初始化及 Qwen3.5 从 Processor 获取 tokenizer，保留 mm_processor 初始化与动态 tokenizer 默认值以解释后续文本路径；媒体预处理的实现不展开。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.init_ipc_channels",
+      "keep": [
+        [
+          604,
+          635
+        ]
+      ],
+      "reason": "保留单 tokenizer 进程的 PUSH/PULL ZMQ 管道、地址与用户示意注释；省略多 worker 和负载快照。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._dispatch_to_scheduler",
+      "keep": [
+        [
+          649,
+          649
+        ],
+        [
+          653,
+          654
+        ]
+      ],
+      "reason": "保留实际发送给 Scheduler 的 socket 调用；省略多 worker 标记。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.init_running_status",
+      "keep": [
+        [
+          661,
+          668
+        ]
+      ],
+      "reason": "保留 rid→ReqState 字典及异步后台任务容器。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.generate_request",
+      "keep": [
+        [
+          850,
+          865
+        ],
+        [
+          888,
+          891
+        ],
+        [
+          903,
+          906
+        ],
+        [
+          909,
+          926
+        ],
+        [
+          932,
+          942
+        ]
+      ],
+      "reason": "保留创建回包任务、规范请求、请求状态、分词、发送、等待并 yield 最终结果；去掉批量 API 请求、LoRA、PD、日志和暂停服务主体。模型更新锁仅保留上下文头。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._tokenize_texts",
+      "keep": [
+        [
+          995,
+          1001
+        ],
+        [
+          1005,
+          1019
+        ],
+        [
+          1021,
+          1021
+        ],
+        [
+          1033,
+          1033
+        ],
+        [
+          1036,
+          1045
+        ],
+        [
+          1064,
+          1067
+        ]
+      ],
+      "reason": "保留普通 tokenizer 的输入准备、encode/批编码和 input_ids 返回；动态 batch tokenizer 与 embedding 模型专用逻辑省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._tokenize_one_request",
+      "keep": [
+        [
+          1069,
+          1085
+        ],
+        [
+          1094,
+          1096
+        ],
+        [
+          1106,
+          1114
+        ],
+        [
+          1116,
+          1117
+        ],
+        [
+          1123,
+          1131
+        ],
+        [
+          1238,
+          1250
+        ]
+      ],
+      "reason": "保留已提供 token IDs 与文本分词两路、判断是否需要媒体处理及普通请求 mm_inputs=None，最后创建 tokenized 请求；真正媒体处理和输入向量直传主体省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._validate_one_request",
+      "keep": [],
+      "reason": "输入长度与参数校验保留调用点，不打印整个校验方法。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._create_tokenized_object",
+      "keep": [
+        [
+          1462,
+          1495
+        ],
+        [
+          1501,
+          1512
+        ],
+        [
+          1525,
+          1528
+        ],
+        [
+          1530,
+          1530
+        ],
+        [
+          1537,
+          1538
+        ],
+        [
+          1565,
+          1565
+        ],
+        [
+          1594,
+          1597
+        ]
+      ],
+      "reason": "保留 token ID 容器、SamplingParams 归一化及 TokenizedGenerateReqInput 的核心字段；省略 embedding、PD、session、LoRA、媒体和附加输出字段。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._send_one_request",
+      "keep": [
+        [
+          1704,
+          1709
+        ],
+        [
+          1712,
+          1712
+        ],
+        [
+          1720,
+          1722
+        ]
+      ],
+      "reason": "保留序列化字段准备与向 Scheduler 发送；去掉媒体共享内存传输和计时。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._wait_one_response",
+      "keep": [
+        [
+          1841,
+          1861
+        ],
+        [
+          1873,
+          1881
+        ],
+        [
+          1885,
+          1887
+        ],
+        [
+          1893,
+          1896
+        ],
+        [
+          1918,
+          1920
+        ],
+        [
+          1947,
+          1949
+        ]
+      ],
+      "reason": "保留 rid 找状态、event 等待、取出完整结果、最终 yield 与循环退出；去掉流式合并、beam search、观测和断连处理主体。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.auto_create_handle_loop",
+      "keep": [
+        [
+          2307,
+          2323
+        ]
+      ],
+      "reason": "保留懒创建 Detokenizer 接收后台任务；省略信号注册和看门狗。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager.handle_loop",
+      "keep": [
+        [
+          2341,
+          2356
+        ]
+      ],
+      "reason": "保留不断接收 Detokenizer 结果并分派 _handle_batch_output；去掉其他类型结果分派和观测。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._handle_batch_output",
+      "keep": [
+        [
+          2362,
+          2370
+        ],
+        [
+          2376,
+          2383
+        ],
+        [
+          2389,
+          2399
+        ],
+        [
+          2438,
+          2445
+        ],
+        [
+          2505,
+          2515
+        ],
+        [
+          2517,
+          2519
+        ],
+        [
+          2521,
+          2525
+        ],
+        [
+          2554,
+          2561
+        ],
+        [
+          2625,
+          2625
+        ],
+        [
+          2652,
+          2653
+        ],
+        [
+          2659,
+          2668
+        ],
+        [
+          2677,
+          2679
+        ]
+      ],
+      "reason": "保留按 rid 找 ReqState、结束状态、累积文本与 token IDs、非流式最终输出、清理状态和 event 唤醒；删除 logprobs、embedding、beam/流式主体、媒体、指标及附加输出。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "TokenizerManager._init_req_state",
+      "keep": [
+        [
+          3582,
+          3590
+        ],
+        [
+          3603,
+          3607
+        ],
+        [
+          3622,
+          3631
+        ]
+      ],
+      "reason": "保留单请求 rid、ReqState、asyncio.Event 与状态表注册；省略批量 API 请求和 tracing。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "name": "get_processor_wrapper",
+      "keep": [
+        [
+          3807,
+          3813
+        ],
+        [
+          3815,
+          3817
+        ]
+      ],
+      "reason": "保留 Qwen3.5 Processor→tokenizer 加载依赖；省略图像处理后端参数。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_loader/loader.py",
+      "name": "_initialize_model",
+      "keep": [
+        [
+          271,
+          304
+        ],
+        [
+          312,
+          315
+        ],
+        [
+          325,
+          336
+        ]
+      ],
+      "reason": "保留完整初始化调用树、架构选择和 model_class(**kwargs)；移除 shared experts、draft 与 sparse head 特性。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_loader/loader.py",
+      "name": "get_model_loader",
+      "keep": [
+        [
+          4291,
+          4296
+        ],
+        [
+          4439,
+          4440
+        ]
+      ],
+      "reason": "保留按 load_format 选择的职责及默认 DefaultModelLoader 返回；全部特殊 loader 分支省略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_loader/loader.py",
+      "name": "DefaultModelLoader.load_model",
+      "keep": [
+        [
+          962,
+          970
+        ],
+        [
+          978,
+          1008
+        ],
+        [
+          1011,
+          1011
+        ]
+      ],
+      "reason": "保留创建模型/参数与遍历权重加载两个核心阶段、下载调用链注释；省略 ModelOpt 特殊加载和计时。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_loader/loader.py",
+      "name": "DefaultModelLoader.load_weights_and_postprocess",
+      "keep": [
+        [
+          1013,
+          1015
+        ],
+        [
+          1026,
+          1032
+        ],
+        [
+          1043,
+          1045
+        ],
+        [
+          1057,
+          1059
+        ],
+        [
+          1071,
+          1080
+        ]
+      ],
+      "reason": "保留普通 model.load_weights 和模块加载后处理；省略在线量化和 GPU 内存统计。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.__init__",
+      "keep": [
+        [
+          413,
+          429
+        ],
+        [
+          436,
+          449
+        ],
+        [
+          453,
+          455
+        ],
+        [
+          460,
+          465
+        ],
+        [
+          473,
+          477
+        ],
+        [
+          479,
+          497
+        ],
+        [
+          508,
+          512
+        ],
+        [
+          517,
+          519
+        ],
+        [
+          528,
+          529
+        ],
+        [
+          534,
+          535
+        ],
+        [
+          541,
+          544
+        ],
+        [
+          549,
+          560
+        ],
+        [
+          568,
+          571
+        ],
+        [
+          577,
+          577
+        ],
+        [
+          584,
+          589
+        ],
+        [
+          615,
+          619
+        ],
+        [
+          626,
+          627
+        ],
+        [
+          647,
+          648
+        ],
+        [
+          658,
+          659
+        ],
+        [
+          667,
+          668
+        ],
+        [
+          672,
+          673
+        ],
+        [
+          687,
+          689
+        ],
+        [
+          693,
+          693
+        ]
+      ],
+      "reason": "保留配置入口、并行上下文、模型 worker、缓存引用、运行批和分块状态、请求与输出组件；省略监控、LoRA、PD、弹性与专用硬件初始化。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_tp_model_worker",
+      "keep": [
+        [
+          946,
+          969
+        ]
+      ],
+      "reason": "保留目标 worker 初始化及模型加载入口；短方法整体保留。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_target_memory_pool",
+      "keep": [
+        [
+          1004,
+          1021
+        ],
+        [
+          1024,
+          1026
+        ]
+      ],
+      "reason": "保留缓存池是否已建的检查、权重占用核算和目标池分配，省略 draft worker。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_memory_pools",
+      "keep": [
+        [
+          1028,
+          1032
+        ]
+      ],
+      "reason": "保留目标模型 KV 池初始化；省略 PD 回撤与 draft 池。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_all_cuda_graphs",
+      "keep": [
+        [
+          1052,
+          1056
+        ]
+      ],
+      "reason": "保留目标 worker 的 CUDA Graph 初始化接口，省略 draft worker。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_model_worker",
+      "keep": [
+        [
+          1060,
+          1069
+        ],
+        [
+          1074,
+          1083
+        ],
+        [
+          1098,
+          1100
+        ],
+        [
+          1104,
+          1118
+        ],
+        [
+          1139,
+          1163
+        ]
+      ],
+      "reason": "保留目标模型初始化、池和后端准备、普通 worker 选择、容量与通信组；省略加载重叠、draft、弹性恢复与日志。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_running_status",
+      "keep": [
+        [
+          1215,
+          1230
+        ],
+        [
+          1240,
+          1241
+        ]
+      ],
+      "reason": "保留 waiting_queue、running_batch、last_batch 及主循环状态，省略服务管理附件。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_chunked_prefill",
+      "keep": [
+        [
+          1243,
+          1289
+        ]
+      ],
+      "reason": "保留分块配置、未完成请求及用户注释的动态分块预测；方法较短，完整保留参数兼容检查。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_request_dispatcher",
+      "keep": [
+        [
+          1646,
+          1653
+        ],
+        [
+          1747,
+          1748
+        ]
+      ],
+      "reason": "保留 TokenizedGenerateReqInput 到 handle_generate_request 的分派；省略其他请求与管理接口。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.run_event_loop",
+      "keep": [
+        [
+          1791,
+          1799
+        ],
+        [
+          1812,
+          1812
+        ],
+        [
+          1827,
+          1832
+        ]
+      ],
+      "reason": "保留主循环职责、schedule_stream 创建和流上下文分派；省略 MLX、CPU 兼容与流池重抽逻辑。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.event_loop_normal",
+      "keep": [],
+      "reason": "当前阅读路径固定为 overlap，串行循环另行查看。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.event_loop_overlap",
+      "keep": [
+        [
+          1888,
+          1966
+        ],
+        [
+          1976,
+          2003
+        ]
+      ],
+      "reason": "保留主循环的输入、组批、执行、队列、上一批处理和延迟采样完整时序；只省略统一池压缩与检查。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.process_input_requests",
+      "keep": [
+        [
+          2056,
+          2062
+        ],
+        [
+          2070,
+          2072
+        ],
+        [
+          2081,
+          2084
+        ]
+      ],
+      "reason": "保留遍历及按类型分派，省略会话回收、多模态传输、健康检查与控制响应。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler._materialize_cuda_vmm_inputs",
+      "keep": [],
+      "reason": "多模态 CUDA VMM 特征传输不属于普通文本生成主线。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.init_req_max_new_tokens",
+      "keep": [
+        [
+          2410,
+          2420
+        ],
+        [
+          2426,
+          2426
+        ],
+        [
+          2428,
+          2448
+        ]
+      ],
+      "reason": "保留生成长度与页对齐容量限制及 min/max 一致性；只省略告警文本。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler._maybe_namespace_elastic_radix_cache",
+      "keep": [],
+      "reason": "弹性专家并行的缓存命名空间不属于当前普通 TP 推理路径。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.handle_generate_request",
+      "keep": [
+        [
+          2608,
+          2628
+        ],
+        [
+          2640,
+          2651
+        ],
+        [
+          2659,
+          2659
+        ],
+        [
+          2663,
+          2663
+        ],
+        [
+          2670,
+          2671
+        ],
+        [
+          2677,
+          2680
+        ],
+        [
+          2684,
+          2685
+        ],
+        [
+          2859,
+          2871
+        ],
+        [
+          2873,
+          2897
+        ],
+        [
+          2938,
+          2941
+        ]
+      ],
+      "reason": "保留普通请求条件、Req 输入/采样/缓存键/路由字段、长度校验和入队；省略会话、PD、多模态、beam、spec 与专家输出。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler._add_request_to_queue",
+      "keep": [
+        [
+          3000,
+          3010
+        ]
+      ],
+      "reason": "保留非 PD 分支的优先级/容量检查、缓存预取和 waiting_queue 入队。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.get_next_batch_to_run",
+      "keep": [
+        [
+          3299,
+          3313
+        ],
+        [
+          3326,
+          3327
+        ],
+        [
+          3331,
+          3332
+        ],
+        [
+          3336,
+          3336
+        ],
+        [
+          3349,
+          3362
+        ],
+        [
+          3381,
+          3389
+        ],
+        [
+          3394,
+          3406
+        ],
+        [
+          3417,
+          3417
+        ],
+        [
+          3419,
+          3426
+        ],
+        [
+          3441,
+          3455
+        ],
+        [
+          3470,
+          3470
+        ],
+        [
+          3481,
+          3481
+        ]
+      ],
+      "reason": "保留分块缓存、排除未完成分块、prefill 转 decode 合批、prefill/decode 选择与返回；省略 DLLM、HiSparse、DP 协同和监控。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.get_new_batch_prefill",
+      "keep": [
+        [
+          3503,
+          3504
+        ],
+        [
+          3513,
+          3518
+        ],
+        [
+          3530,
+          3533
+        ]
+      ],
+      "reason": "保留对 _get_new_batch_prefill_raw 的调用及计划返回；省略可选 prefill delayer 的观测。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler._get_new_batch_prefill_raw",
+      "keep": [
+        [
+          3535,
+          3542
+        ],
+        [
+          3552,
+          3569
+        ],
+        [
+          3583,
+          3598
+        ],
+        [
+          3606,
+          3614
+        ],
+        [
+          3624,
+          3660
+        ],
+        [
+          3678,
+          3680
+        ],
+        [
+          3684,
+          3694
+        ],
+        [
+          3703,
+          3709
+        ],
+        [
+          3725,
+          3725
+        ],
+        [
+          3743,
+          3748
+        ],
+        [
+          3753,
+          3760
+        ],
+        [
+          3764,
+          3765
+        ],
+        [
+          3783,
+          3783
+        ],
+        [
+          3788,
+          3806
+        ],
+        [
+          3810,
+          3828
+        ],
+        [
+          3837,
+          3838
+        ],
+        [
+          3858,
+          3880
+        ]
+      ],
+      "reason": "保留资源早退、优先级排序、预算建立、续算分块、逐请求准入、移出等待队列和 prepare_for_extend；保留相关混合批入口，省略 LoRA/PD/HiCache/Mamba 清理/指标。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler._can_schedule_lora_req",
+      "keep": [],
+      "reason": "LoRA 专用准入判断不属于普通模型请求路径。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.update_running_batch",
+      "keep": [
+        [
+          3911,
+          3925
+        ],
+        [
+          3936,
+          3936
+        ],
+        [
+          3956,
+          3962
+        ],
+        [
+          3982,
+          3996
+        ]
+      ],
+      "reason": "保留过滤已结束请求、容量不足时撤回及回队、预算调整和 decode 准备；省略测试日志、指标与专家状态。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.run_batch",
+      "keep": [
+        [
+          4057,
+          4067
+        ],
+        [
+          4090,
+          4096
+        ],
+        [
+          4101,
+          4117
+        ],
+        [
+          4122,
+          4122
+        ],
+        [
+          4136,
+          4154
+        ],
+        [
+          4169,
+          4177
+        ],
+        [
+          4182,
+          4196
+        ],
+        [
+          4258,
+          4278
+        ],
+        [
+          4307,
+          4307
+        ]
+      ],
+      "reason": "保留 overlap 的流同步、FutureMap 输入、worker forward、结果发布/复制、延迟采样引用和输出元数据；省略 normal、PD、spec、统一池和 embedding 模式。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "Scheduler.process_batch_result",
+      "keep": [
+        [
+          4423,
+          4429
+        ],
+        [
+          4442,
+          4445
+        ],
+        [
+          4447,
+          4447
+        ],
+        [
+          4449,
+          4450
+        ]
+      ],
+      "reason": "保留按 DECODE/EXTEND 将结果交给对应处理器；省略 DLLM、PD、闲置及监控。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "dispatch_event_loop",
+      "keep": [
+        [
+          5499,
+          5507
+        ],
+        [
+          5509,
+          5510
+        ],
+        [
+          5512,
+          5513
+        ],
+        [
+          5515,
+          5521
+        ]
+      ],
+      "reason": "保留非 PD 前提及 overlap 路径说明；省略 PP、MLX、normal 和 PD 循环实现。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "name": "run_scheduler_process",
+      "keep": [
+        [
+          5614,
+          5652
+        ],
+        [
+          5668,
+          5695
+        ]
+      ],
+      "reason": "保留配置发布、进程准备、构建 Scheduler、通知父进程和运行循环；省略 tracing 及特定关闭清理。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "SchedulePolicy.calc_priority",
+      "keep": [
+        [
+          242,
+          278
+        ]
+      ],
+      "reason": "保留用户注释的前缀匹配、FCFS/优先级和 LPM；省略 DFS、最长输出、随机与 routing-key 策略。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder.__init__",
+      "keep": [
+        [
+          527,
+          560
+        ],
+        [
+          565,
+          576
+        ],
+        [
+          580,
+          591
+        ],
+        [
+          593,
+          604
+        ],
+        [
+          612,
+          612
+        ],
+        [
+          626,
+          626
+        ],
+        [
+          634,
+          645
+        ]
+      ],
+      "reason": "保留页/输入/分块/未来 decode 预算、can_run_list、前缀缓存类型及调度上限；省略 DLLM 元数据与统一 Mamba 池专项预算。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder.rem_total_tokens",
+      "keep": [
+        [
+          692,
+          716
+        ]
+      ],
+      "reason": "保留全部短预算分支，说明空闲加可淘汰容量再扣预留；避免摘掉条件后只剩 else。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder._update_prefill_budget",
+      "keep": [
+        [
+          888,
+          920
+        ],
+        [
+          925,
+          925
+        ],
+        [
+          932,
+          932
+        ],
+        [
+          934,
+          944
+        ]
+      ],
+      "reason": "保留页对齐、总预算/本轮预算/输入预算/分块预算扣减和相关缓存统计；省略 SWA、DLLM 与分层命中拆解。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder._req_inc_lock_ref",
+      "keep": [
+        [
+          990,
+          992
+        ],
+        [
+          995,
+          997
+        ]
+      ],
+      "reason": "保留前缀链长期加锁；省略 SWA lock id。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder.add_chunked_req",
+      "keep": [
+        [
+          1038,
+          1040
+        ],
+        [
+          1042,
+          1055
+        ],
+        [
+          1068,
+          1089
+        ]
+      ],
+      "reason": "保留剩余额度、分块区间、入选、预算扣减与是否继续；省略 DLLM 计算和 prefill delayer 协商。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder._lock_node",
+      "keep": [
+        [
+          1091,
+          1108
+        ]
+      ],
+      "reason": "临时前缀锁 acquire/yield/finally-release 保留完整上下文。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "name": "PrefillAdder.add_one_req",
+      "keep": [
+        [
+          1246,
+          1251
+        ],
+        [
+          1258,
+          1262
+        ],
+        [
+          1264,
+          1302
+        ],
+        [
+          1326,
+          1342
+        ],
+        [
+          1391,
+          1411
+        ],
+        [
+          1426,
+          1463
+        ],
+        [
+          1476,
+          1509
+        ]
+      ],
+      "reason": "保留输入长度/未来输出预算、可用 KV 两次校验、临时锁、整段或分块选择、持久锁与预算更新；省略 CP/SWA/HiCache/DLLM/delayer 及确定性对齐变体。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "get_batch_return_hidden_states_mode",
+      "keep": [
+        [
+          193,
+          206
+        ]
+      ],
+      "reason": "短方法保留隐藏状态返回模式合并，呼应批构造中的字段。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "Req.__init__",
+      "keep": [
+        [
+          839,
+          888
+        ],
+        [
+          894,
+          903
+        ],
+        [
+          914,
+          917
+        ],
+        [
+          926,
+          931
+        ],
+        [
+          942,
+          942
+        ],
+        [
+          948,
+          953
+        ],
+        [
+          961,
+          967
+        ],
+        [
+          986,
+          988
+        ],
+        [
+          991,
+          1013
+        ],
+        [
+          1023,
+          1044
+        ],
+        [
+          1056,
+          1067
+        ],
+        [
+          1071,
+          1086
+        ],
+        [
+          1141,
+          1151
+        ],
+        [
+          1178,
+          1180
+        ]
+      ],
+      "reason": "保留签名核心参数、token 输入输出/待计算区间、槽位与 KV 状态、完成条件、前缀匹配、分块/撤回和采样/返回字段；省略多模态、PD、spec、beam 和指标细节。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "Req.set_extend_range",
+      "keep": [
+        [
+          1314,
+          1316
+        ]
+      ],
+      "reason": "完整保留本轮 token 区间设置。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "Req.get_fill_ids",
+      "keep": [
+        [
+          1318,
+          1320
+        ]
+      ],
+      "reason": "完整保留截至本轮末尾的完整 token 切片。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "ScheduleBatch.init_new",
+      "keep": [
+        [
+          2277,
+          2320
+        ],
+        [
+          2322,
+          2323
+        ]
+      ],
+      "reason": "保留请求、槽位/分配器/缓存引用、采样与返回模式和分块状态构造；省略 DLLM 参数赋值。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "ScheduleBatch.prepare_for_extend",
+      "keep": [
+        [
+          2465,
+          2470
+        ],
+        [
+          2476,
+          2493
+        ],
+        [
+          2504,
+          2529
+        ],
+        [
+          2544,
+          2554
+        ],
+        [
+          2587,
+          2591
+        ],
+        [
+          2610,
+          2611
+        ],
+        [
+          2682,
+          2688
+        ],
+        [
+          2710,
+          2710
+        ],
+        [
+          2743,
+          2747
+        ]
+      ],
+      "reason": "保留未缓存输入、长度计算、CPU/GPU 张量、KV 和槽位分配、请求状态、关键 batch 字段和采样信息；省略多模态、输入 logprob、Mamba 跟踪和 HiCache 统计。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "ScheduleBatch.prepare_for_decode",
+      "keep": [
+        [
+          3223,
+          3230
+        ],
+        [
+          3251,
+          3252
+        ],
+        [
+          3260,
+          3276
+        ]
+      ],
+      "reason": "保留 DECODE 模式、采样惩罚、每请求一格 KV 分配和序列长度递增；省略 spec、beam、CP、HiSparse/Mamba 跟踪。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "name": "ScheduleBatch.maybe_evict_swa",
+      "keep": [],
+      "reason": "SWA 滑动窗口专用淘汰不属于普通前缀缓存路径。",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/tp_worker.py",
+      "name": "TpModelWorker.__init__",
+      "keep": [
+        [
+          318,
+          342
+        ],
+        [
+          347,
+          347
+        ],
+        [
+          352,
+          356
+        ],
+        [
+          386,
+          390
+        ],
+        [
+          394,
+          394
+        ],
+        [
+          396,
+          407
+        ]
+      ],
+      "reason": "保留 worker 参数、模型配置与 ModelRunner 初始化、通信组和随机种子；省略 draft/MTP、多模态 tokenizer 与弹性分支。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tp_worker.py",
+      "name": "TpModelWorker.alloc_memory_pool",
+      "keep": [
+        [
+          409,
+          424
+        ]
+      ],
+      "reason": "保留缓存池传递与分配入口；省略额外 draft runner 池、校验统计。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tp_worker.py",
+      "name": "TpModelWorker._init_model_config",
+      "keep": [
+        [
+          467,
+          485
+        ]
+      ],
+      "reason": "方法短且配置传递完整；保留目标模型与草稿模型配置条件，避免拆坏参数表达式。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tp_worker.py",
+      "name": "TpModelWorker._init_model_runner",
+      "keep": [
+        [
+          487,
+          506
+        ]
+      ],
+      "reason": "保留创建 ModelRunner 的完整核心参数与已有说明。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/tp_worker.py",
+      "name": "TpModelWorker.forward_batch_generation",
+      "keep": [
+        [
+          603,
+          618
+        ],
+        [
+          621,
+          627
+        ],
+        [
+          641,
+          655
+        ],
+        [
+          663,
+          665
+        ],
+        [
+          687,
+          692
+        ],
+        [
+          710,
+          710
+        ]
+      ],
+      "reason": "保留 ScheduleBatch 转 ForwardBatch、最后 stage 的 forward、结果封装及普通采样；省略 DLLM、投机验证、延迟采样、仅 prefill 与 PP 中间段。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.__init__",
+      "keep": [
+        [
+          314,
+          342
+        ],
+        [
+          350,
+          350
+        ],
+        [
+          358,
+          359
+        ],
+        [
+          365,
+          367
+        ],
+        [
+          369,
+          371
+        ],
+        [
+          378,
+          380
+        ],
+        [
+          413,
+          414
+        ],
+        [
+          428,
+          434
+        ],
+        [
+          440,
+          441
+        ],
+        [
+          463,
+          487
+        ]
+      ],
+      "reason": "保留初始化入参、设备与内存池配置、多卡通信、forward stream、模型加载调用链；省略调试、供应商运行时、MoE、远程权重与更新机制。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.initialize",
+      "keep": [
+        [
+          670,
+          672
+        ],
+        [
+          680,
+          683
+        ],
+        [
+          699,
+          706
+        ],
+        [
+          716,
+          716
+        ]
+      ],
+      "reason": "保留采样器、模型加载、负责层范围和 KV dtype；省略 MoE、远程权重、LoRA 与其他扩展。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.alloc_memory_pool",
+      "keep": [
+        [
+          896,
+          917
+        ],
+        [
+          921,
+          924
+        ]
+      ],
+      "reason": "保留缓存池配置和映射对象赋值；省略滑动窗口特有容量。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.init_torch_distributed",
+      "keep": [
+        [
+          1133,
+          1158
+        ]
+      ],
+      "reason": "多卡通信说明与 bootstrap 结果映射是核心，完整保留。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.load_model",
+      "keep": [
+        [
+          1163,
+          1186
+        ],
+        [
+          1203,
+          1207
+        ],
+        [
+          1213,
+          1213
+        ],
+        [
+          1234,
+          1247
+        ],
+        [
+          1281,
+          1281
+        ]
+      ],
+      "reason": "保留已有加载链、LoadConfig 主参数、加载函数和 self.model 赋值；省略 IPC/远程权重、平台设置、调试及统计。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.forward",
+      "keep": [
+        [
+          1645,
+          1682
+        ],
+        [
+          1720,
+          1726
+        ],
+        [
+          1770,
+          1770
+        ]
+      ],
+      "reason": "保留已学调用链、前向入口和返回；省略调试、计时、专家记录与弹性更新。",
+      "omit": false,
+      "focus": "调用 _forward_raw() 执行本轮模型前向并返回结果；省略外部统计与诊断上下文，普通生成的采样另由调用方触发。"
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner._forward_raw",
+      "keep": [
+        [
+          1820,
+          1846
+        ],
+        [
+          1856,
+          1863
+        ],
+        [
+          1871,
+          1875
+        ],
+        [
+          1881,
+          1882
+        ],
+        [
+          1888,
+          1897
+        ],
+        [
+          1912,
+          1917
+        ],
+        [
+          1925,
+          1925
+        ]
+      ],
+      "reason": "保留 ForwardContext、图可用性与提前返回边界、eager batch 准备、GDN 状态整理、eager 执行返回；省略图内部和 split-prefill/分段图等优化实现。",
+      "omit": false,
+      "focus": "满足 can_run_graph 时会提前执行图并返回；本节继续跟踪其后的 eager 路径，省略了 split-prefill 与 prefill 图的其他分支。"
+    },
+    {
+      "file": "python/sglang/srt/model_executor/model_runner.py",
+      "name": "ModelRunner.sample",
+      "keep": [
+        [
+          1955,
+          1968
+        ],
+        [
+          1975,
+          1975
+        ],
+        [
+          1981,
+          1999
+        ],
+        [
+          2009,
+          2009
+        ]
+      ],
+      "reason": "保留普通 logits 预处理、采样参数与 next_token_ids 返回；省略 observer 与特殊 ngram 更新。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+      "name": "ForwardBatch.init_new",
+      "keep": [
+        [
+          743,
+          756
+        ],
+        [
+          774,
+          780
+        ],
+        [
+          790,
+          800
+        ],
+        [
+          802,
+          821
+        ],
+        [
+          823,
+          828
+        ],
+        [
+          834,
+          836
+        ],
+        [
+          840,
+          840
+        ],
+        [
+          845,
+          847
+        ],
+        [
+          852,
+          854
+        ],
+        [
+          856,
+          856
+        ],
+        [
+          860,
+          860
+        ],
+        [
+          886,
+          886
+        ],
+        [
+          893,
+          895
+        ],
+        [
+          922,
+          953
+        ],
+        [
+          993,
+          993
+        ]
+      ],
+      "reason": "保留请求数、token、req slot、序列长度、KV 写入位置、GDN 状态和采样信息，以及 prefill/decode 位置构造；省略图/投机/多模态/LoRA/debug 元数据。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/runner/eager_runner.py",
+      "name": "EagerRunner.execute",
+      "keep": [
+        [
+          216,
+          228
+        ],
+        [
+          231,
+          234
+        ]
+      ],
+      "reason": "保留 mixed 规范化与 prefill/decode 分流，省略 idle 专用分支。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/runner/eager_runner.py",
+      "name": "EagerRunner._execute_decode",
+      "keep": [
+        [
+          249,
+          268
+        ],
+        [
+          273,
+          288
+        ]
+      ],
+      "reason": "保留 decode batch、后端元数据、模型 forward 及返回形状说明；上下文和 kwargs 是调用依赖，保留；仅省略其他模型专用 prepare hook。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/model_executor/runner/eager_runner.py",
+      "name": "EagerRunner._execute_extend",
+      "keep": [
+        [
+          290,
+          303
+        ],
+        [
+          313,
+          317
+        ],
+        [
+          341,
+          350
+        ],
+        [
+          360,
+          360
+        ],
+        [
+          362,
+          369
+        ],
+        [
+          388,
+          389
+        ],
+        [
+          391,
+          403
+        ]
+      ],
+      "reason": "保留 eager prefill 输入、后端元数据与共享读取保护、模型 forward 和返回；省略 CP、多模态预处理、图回退及计时。",
+      "omit": false,
+      "focus": "此处阅读普通 eager prefill 分支；CP 与图回退的其他分支省略。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_vl.py",
+      "name": "Qwen3VLForConditionalGeneration.__init__",
+      "keep": [
+        [
+          1260,
+          1270
+        ],
+        [
+          1274,
+          1276
+        ],
+        [
+          1289,
+          1289
+        ],
+        [
+          1291,
+          1294
+        ],
+        [
+          1299,
+          1314
+        ],
+        [
+          1316,
+          1325
+        ],
+        [
+          1336,
+          1337
+        ]
+      ],
+      "reason": "保留文本 config、language_model_cls 组合、独立 lm_head 与 LogitsProcessor；省略视觉编码器、共享 head、PP 占位、mrope/deepstack 与 pooler。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_vl.py",
+      "name": "Qwen3VLForConditionalGeneration.forward",
+      "keep": [
+        [
+          1446,
+          1485
+        ],
+        [
+          1495,
+          1503
+        ],
+        [
+          1505,
+          1505
+        ],
+        [
+          1509,
+          1528
+        ]
+      ],
+      "reason": "保留 language_model_only 的直接文本调用，以及 language_model_only=False 时经通用输入辅助函数调用文本模型的入口；保留 mrope 位置选择与 logits，省略视觉输入断言、辅助捕获、pooler 和 PP 转交。",
+      "omit": false,
+      "focus": "纯文本输入也可能进入 general_mm_embed_routine：分支取决于 language_model_only 配置；两条入口最终都调用内部文本模型。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5GatedDeltaNet.__init__",
+      "keep": [
+        [
+          267,
+          333
+        ],
+        [
+          338,
+          339
+        ],
+        [
+          373,
+          432
+        ]
+      ],
+      "reason": "保留 GDN 头维度、TP、卷积及输入投影、状态参数、线性注意力、门控归一化、输出投影；省略 CPU AMX 融合与详细卷积权重 loader 包装。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5GatedDeltaNet.forward",
+      "keep": [
+        [
+          714,
+          727
+        ],
+        [
+          739,
+          742
+        ],
+        [
+          757,
+          779
+        ],
+        [
+          787,
+          795
+        ]
+      ],
+      "reason": "保留通用 Q/K/V/z/a/b 整理、历史状态注意力、门控归一化与输出投影；省略 XPU 专用和等价融合整理、DP padding。",
+      "omit": false,
+      "focus": "这里选取通用的 Q/K/V 整理分支；某些配置走等价的融合整理分支，本节省略。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5LinearDecoderLayer.__init__",
+      "keep": [
+        [
+          801,
+          820
+        ],
+        [
+          837,
+          844
+        ],
+        [
+          846,
+          848
+        ],
+        [
+          852,
+          863
+        ],
+        [
+          871,
+          876
+        ],
+        [
+          879,
+          879
+        ]
+      ],
+      "reason": "保留 GDN、dense MLP、前后 norm 与 TP communicator；省略 MoE 实例及量化融合参数。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5LinearDecoderLayer.forward",
+      "keep": [
+        [
+          881,
+          924
+        ],
+        [
+          929,
+          938
+        ]
+      ],
+      "reason": "保留残差/输入 norm、GDN、prepare_mlp、dense MLP、TP 通信与返回；仅移除 MoE forward 分支。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5AttentionDecoderLayer.__init__",
+      "keep": [
+        [
+          944,
+          958
+        ],
+        [
+          961,
+          993
+        ],
+        [
+          997,
+          1060
+        ],
+        [
+          1081,
+          1095
+        ],
+        [
+          1102,
+          1107
+        ],
+        [
+          1110,
+          1112
+        ]
+      ],
+      "reason": "保留 TP/head 维度、QKV 与输出投影、QK/RoPE、RadixAttention、dense MLP 和通信；省略 MoE、日志与量化融合。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5AttentionDecoderLayer._apply_qk_norm",
+      "keep": [
+        [
+          1114,
+          1135
+        ],
+        [
+          1144,
+          1144
+        ],
+        [
+          1153,
+          1167
+        ]
+      ],
+      "reason": "保留完整 QK norm 说明、普通 reshape→GemmaRMSNorm→恢复形状；省略 alt_stream 和硬件融合分支。",
+      "omit": false,
+      "focus": "这里选取普通逐头归一化分支；alt_stream 和硬件融合分支省略。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5AttentionDecoderLayer.forward_prepare_native",
+      "keep": [
+        [
+          1198,
+          1201
+        ],
+        [
+          1206,
+          1252
+        ]
+      ],
+      "reason": "保留已学 QKV 投影、带 gate/不带 gate 的 split 示例、QK norm、RoPE 和 TP 相加说明；仅省略 AITER 量化融合预处理。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5AttentionDecoderLayer.self_attention",
+      "keep": [
+        [
+          1305,
+          1319
+        ],
+        [
+          1324,
+          1333
+        ],
+        [
+          1341,
+          1345
+        ],
+        [
+          1350,
+          1351
+        ]
+      ],
+      "reason": "保留 CUDA 且 attn_output_gate 开启时的实际融合分派，并保留已读 native 数学分支、attention、sigmoid gate、o_proj；省略其他设备的融合准备与 NPU gate。",
+      "omit": false,
+      "focus": "CUDA 且开启输出 gate 时优先调用 forward_prepare_cuda_fused()；native 分支用于理解 QKV、QK norm 与 RoPE 的数学步骤，并非 CUDA 默认必走分支。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5AttentionDecoderLayer.forward",
+      "keep": [
+        [
+          1353,
+          1401
+        ],
+        [
+          1406,
+          1416
+        ]
+      ],
+      "reason": "保留注意力层 norm/残差、self_attention、dense MLP、TP reduction 及输出；只移除 MoE 调用分支。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5ForCausalLM.__init__",
+      "keep": [
+        [
+          1510,
+          1581
+        ]
+      ],
+      "reason": "模型 Embedding→两类 Decoder 构造→最终 norm 全是核心；保留简短 PP 放置与层占位说明，省略捕获列表。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5ForCausalLM.forward",
+      "keep": [
+        [
+          1601,
+          1619
+        ],
+        [
+          1622,
+          1622
+        ],
+        [
+          1628,
+          1641
+        ],
+        [
+          1647,
+          1647
+        ],
+        [
+          1669,
+          1677
+        ]
+      ],
+      "reason": "保留 embedding、当前层循环、最终 norm 与 hidden_states 返回；省略 PP 转交、视觉 deepstack、捕获参数和专家统计上下文。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5ForConditionalGeneration.__init__",
+      "keep": [
+        [
+          1982,
+          1989
+        ]
+      ],
+      "reason": "保留 language_model_cls=Qwen3_5ForCausalLM 与 super 初始化；省略多模态 rope/deepstack 设置。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "name": "Qwen3_5ForConditionalGeneration.load_weights",
+      "keep": [
+        [
+          2040,
+          2058
+        ],
+        [
+          2063,
+          2066
+        ],
+        [
+          2086,
+          2088
+        ],
+        [
+          2093,
+          2093
+        ],
+        [
+          2100,
+          2106
+        ],
+        [
+          2119,
+          2122
+        ],
+        [
+          2133,
+          2134
+        ]
+      ],
+      "reason": "保留权重名称映射、模型参数字典、合并投影分片 loader 与普通参数 loader 两路；省略视觉、MoE、MTP、共享 head 和跨 PP 层过滤。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+      "name": "VocabParallelEmbedding.__init__",
+      "keep": [
+        [
+          231,
+          264
+        ],
+        [
+          271,
+          274
+        ],
+        [
+          280,
+          303
+        ],
+        [
+          318,
+          326
+        ],
+        [
+          330,
+          347
+        ]
+      ],
+      "reason": "保留 TP 词表分片、padding 索引、未量化方法选择、weight 参数创建和回调；省略 CPU 分支、预切分验证与接口校验。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+      "name": "VocabParallelEmbedding._embed_local_shard",
+      "keep": [
+        [
+          528,
+          542
+        ],
+        [
+          554,
+          566
+        ]
+      ],
+      "reason": "保留单卡 F.embedding 路径、TP 掩码/本卡查表/分片外清零；省略等价 Triton 融合查表。",
+      "omit": false,
+      "focus": "这里保留普通查表和 TP 掩码路径；符合条件时完整代码会优先走融合查表内核。"
+    },
+    {
+      "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+      "name": "VocabParallelEmbedding.forward",
+      "keep": [
+        [
+          568,
+          571
+        ],
+        [
+          577,
+          585
+        ]
+      ],
+      "reason": "保留本卡 embedding 与 TP all-reduce 汇总；省略越界调试检查。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/linear.py",
+      "name": "LinearBase.__init__",
+      "keep": [
+        [
+          167,
+          192
+        ]
+      ],
+      "reason": "保留输入输出维度、dtype、quant_method 选择；省略调试包装。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/linear.py",
+      "name": "ColumnParallelLinear.__init__",
+      "keep": [
+        [
+          335,
+          397
+        ],
+        [
+          408,
+          409
+        ]
+      ],
+      "reason": "保留列并行 TP 输出分片与 create_weights/weight_loader；本路径 bias=False，省略 bias 权重分配。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/linear.py",
+      "name": "ColumnParallelLinear.forward",
+      "keep": [
+        [
+          493,
+          516
+        ]
+      ],
+      "reason": "完整保留：矩阵乘法形状、本卡输出、可选 gather 与 bias 返回。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/linear.py",
+      "name": "QKVParallelLinear.__init__",
+      "keep": [
+        [
+          982,
+          1041
+        ],
+        [
+          1044,
+          1057
+        ]
+      ],
+      "reason": "完整保留 Q/K/V 头分片与 KV 复制、宽度及父类初始化；仅删除 HIP 量化开关。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/linear.py",
+      "name": "RowParallelLinear.__init__",
+      "keep": [
+        [
+          1453,
+          1468
+        ],
+        [
+          1470,
+          1489
+        ],
+        [
+          1494,
+          1512
+        ],
+        [
+          1514,
+          1514
+        ],
+        [
+          1523,
+          1524
+        ]
+      ],
+      "reason": "保留行并行输入分片、输出维度、reduce_results 和创建权重；省略 HIP、CP 标志和本路径未使用的 bias 权重。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/quantization/unquant.py",
+      "name": "UnquantizedEmbeddingMethod.create_weights",
+      "keep": [
+        [
+          184,
+          208
+        ]
+      ],
+      "reason": "参数分配、注册、附加 loader 是核心，完整保留。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/quantization/unquant.py",
+      "name": "UnquantizedEmbeddingMethod.embedding",
+      "keep": [
+        [
+          218,
+          223
+        ]
+      ],
+      "reason": "token ID 查 embedding 表是核心，完整保留。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/quantization/unquant.py",
+      "name": "UnquantizedLinearMethod.create_weights",
+      "keep": [
+        [
+          229,
+          250
+        ]
+      ],
+      "reason": "线性层本卡 weight 形状、注册和加载回调是核心，完整保留。",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/quantization/unquant.py",
+      "name": "UnquantizedLinearMethod.apply",
+      "keep": [
+        [
+          256,
+          264
+        ],
+        [
+          309,
+          312
+        ]
+      ],
+      "reason": "保留未量化方法入参、F.linear 数学说明和调用；省略 AMX、AITER、CuTe DSL 与编译器内核分派。",
+      "omit": false,
+      "focus": "这里展示通用 F.linear 数学实现；实际运行可能按设备选择等价优化内核。"
+    },
+    {
+      "file": "python/sglang/srt/layers/radix_attention.py",
+      "name": "RadixAttention.__init__",
+      "keep": [
+        [
+          105,
+          141
+        ],
+        [
+          155,
+          159
+        ]
+      ],
+      "focus": "保存本卡 Q/K/V 头数、单头维度与层号，供注意力后端解释张量和定位 KV 缓冲区。",
+      "reason": "省略其他配置、硬件与附加输出分支",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/radix_attention.py",
+      "name": "RadixAttention.forward",
+      "keep": [
+        [
+          161,
+          177
+        ],
+        [
+          181,
+          192
+        ],
+        [
+          291,
+          301
+        ]
+      ],
+      "focus": "整理本轮 K/V 的形状；这里保留常规 eager 分支，将新 KV 的写入和注意力计算交给后端。",
+      "reason": "省略编译图与特殊注意力分派的主体；保留分支条件，便于定位 eager 入口",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/radix_linear_attention.py",
+      "name": "RadixLinearAttention.forward",
+      "keep": [
+        [
+          80,
+          90
+        ],
+        [
+          115,
+          125
+        ]
+      ],
+      "focus": "保留常规 eager 分支：将 mixed_qkv、门控参数 a/b 与批次信息交给线性注意力后端。",
+      "reason": "省略分段 CUDA Graph 实现",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "ReqToTokenPool.__init__",
+      "keep": [
+        [
+          274,
+          309
+        ]
+      ],
+      "focus": "创建 req slot → token 位置 → KV index 的二维索引表，并初始化可分配的请求槽位。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "ReqToTokenPool.alloc",
+      "keep": [
+        [
+          317,
+          323
+        ],
+        [
+          330,
+          345
+        ]
+      ],
+      "focus": "已有 req_pool_idx 的请求复用槽位，其余请求分配新槽位；返回本批请求的槽位列表。",
+      "reason": "省略已注释掉的旧断言",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "MHATokenToKVPool.__init__",
+      "keep": [
+        [
+          1839,
+          1878
+        ],
+        [
+          1883,
+          1902
+        ],
+        [
+          1910,
+          1912
+        ],
+        [
+          1919,
+          1919
+        ],
+        [
+          1927,
+          1928
+        ],
+        [
+          1949,
+          1962
+        ],
+        [
+          1973,
+          1975
+        ]
+      ],
+      "focus": "记录 KV 池容量和每头维度，调用 _create_buffers() 建立各层 K/V 缓冲区；这里关注普通 NHD 布局。",
+      "reason": "省略其他物理布局、post-capture、复制预热及分配日志",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "MHATokenToKVPool._get_key_buffer",
+      "keep": [
+        [
+          2370,
+          2375
+        ],
+        [
+          2385,
+          2387
+        ]
+      ],
+      "focus": "把模型层号换算成本池的局部层号，返回对应的 K 缓冲区；这里保留普通未量化读取。",
+      "reason": "省略量化 KV 的反量化读取",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "MHATokenToKVPool.get_key_buffer",
+      "keep": [
+        [
+          2389,
+          2398
+        ]
+      ],
+      "focus": "必要时等待该层 KV 传输就绪，再取得本层 K 缓冲区。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/memory_pool.py",
+      "name": "MHATokenToKVPool.set_kv_buffer",
+      "keep": [
+        [
+          2431,
+          2445
+        ],
+        [
+          2449,
+          2451
+        ],
+        [
+          2468,
+          2478
+        ],
+        [
+          2510,
+          2510
+        ]
+      ],
+      "focus": "按 layer_id 和 loc 把本轮 cache_k/cache_v 写入对应缓冲区；保留普通 NHD、无 DCP mask 的路径。",
+      "reason": "省略越界诊断、量化 KV、DCP mask 和 HND 写入分支",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "RadixKey.__len__",
+      "keep": [
+        [
+          99,
+          105
+        ]
+      ],
+      "focus": "返回该前缀边代表的 token 数；普通 key 直接使用底层长度。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "TreeNode.__init__",
+      "keep": [
+        [
+          248,
+          259
+        ],
+        [
+          270,
+          274
+        ]
+      ],
+      "focus": "建立前缀树节点：保存父子关系、token key、KV index、引用锁和淘汰优先级。",
+      "reason": "省略 HiCache 主机状态、哈希与外部事件字段",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "TreeNode.evicted",
+      "keep": [
+        [
+          276,
+          280
+        ]
+      ],
+      "focus": "以 value 是否为空判断节点的设备端 KV 索引是否已被清走，供叶节点状态维护使用。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "RadixCache.__init__",
+      "keep": [
+        [
+          317,
+          325
+        ],
+        [
+          333,
+          346
+        ]
+      ],
+      "focus": "连接请求槽位池和 KV 分配器，设置淘汰策略并创建前缀树的初始状态。",
+      "reason": "省略指标和外部 KV 事件记录器初始化",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "RadixCache.inc_lock_ref",
+      "keep": [
+        [
+          637,
+          659
+        ]
+      ],
+      "focus": "沿命中节点向根增加引用计数；从未锁定变为锁定时，把对应 token 数从可淘汰区移到受保护区。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/mem_cache/radix_cache.py",
+      "name": "RadixCache._update_leaf_status",
+      "keep": [
+        [
+          844,
+          857
+        ]
+      ],
+      "focus": "只有未被淘汰、未被引用锁住、且没有有效子节点的叶子，才放进可淘汰集合。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/logits_processor.py",
+      "name": "LogitsProcessor.forward",
+      "keep": [
+        [
+          343,
+          368
+        ],
+        [
+          389,
+          402
+        ],
+        [
+          416,
+          425
+        ],
+        [
+          428,
+          428
+        ]
+      ],
+      "focus": "普通生成且不返回输入 logprob：选出用于下一个 token 预测的 hidden states，经 LM head 得到 next_token_logits。",
+      "reason": "省略 autotune、特殊评分、DLLM、额外 hidden states 和输入 logprob 输出",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/layers/sampler.py",
+      "name": "Sampler.forward",
+      "keep": [
+        [
+          98,
+          122
+        ],
+        [
+          127,
+          138
+        ],
+        [
+          147,
+          152
+        ],
+        [
+          170,
+          171
+        ],
+        [
+          179,
+          184
+        ],
+        [
+          192,
+          194
+        ],
+        [
+          211,
+          217
+        ],
+        [
+          247,
+          249
+        ]
+      ],
+      "focus": "贪心路径取 argmax；普通随机路径应用 temperature 和 softmax 后采样；最后在 TP rank 间同步 token ID。",
+      "reason": "省略 AITER 之外硬件路径的主体、RL、logprob 与 sampling mask 附加输出",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.__init__",
+      "keep": [
+        [
+          122,
+          141
+        ]
+      ],
+      "focus": "初始化与 Scheduler/TokenizerManager 的通道、分词器、解码状态和消息分发器。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.init_ipc_channels",
+      "keep": [
+        [
+          143,
+          158
+        ]
+      ],
+      "focus": "接收 Scheduler 的 token ID 输出，并建立向单个 TokenizerManager 返回文本的通道。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.init_tokenizer",
+      "keep": [
+        [
+          160,
+          177
+        ]
+      ],
+      "focus": "加载用于 token ID → 文本解码的 tokenizer，并记录词表大小。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.init_running_status",
+      "keep": [
+        [
+          179,
+          191
+        ]
+      ],
+      "focus": "创建 rid → DecodeStatus 的状态表，并初始化解码选项和主循环看门狗。",
+      "reason": "省略 CPU 指标监控",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.init_request_dispatcher",
+      "keep": [
+        [
+          196,
+          199
+        ],
+        [
+          201,
+          201
+        ],
+        [
+          204,
+          205
+        ]
+      ],
+      "focus": "把 BatchTokenIDOutput 消息分发到 handle_batch_token_id_out()。",
+      "reason": "省略 embedding 和运维消息分发",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.event_loop",
+      "keep": [
+        [
+          207,
+          228
+        ]
+      ],
+      "focus": "循环收取 Scheduler 消息，执行对应解码处理，再将结果送回 TokenizerManager。",
+      "reason": "保留与核心链路相关的完整短方法",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.trim_matched_stop",
+      "keep": [
+        [
+          230,
+          239
+        ],
+        [
+          242,
+          253
+        ],
+        [
+          257,
+          260
+        ]
+      ],
+      "focus": "生成结束时，根据停止字符串或停止 token 修剪结果；是否保留停止内容由 no_stop_trim 决定。",
+      "reason": "省略 GPT-OSS 专用停止 token 兼容分支",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.handle_batch_embedding_out",
+      "keep": [],
+      "focus": "",
+      "reason": "Embedding 服务输出不属于当前文本生成链路",
+      "omit": true
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager._clamp_decode_ids",
+      "keep": [
+        [
+          267,
+          270
+        ],
+        [
+          278,
+          280
+        ]
+      ],
+      "focus": "把词表范围以外的占位 ID 换成 0，供 tokenizer 安全解码。",
+      "reason": "省略其他模型占位符的背景说明",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager._grouped_batch_decode",
+      "keep": [
+        [
+          282,
+          292
+        ],
+        [
+          301,
+          304
+        ],
+        [
+          306,
+          309
+        ],
+        [
+          312,
+          312
+        ],
+        [
+          314,
+          325
+        ],
+        [
+          329,
+          338
+        ],
+        [
+          341,
+          349
+        ],
+        [
+          351,
+          351
+        ],
+        [
+          353,
+          356
+        ],
+        [
+          358,
+          358
+        ]
+      ],
+      "focus": "把 token ID 列表批量解码；相同解码选项合并处理，空输入过滤后再把结果放回原位置。",
+      "reason": "省略调试日志与性能背景长注释，保留 slow/fast 与选项分组的完整结果路径",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager._decode_batch_token_id_output",
+      "keep": [
+        [
+          360,
+          410
+        ],
+        [
+          433,
+          440
+        ],
+        [
+          449,
+          485
+        ]
+      ],
+      "focus": "按 rid 累积 token ID，分别解码前缀和新增范围；取文本差值，更新未完成请求状态或在完成后清理。",
+      "reason": "省略逐条 decode 的备用实现和状态丢失时的错误信息；保留增量解码及不完整字符处理",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "DetokenizerManager.handle_batch_token_id_out",
+      "keep": [
+        [
+          506,
+          508
+        ],
+        [
+          516,
+          525
+        ],
+        [
+          528,
+          538
+        ],
+        [
+          579,
+          579
+        ]
+      ],
+      "focus": "将本批 token ID 增量解码成 output_strs，再包装 rid、结束状态和 token 计数发回 TokenizerManager。",
+      "reason": "省略 beam search、媒体、专家路由与 logprob 等附加回包字段",
+      "omit": false
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "name": "run_detokenizer_process",
+      "keep": [
+        [
+          610,
+          614
+        ],
+        [
+          618,
+          618
+        ],
+        [
+          621,
+          627
+        ]
+      ],
+      "focus": "在 Detokenizer 子进程发布配置，创建 manager 后进入单 worker 事件循环。",
+      "reason": "省略进程外观设置、多 worker 分支及异常退出清理",
+      "omit": false
+    }
+  ],
+  "corrections": [
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 908,
+      "old": "        # NOTE rem_total_token_offset 从 0 开始",
+      "new": "        # NOTE rem_total_token_offset 记录已预留的 KV 编号预算。",
+      "reason": "构造时已计入混合 decode token 和 running 请求预留，不能断言从 0 开始。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 909,
+      "old": "        #        表示PrefillAdder 的总预算，核心是本轮 prefill + 将来 decode 要用的 KV",
+      "new": "        #        这里再计入本请求的本轮 prefill 和后续 decode 所需预算。",
+      "reason": "该变量是已占用预算偏移量，不是剩余总预算。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 916,
+      "old": "        # NOTE cur_rem_token_offset 从0开始",
+      "new": "        # NOTE cur_rem_token_offset 记录本轮立即要分配的 KV 编号预算。",
+      "reason": "混合批时初始化为 num_mixed_decode_tokens，不一定从 0 开始。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 1095,
+      "old": "            # NOTE 设置 last_node 的加锁状态，result中保存了新增锁住的 kv index 数量",
+      "new": "            # NOTE 临时锁住 last_node 及其祖先；result 记录可淘汰容量的变化等解锁信息。",
+      "reason": "inc_lock_ref 的 delta 为可淘汰容量变化，不是正向新增编号数。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 1277,
+      "old": "        #       计算结果：9_输入token - 4_cache_for_prefill + max_new = 5+max_new",
+      "new": "        #       估算：9_输入token - 4_已缓存token + max_new + page_size = 5 + max_new + 4",
+      "reason": "原算例漏掉代码明确加上的页对齐余量。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_policy.py",
+      "line": 1039,
+      "old": "        # tip dllm -> diffution llm",
+      "new": "        # tip DLLM = Diffusion Large Language Model，扩散式大语言模型。",
+      "reason": "修正英文拼写及缩写含义。"
+    },
+    {
+      "file": "python/sglang/srt/managers/schedule_batch.py",
+      "line": 2303,
+      "old": "            token_to_kv_pool_allocator=token_to_kv_pool_allocator,  # kv index -> kv value",
+      "new": "            token_to_kv_pool_allocator=token_to_kv_pool_allocator,  # 管理空闲 KV 编号并负责分配/回收",
+      "reason": "allocator 不是实际 KV 向量池。"
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "line": 5672,
+      "old": "        # Engine._launch_subprocesses -> Engine._launch_subprocesses()-> Scheduler.run_scheduler_process",
+      "new": "        # Engine._launch_subprocesses() -> run_scheduler_process() -> Scheduler.__init__()",
+      "reason": "run_scheduler_process 是模块函数，不是 Scheduler 方法；去掉重复入口。"
+    },
+    {
+      "file": "python/sglang/srt/managers/scheduler.py",
+      "line": 5688,
+      "old": "        # NOTE 启动 scheduler 进程",
+      "new": "        # NOTE 初始化完成后，启动 Scheduler 的事件循环。",
+      "reason": "这里已经处于 Scheduler 子进程中，不是在创建进程。"
+    },
+    {
+      "file": "python/sglang/srt/layers/quantization/unquant.py",
+      "line": 231,
+      "old": "    layer: torch.nn.Module,  # tip VocabParallelEmbedding",
+      "new": "    layer: torch.nn.Module,  # tip 线性层对象，例如 QKVParallelLinear",
+      "reason": "此处为线性层权重创建，不是 embedding 方法。"
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "line": 922,
+      "old": "                #   yield response 表示向上游返回 response，上游可以通过 next(x) 或者也通过 for 获取（注意，这里的yeild和 _wait_one_response 中的yield没语法联系）",
+      "new": "                #   yield response 向上游产生一个结果；上游使用 async for 或 await anext(...) 获取。",
+      "reason": "这是异步生成器，普通 next/for 不适用。"
+    },
+    {
+      "file": "python/sglang/srt/managers/tokenizer_manager.py",
+      "line": 924,
+      "old": "                # 这里的 async 是和上游使用 wait 调用思路比较类似，上游直接wait表示执行并等待获取结果",
+      "new": "                # async for 等待异步生成器下一项；其内部 await 可以挂起当前协程，等待结果事件。",
+      "reason": "区分 await 语法与 wait 方法名。"
+    },
+    {
+      "file": "python/sglang/srt/managers/detokenizer_manager.py",
+      "line": 373,
+      "old": "                decoded_text=recv_obj.decoded_texts[i], # recv_obj.decoded_texts[i] 在这里还是空字符串",
+      "new": "                decoded_text=recv_obj.decoded_texts[i], # 来自 Scheduler 的已解码文本前缀，普通新请求通常为空",
+      "reason": "不能将所有新建 DecodeStatus 的前缀都断言为空。"
+    },
+    {
+      "file": "python/sglang/srt/models/qwen3_5.py",
+      "line": 1329,
+      "old": "        # NOTE 默认链路",
+      "new": "            # NOTE 未进入上述融合分支且满足本条件时，执行 native 准备。",
+      "reason": "native 不是 CUDA + gate 配置的默认分派。"
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "line": 308,
+      "old": "    # NOTE 注册 OpenAI 相关的函数",
+      "new": "# NOTE 初始化 OpenAI 服务处理对象",
+      "reason": "区分处理对象和函数；这里从 _global_state 取 manager，并非从 app.state 取。"
+    },
+    {
+      "file": "python/sglang/srt/entrypoints/http_server.py",
+      "line": 309,
+      "old": "    #   当前 fast_api_app.state 中已经保存了一些 manager 了，这里会使用这些 manager初始化相关函数",
+      "new": "#   使用 _global_state 中的 manager 创建处理对象，再挂到 fast_api_app.state 上。",
+      "reason": "区分处理对象和函数；这里从 _global_state 取 manager，并非从 app.state 取。"
+    }
+  ],
+  "structural_header_repairs": [
+    [
+      "generate_request",
+      1
+    ],
+    [
+      "_setup_and_run_http_server",
+      2
+    ],
+    [
+      "launch_server",
+      6
+    ],
+    [
+      "OpenAIServingChat._convert_to_internal_request",
+      5
+    ],
+    [
+      "OpenAIServingChat._apply_jinja_template",
+      1
+    ],
+    [
+      "TokenizerManager.generate_request",
+      11
+    ],
+    [
+      "TokenizerManager._create_tokenized_object",
+      1
+    ],
+    [
+      "TokenizerManager._send_one_request",
+      1
+    ],
+    [
+      "TokenizerManager._wait_one_response",
+      4
+    ],
+    [
+      "TokenizerManager._handle_batch_output",
+      1
+    ],
+    [
+      "DefaultModelLoader.load_weights_and_postprocess",
+      3
+    ],
+    [
+      "Scheduler.process_input_requests",
+      1
+    ],
+    [
+      "Scheduler._get_new_batch_prefill_raw",
+      1
+    ],
+    [
+      "Scheduler.run_batch",
+      6
+    ],
+    [
+      "Scheduler.process_batch_result",
+      1
+    ],
+    [
+      "dispatch_event_loop",
+      4
+    ],
+    [
+      "Req.__init__",
+      23
+    ],
+    [
+      "TpModelWorker.__init__",
+      2
+    ],
+    [
+      "TpModelWorker.forward_batch_generation",
+      1
+    ],
+    [
+      "ModelRunner.__init__",
+      1
+    ],
+    [
+      "ModelRunner.forward",
+      8
+    ],
+    [
+      "ModelRunner._forward_raw",
+      12
+    ],
+    [
+      "ModelRunner.sample",
+      2
+    ],
+    [
+      "EagerRunner._execute_extend",
+      12
+    ],
+    [
+      "Qwen3VLForConditionalGeneration.__init__",
+      8
+    ],
+    [
+      "Qwen3_5GatedDeltaNet.forward",
+      5
+    ],
+    [
+      "Qwen3_5LinearDecoderLayer.forward",
+      1
+    ],
+    [
+      "Qwen3_5AttentionDecoderLayer._apply_qk_norm",
+      6
+    ],
+    [
+      "Qwen3_5AttentionDecoderLayer.self_attention",
+      1
+    ],
+    [
+      "Qwen3_5AttentionDecoderLayer.forward",
+      1
+    ],
+    [
+      "Qwen3_5ForCausalLM.forward",
+      3
+    ],
+    [
+      "ColumnParallelLinear.__init__",
+      2
+    ],
+    [
+      "RowParallelLinear.__init__",
+      2
+    ],
+    [
+      "Sampler.forward",
+      2
+    ],
+    [
+      "DetokenizerManager.handle_batch_token_id_out",
+      2
+    ]
+  ]
+}

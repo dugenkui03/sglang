@@ -67,6 +67,7 @@ class BaseTokenToKVPoolAllocator(abc.ABC):
         return ""
 
     def available_size(self):
+        """当前闲置的 KV Index 数量：一个KV Index 对应一个token 的kv存储"""
         return (len(self.free_pages) + len(self.release_pages)) * self.page_size
 
     def get_kvcache(self):

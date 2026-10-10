@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Qwen3.5 Decode 调用链复习</title>
+<style>
+@page { size:A4; margin:13mm 14mm 15mm; @bottom-left { content:"SGLang · Decode 调用链复习"; font:8pt "Noto Sans CJK SC"; color:#555; } @bottom-right { content:counter(page) " / " counter(pages); font:8pt "Noto Sans CJK SC"; color:#555; } }
+* { box-sizing:border-box; } body { margin:0; color:#111; font:10pt/1.5 "Noto Sans CJK SC",sans-serif; } h1 { font-size:19pt; line-height:1.3; margin:0 0 3mm; bookmark-level:1; } h2 { font-size:12.5pt; margin:4mm 0 2mm; padding-bottom:1mm; border-bottom:.6pt solid #777; break-after:avoid; bookmark-level:2; } p { margin:2mm 0; orphans:3; widows:3; } .meta { font-size:8.8pt; color:#444; } .page + .page { break-before:page; } .page > h2:first-child { margin-top:0; }
+pre,code { font-family:"Noto Sans Mono CJK SC",monospace; } code { font-size:.93em; } pre { font-size:8.9pt; line-height:1.5; white-space:pre; margin:2.5mm 0; padding:2.5mm; border:.5pt solid #999; break-inside:avoid; } pre code { font-size:inherit; } table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:9pt; margin:2.5mm 0; break-inside:avoid; } th,td { border:.5pt solid #999; padding:1.7mm; text-align:left; vertical-align:top; overflow-wrap:anywhere; } th { background:#f0f0f0; font-weight:700; } .examples th:nth-child(1) { width:16%; } .examples th:nth-child(2) { width:29%; } .examples th:nth-child(3) { width:23%; } .examples th:nth-child(4) { width:32%; } .concepts td:first-child,.concepts th:first-child { width:32%; } .small { font-size:8.6pt; line-height:1.45; } a { color:inherit; text-decoration:underline; }
+</style></head><body>
+<section class="page">
+<h1>Qwen3.5 Decode 调用链复习</h1>
+<p class="meta">2026-10-09 · 当前 learn 分支 · A4 黑白打印版</p>
+<p><strong>主线：请求索引与页表 → QKV 计算 → KV 写入 → 按页读取并计算注意力。</strong><br>范围：普通解码(Decode)、即时执行(Eager)、全注意力(Full Attention)与 FlashAttention 后端；QKV 展开 native 分支，缓存写入展开 CUDA JIT 分支。</p>
+<h2>1. 每轮 Decode：准备请求索引与页表</h2>
+<p>假设本批两个请求 A、B，<code>page_size=2</code>；此前已分配请求槽位 <code>req_pool_indices=tensor([5,9])</code>，形状(shape)为 <code>[2]</code>。Decode 复用这些请求槽位。</p>
+<table class="examples"><thead><tr><th>请求 / req slot</th><th>本轮前的 KV 槽位</th><th>本轮新槽位</th><th>本轮后的 KV 槽位</th></tr></thead><tbody>
+<tr><td>A / 5</td><td><code>[6,7]</code>，长度 2</td><td><code>2</code>，新分配页 1</td><td><code>[6,7,2]</code>，长度 3</td></tr>
+<tr><td>B / 9</td><td><code>[8]</code>，长度 1</td><td><code>9</code>，续用页 4</td><td><code>[8,9]</code>，长度 2</td></tr>
+</tbody></table>
+<pre><code>ScheduleBatch.prepare_for_decode()
+    │
+    ├─ ① alloc_for_decode()：分配本轮 KV 槽位
+    │    → out_cache_loc = tensor([2, 9])，shape=[2]
+    │    → ReqToTokenPool.write()：更新请求到 KV 槽位的映射
+    │         ├─ req_to_token[5, 2] = 2
+    │         └─ req_to_token[9, 1] = 9
+    │
+    └─ ② seq_lens + 1：tensor([2, 1]) → tensor([3, 2])</code></pre>
+<p>这一步只分配槽位、登记索引；本轮 K/V 数值在后续各层前向中计算并写入。随后 <code>TpModelWorker.forward_batch_generation() → ForwardBatch.init_new()</code> 传递请求编号和更新后的长度。</p>
+<pre><code>EagerRunner._execute_decode()
+→ HybridLinearAttnBackend.init_forward_metadata()
+→ FlashAttentionBackend.init_forward_metadata()
+    │
+    ├─ ① 用 req_pool_indices=[5,9] 选取 req_to_token 的两行
+    │    → tensor([[6,7,2], [8,9,0]])，shape=[2,3]
+    ├─ ② 每隔 page_size=2 取一个槽位，再整除 2
+    │    → tensor([[6,2], [8,0]]) // 2
+    │    → page_table = tensor([[3,1], [4,0]])，shape=[2,2]
+    └─ ③ seq_lens.to(torch.int32)
+         → cache_seqlens_int32 = tensor([3,2])，shape=[2]</code></pre>
+<p class="small"><code>req_to_token</code> 是二维表：[请求槽位容量, 每个请求的 token 位置容量]；上图只展示所选两行的前三列。<code>req_pool_indices</code>、<code>out_cache_loc</code>、<code>seq_lens</code> 为 int64；映射表、页表和 <code>cache_seqlens_int32</code> 为 int32。这里的 Tensor 值保存在 GPU 显存，CPU 内存中可另有长度镜像。</p>
+<p class="small">A 按页 [3,1] 读取 3 个 token，定位到槽位 [6,7,2]；B 按页 [4] 读取 2 个 token，定位到 [8,9]。第二行页表末尾的 0 无效，由有效长度限定读取范围。公式：<code>kv_index = page_table[b, t // page_size] * page_size + t % page_size</code>；b 为本批请求下标，t 为请求内 token 位置，均从 0 开始。</p>
+</section>
+<section class="page">
+<h2>2. 全注意力层：计算本轮 Q/K/V</h2>
+<p>输入 <code>hidden_states</code> 是当前层处理的隐藏向量。以下展开可逐步阅读的 native 准备分支，以及未量化线性层的 <code>F.linear</code> 分支。</p>
+<pre><code>Qwen3_5AttentionDecoderLayer.self_attention()
+    │
+    ├─ ① forward_prepare_native()：准备 Q/K/V
+    │    │
+    │    ├─ self.qkv_proj(hidden_states)：QKVParallelLinear 对象
+    │    │    → ColumnParallelLinear.forward()：继承的 forward
+    │    │    → UnquantizedLinearMethod.apply()
+    │    │    → F.linear()：输入 × 权重转置，可加 bias
+    │    ├─ split() / chunk()：拆出 Q、K、V 及可选 gate
+    │    ├─ _apply_qk_norm() → GemmaRMSNorm：按头归一化 Q、K
+    │    └─ self.rotary_emb(...)：旋转位置编码(RoPE)
+    │
+    ├─ ② RadixAttention.forward()
+    │    → HybridLinearAttnBackend.forward()
+    │    → HybridLinearAttnBackend.forward_decode()
+    │    → FlashAttentionBackend.forward_decode()  ← 见第 3、4 部分
+    │
+    └─ ③ 可选 gate → self.o_proj(...)：输出投影回 hidden_size</code></pre>
+<p class="small">CUDA 开启输出门控时，实际走 <code>forward_prepare_cuda_fused()</code>，融合部分准备步骤。Q/K 归一化发生在注意力分数计算之前；V 不经过这里的 Q/K 归一化。张量并行(Tensor Parallelism，TP)下，普通行并行 <code>o_proj</code> 后各卡对同一输出的贡献通常求和(all-reduce)。</p>
+<h2>3. 写入本轮 K/V：Python → C++ → GPU</h2>
+<p>两层缓存池分工：<code>HybridLinearKVPool</code> 解析写入位置、映射层编号；其中的 <code>full_kv_pool</code>（此分支为 <code>MHATokenToKVPool</code>）管理实际 K/V Tensor。</p>
+<pre><code>FlashAttentionBackend.forward_decode()
+→ HybridLinearKVPool.set_kv_buffer()：解析槽位、映射层编号
+→ MHATokenToKVPool.set_kv_buffer()：按需缩放、转换 dtype
+→ MHATokenToKVPool._store_kv_layer()：选中当前层缓存
+→ _set_kv_buffer_impl()：这里展开 CUDA JIT 写入分支
+→ store_cache()
+    │
+    ├─ ① _jit_kvcache_module()：取得编译后的代码模块
+    └─ ② module.store_cache()：Python → C++ 绑定
+         → StoreKVCacheKernel&lt;...&gt;::run()：C++ 入口
+         → LaunchKernel(...).enable_pdl(...)(...)：启动 GPU 内核
+         → store_kvcache()：写入指定 GPU 显存槽位</code></pre>
+<p class="small">这里的 <code>module</code> 是编译后的代码模块，不是 GPU 显存地址。<code>store_kvcache()</code> 根据 <code>indices</code>，把本轮新算出的多个 token 的 K/V 写入缓存。</p>
+</section>
+<section class="page">
+<h2>4. 读取缓存视图，再执行注意力计算</h2>
+<p>先取得当前层整个缓存池的 Tensor 视图，再让注意力内核(kernel)按请求页表读取有效槽位。常规路径获取视图时不会把整层 K/V 搬到 CPU 内存；需要反量化的缓存分支可能执行额外计算。</p>
+<pre><code>FlashAttentionBackend.forward_decode()：写入本轮 K/V 之后
+    │
+    ├─ ① get_paged_mha_kv_cache()：取得当前层分页视图
+    │    → HybridLinearKVPool.get_kv_buffer()
+    │        │
+    │        ├─ _wait_for_layer()：分层加载时等待缓存就绪
+    │        ├─ _transfer_full_attention_id()：模型层号 → 缓存层号
+    │        │    → 例如模型层 3、7，对应缓存层 0、1
+    │        └─ MHATokenToKVPool.get_kv_buffer()
+    │             ├─ get_key_buffer() → _get_key_buffer()
+    │             └─ get_value_buffer() → _get_value_buffer()
+    │    → view(...)：[缓存页数, page_size, 本卡头数, 每头维度]
+    │
+    ├─ ② q.contiguous().view(...)：整理 Q 的布局和形状
+    │    → [本轮 token 数, 本卡 Q 头数, head_dim]
+    │
+    ├─ ③ flash_attn_with_kvcache()：实际读取 GPU 显存并计算
+    │    → page_table + cache_seqlens：定位各请求有效 K/V
+    │    → Q @ K.T → 缩放与掩码 → softmax → V 的加权和
+    │
+    └─ ④ o.view(...)：展平各头输出，返回给上层 o_proj</code></pre>
+<h2>复习时重点区分</h2>
+<table class="concepts"><thead><tr><th>概念</th><th>区别与含义</th></tr></thead><tbody>
+<tr><td>分配 KV 槽位 / 写入 KV</td><td>前者确定存放位置；后者才把本轮 K/V 写入 GPU 显存。</td></tr>
+<tr><td>获取引用 / 读取数据</td><td>普通 getter 返回 Tensor 引用；注意力内核按页表读取 GPU 显存中的 K/V。</td></tr>
+<tr><td><code>view(shape)</code> / <code>contiguous()</code></td><td>前者共享底层存储并改变视图；后者在不连续时会复制整理，GPU Tensor 仍留在 GPU 显存中。</td></tr>
+<tr><td><code>.to(dtype)</code> / <code>.view(dtype)</code></td><td>前者转换数值表示；后者按新类型解释原有字节，须满足形状与步长等条件。</td></tr>
+<tr><td><code>full_kv_pool</code> / <code>mamba_pool</code></td><td>前者保存全注意力层逐 token 的 K/V；后者保存线性注意力层的卷积状态与递推状态。</td></tr>
+<tr><td>Python 入口 / GPU 内核</td><td>Python 负责调用；GPU 内核执行计算或数据读写。内核也可用 Triton 编写并编译生成。</td></tr>
+</tbody></table>
+<p class="small">源码定位：<code>managers/schedule_batch.py</code>、<code>mem_cache/allocation.py</code>、<code>models/qwen3_5.py</code>、<code>layers/attention/flashattention_backend.py</code>、<code>mem_cache/memory_pool.py</code>（以上位于 <code>python/sglang/srt/</code>）；Python/CUDA 写入入口位于 <code>python/sglang/kernels/ops/kvcache/kvcache.py</code> 与 <code>python/sglang/kernels/jit/csrc/elementwise/kvcache.cuh</code>。</p>
+</section></body></html>
