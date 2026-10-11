@@ -1,0 +1,166 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>基础知识七：从日志理解 QKV 与 Gate 的维度</title><style>
+@page { size: A4 portrait; margin: 12mm 14mm 14mm;
+  @bottom-left { content: "Qwen3.5 · QKV / Gate 维度"; font-family: "Noto Sans CJK SC"; font-size: 8pt; color: #555; }
+  @bottom-right { content: counter(page) " / " counter(pages); font-family: "Noto Sans CJK SC"; font-size: 8pt; color: #555; }
+}
+body { margin: 0; font: 9.5pt/1.4 "Noto Sans CJK SC", sans-serif; color: #111; }
+h1 { font-size: 16pt; line-height: 1.3; margin: 0 0 8pt; font-weight: 700; }
+h2 { font-size: 12pt; line-height: 1.35; margin: 9pt 0 6pt; break-after: avoid; }
+h2.new-page { break-before: page; margin-top: 0; }
+p { margin: 4pt 0; orphans: 2; widows: 2; }
+a { color: #111; text-decoration: underline; }
+code { font-family: "DejaVu Sans Mono", "Noto Sans Mono CJK SC", monospace; font-size: 8.5pt; overflow-wrap: anywhere; }
+pre { font-family: "DejaVu Sans Mono", "Noto Sans Mono CJK SC", monospace; font-size: 8.5pt; line-height: 1.35; padding: 7pt 8pt; margin: 7pt 0; border: 0.5pt solid #aaa; background: #f8f8f8; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
+pre code { font-size: inherit; }
+pre.config { font-size: 8.25pt; line-height: 1.2; padding: 7pt; }
+table { border-collapse: collapse; table-layout: fixed; width: 100%; margin: 6pt 0; font-size: 8.1pt; line-height: 1.4; break-inside: avoid; }
+th,td { border: 0.5pt solid #999; padding: 3pt 4pt; box-sizing: border-box; vertical-align: top; overflow-wrap: anywhere; }
+th { background: #eee; text-align: left; }
+table code { font-size: 7.8pt; }
+</style></head><body><h1>基础知识七：从日志理解 QKV 与 Gate 的维度</h1>
+<p>以 Qwen3.5-0.8B-Base 的真实请求为例，只解释输入形状，以及配置如何决定 Q、K、V 和输出门控(Gate)的维度。条件是单卡、张量并行(Tensor Parallelism，TP)=1，观察全注意力(Full Attention)层。</p>
+<h2>1. 完整原始配置</h2>
+<p>完整保留用户提供的配置字段和值，仅合并部分换行。下面的维度计算使用 <code>text_config</code> 中的参数。</p>
+<pre class="config"><code class="language-json">{
+    &quot;architectures&quot;: [&quot;Qwen3_5ForConditionalGeneration&quot;],
+    &quot;image_token_id&quot;: 248056, &quot;model_type&quot;: &quot;qwen3_5&quot;,
+    &quot;text_config&quot;: {
+        &quot;attention_bias&quot;: false, &quot;attention_dropout&quot;: 0.0,
+        &quot;attn_output_gate&quot;: true,
+        &quot;dtype&quot;: &quot;bfloat16&quot;, &quot;eos_token_id&quot;: 248044,
+        &quot;full_attention_interval&quot;: 4,
+        &quot;head_dim&quot;: 256,
+        &quot;hidden_act&quot;: &quot;silu&quot;,
+        &quot;hidden_size&quot;: 1024,
+        &quot;initializer_range&quot;: 0.02, &quot;intermediate_size&quot;: 3584,
+        &quot;layer_types&quot;: [
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;,
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;,
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;,
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;,
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;,
+            &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;linear_attention&quot;, &quot;full_attention&quot;
+        ],
+        &quot;linear_conv_kernel_dim&quot;: 4, &quot;linear_key_head_dim&quot;: 128,
+        &quot;linear_num_key_heads&quot;: 16, &quot;linear_num_value_heads&quot;: 16,
+        &quot;linear_value_head_dim&quot;: 128,
+        &quot;max_position_embeddings&quot;: 262144, &quot;mlp_only_layers&quot;: [],
+        &quot;model_type&quot;: &quot;qwen3_5_text&quot;,
+        &quot;mtp_num_hidden_layers&quot;: 1, &quot;mtp_use_dedicated_embeddings&quot;: false,
+        &quot;num_attention_heads&quot;: 8,
+        &quot;num_hidden_layers&quot;: 24,
+        &quot;num_key_value_heads&quot;: 2,
+        &quot;rms_norm_eps&quot;: 1e-06, &quot;tie_word_embeddings&quot;: true, &quot;use_cache&quot;: true,
+        &quot;vocab_size&quot;: 248320, &quot;mamba_ssm_dtype&quot;: &quot;float32&quot;,
+        &quot;rope_parameters&quot;: {
+            &quot;mrope_interleaved&quot;: true, &quot;mrope_section&quot;: [11, 11, 10],
+            &quot;rope_type&quot;: &quot;default&quot;, &quot;rope_theta&quot;: 10000000,
+            &quot;partial_rotary_factor&quot;: 0.25
+        }
+    },
+    &quot;tie_word_embeddings&quot;: true, &quot;transformers_version&quot;: &quot;4.57.0.dev0&quot;,
+    &quot;video_token_id&quot;: 248057,
+    &quot;vision_config&quot;: {
+        &quot;deepstack_visual_indexes&quot;: [], &quot;depth&quot;: 12,
+        &quot;hidden_act&quot;: &quot;gelu_pytorch_tanh&quot;, &quot;hidden_size&quot;: 768,
+        &quot;in_channels&quot;: 3, &quot;initializer_range&quot;: 0.02,
+        &quot;intermediate_size&quot;: 3072, &quot;model_type&quot;: &quot;qwen3_5&quot;,
+        &quot;num_heads&quot;: 12, &quot;num_position_embeddings&quot;: 2304,
+        &quot;out_hidden_size&quot;: 1024, &quot;patch_size&quot;: 16,
+        &quot;spatial_merge_size&quot;: 2, &quot;temporal_patch_size&quot;: 2
+    },
+    &quot;vision_end_token_id&quot;: 248054, &quot;vision_start_token_id&quot;: 248053
+}
+</code></pre>
+<h2 class="new-page">2. 输入多个 token，为什么日志里只有 <code>[1,1024]</code>？</h2>
+<p>请求是 <code>请你描述下中国，10个字</code>。加入聊天模板的角色和特殊标记后，一共是 <strong>20 个 token</strong>。日志对应的处理过程如下：</p>
+<pre><code class="language-text">① 预填充(Prefill)：处理完整输入
+   input_ids.shape=[20] → 向量化(Embedding)的输出形状=[20,1024]
+   → self_attention() 的 hidden_states.shape=[20,1024] → 预测第一个新 token
+
+② 解码(Decode)：处理上一轮生成的一个 token
+   input_ids.shape=[1] → 向量化(Embedding)的输出形状=[1,1024]
+   → self_attention() 的 hidden_states.shape=[1,1024] → 预测下一个 token
+</code></pre>
+<p>上图方括号表示张量形状，不是元素值。<code>hidden_states.shape=[本轮计算的 token 数, hidden_size]</code>，<code>hidden_size=1024</code> 决定每个 token 的向量宽度。<code>batch_size=1</code> 表示本批有一个请求，不代表请求只有一个 token。</p>
+<p>全注意力层此前 token 的 K/V 已保存在 <strong>GPU 显存(GPU memory)</strong> 中；Decode 仍会读取历史 K/V，无需重新计算整段输入的 K/V。</p>
+<p>日志对照：Prefill 的 <code>[20,1024]</code>、Decode 的 <code>[1,1024]</code>。</p>
+<h2>3. QKV 投影的输出为什么是 <code>[1,5120]</code>？</h2>
+<p>这段 Decode 日志来自 <code>model.language_model.layers.3.self_attn.qkv_proj</code>，类型是 <code>QKVParallelLinear</code>。形状摘录如下：</p>
+<pre><code class="language-text">input_.shape=torch.Size([1,1024]), output.shape=torch.Size([1,5120]), output_bias.shape=None
+q.shape=torch.Size([1,2048]), k.shape=torch.Size([1,512])
+v.shape=torch.Size([1,512]), gate.shape=torch.Size([1,2048])
+</code></pre>
+<p><code>self.qkv_proj(hidden_states)</code> 一次投影(Projection)生成打包的 Q、K、V 和 Gate，之后再拆分。各部分宽度由配置决定：</p>
+<table><colgroup><col style="width:19%"><col style="width:64%"><col style="width:17%"></colgroup>
+<thead>
+<tr>
+<th>部分</th>
+<th>对应配置与宽度计算</th>
+<th>本轮形状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q：查询(Query)</td>
+<td><code>num_attention_heads × head_dim = 8 × 256 = 2048</code></td>
+<td><code>[1,2048]</code></td>
+</tr>
+<tr>
+<td>K：键(Key)</td>
+<td><code>num_key_value_heads × head_dim = 2 × 256 = 512</code></td>
+<td><code>[1,512]</code></td>
+</tr>
+<tr>
+<td>V：值(Value)</td>
+<td>与 K 的头数、每头宽度相同，即 <code>2 × 256 = 512</code></td>
+<td><code>[1,512]</code></td>
+</tr>
+<tr>
+<td>Gate：输出门控</td>
+<td><code>attn_output_gate=true</code>，宽度与 Q 相同，即 <code>8 × 256 = 2048</code></td>
+<td><code>[1,2048]</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>总输出宽度 = Q + K + V + Gate = 2048 + 512 + 512 + 2048 = 5120。</strong> Prefill 同样如此，只是本轮 token 数为 20，因此输出为 <code>[20,5120]</code>。</p>
+<p><code>head_dim=256</code> 明确指定每个头的宽度，不要求 <code>num_attention_heads × head_dim</code> 等于 <code>hidden_size</code>；投影可以改变向量宽度。</p>
+<p><code>output_bias.shape=None</code> 表示该日志中没有输出偏置(Bias) Tensor。配置里是 <code>attention_bias=false</code>；当前代码构造 <code>qkv_proj</code> 时也直接指定了 <code>bias=False</code>，并非在此处读取 <code>attention_bias</code> 字段。</p>
+<p>日志对照：投影输入与输出、返回的 Q/K/V/Gate 形状。</p>
+<h2>4. 术语速查</h2>
+<table><colgroup><col style="width:34%"><col style="width:30%"><col style="width:36%"></colgroup>
+<thead>
+<tr>
+<th>术语</th>
+<th>中文含义</th>
+<th>简明英文释义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q / K / V：Query / Key / Value</td>
+<td>注意力中的查询、键、值向量</td>
+<td>Query, key and value vectors used in attention.</td>
+</tr>
+<tr>
+<td>Head /hed/</td>
+<td>注意力头；本例每头 256 维</td>
+<td>One attention head.</td>
+</tr>
+<tr>
+<td>Gate /ɡeɪt/</td>
+<td>控制注意力输出的门控向量</td>
+<td>A vector that gates the attention output.</td>
+</tr>
+<tr>
+<td>Projection /prəˈdʒekʃən/</td>
+<td>投影，将输入向量映射到输出向量</td>
+<td>A mapping from input vectors to output vectors.</td>
+</tr>
+<tr>
+<td>TP：Tensor Parallelism</td>
+<td>张量并行；本例为 1，不跨卡拆分</td>
+<td>Partitioning tensor computation across devices.</td>
+</tr>
+</tbody>
+</table></body></html>

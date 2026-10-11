@@ -77,6 +77,25 @@ def get_req_to_token_pool() -> ReqToTokenPool:
 
 @contextmanager
 def forward_context(ctx: ForwardContext):
+    # TODO
+    # Scheduler.run_batch()
+    # → TpModelWorker.forward_batch_generation()
+    # → ModelRunner.forward()
+    # → ModelRunner._forward_raw()
+    #     │
+    #     ├─ ① 创建上下文
+    #     │    → ctx = ForwardContext(attn_backend=self.attn_backend)
+    #     │
+    #     ├─ ② 进入 with forward_context(ctx)
+    #     │    → set_forward_context(ctx)：保存旧值，将 _current 设置为 ctx
+    #     │    → yield：交回控制权，执行 with 内的前向计算
+    #     │         → EagerRunner.execute()
+    #     │         → EagerRunner._execute_decode()
+    #     │         → 模型各层执行前向计算
+    #     │         → get_attn_backend()：取得 _current.attn_backend
+    #     │
+    #     └─ ③ 前向结束或发生异常
+    #          → finally 中 set_forward_context(prev)：恢复旧上下文
     prev = set_forward_context(ctx)
     try:
         yield

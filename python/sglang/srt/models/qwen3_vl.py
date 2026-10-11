@@ -1672,6 +1672,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 use_deepstack=self.use_deepstack,
                 pp_proxy_tensors=pp_proxy_tensors,
             )
+            logger.info(f"Qwen3VLForConditionalGeneration forward, input_ids.shape: {input_ids.shape}, positions.shape: {positions.shape}, hidden_states.shape: {hidden_states.shape}")
 
         aux_hidden_states = None
         if self.capture_aux_hidden_states:
@@ -1690,13 +1691,23 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 #         -> _get_pruned_states()
                 #         -> _get_logits()
                 #         -> _compute_lm_head()：非量化常规路径执行 hidden_states @ lm_head.weight.T
-                return self.logits_processor(
+                result = self.logits_processor(
                     input_ids,
                     hidden_states,
                     self.lm_head,  # NOTE lm_head 计算是在 logits_processor 中计算的
                     forward_batch,
                     aux_hidden_states,
                 )
+                aux_shapes = (
+                    aux_hidden_states.shape
+                    if isinstance(aux_hidden_states, torch.Tensor)
+                    else [state.shape for state in aux_hidden_states]
+                    if aux_hidden_states is not None
+                    else None
+                )
+                logger.info("%s.forward logits_processor 计算完成\ninput_ids.shape=%s, hidden_states.shape=%s, lm_head.weight.shape=%s, forward_batch.forward_mode=%s, forward_batch.batch_size=%s, aux_hidden_states.shapes=%s, result.next_token_logits.shape=%s",
+                    type(self).__name__, getattr(input_ids, "shape", None), hidden_states.shape, getattr(getattr(self.lm_head, "weight", None), "shape", None), forward_batch.forward_mode, forward_batch.batch_size, aux_shapes, getattr(result.next_token_logits, "shape", None))
+                return result
             else:
                 return self.pooler(hidden_states, forward_batch)
         else:

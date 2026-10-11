@@ -1,0 +1,114 @@
+Qwen3.5 单卡推理调用链
+单卡、TP=PP=1、未量化、Eager、纯文本请求；全注意力以 FlashAttention、GDN 以 Triton 为例。
+原生 Q/K 分支作为阅读对照保留，与 CUDA 融合分支分别标明。
+
+一次推理迭代
+├─ ① ModelRunner.forward()
+│    → _forward_raw()：配置 ForwardContext，确定注意力后端
+│    → _prepare_eager_forward_batch() → EagerRunner.execute()
+│    → _execute_extend() / _execute_decode()：Prefill / Decode
+│    ├─ load_batch() → 按需 HybridLinearAttnBackend.init_forward_metadata()
+│    │    ├─ FlashAttentionBackend.init_forward_metadata()
+│    │    │    → ReqToTokenPool.req_to_token + req_pool_indices → page_table
+│    │    │    → seq_lens → cache_seqlens_int32；保存 forward_metadata
+│    │    └─ GDNAttnBackend.init_forward_metadata()：准备线性注意力状态槽位
+│    └─ model_runner.model.forward(...)
+│         │ 对象：Qwen3_5ForConditionalGeneration
+│         → 继承的 Qwen3VLForConditionalGeneration.forward()
+│             ├─ A. general_mm_embed_routine()
+│             │    ├─ prepare_mm_inputs() → Qwen3_5ForCausalLM.get_input_embeddings()
+│             │    │    → VocabParallelEmbedding.forward() → _embed_local_shard()
+│             │    │    → UnquantizedEmbeddingMethod.embedding() → F.embedding()：查表
+│             │    └─ Qwen3_5ForCausalLM.forward(input_embeds=...)：文本主干
+│             │         ├─ residual_batch.start()：建立残差流
+│             │         ├─ 循环 self.layers[layer_idx](...)：进入以下一种层的 forward()
+│             │         │    → Qwen3_5AttentionDecoderLayer.forward() / Qwen3_5LinearDecoderLayer.forward()
+│             │         │    ├─ attn_boundary.prepare()：input_layernorm、上层残差 → [N]
+│             │         │    ├─ 按层类型执行一种注意力
+│             │         │    │    ├─ 全注意力层 → self_attention()
+│             │         │    │    │    ├─ _prepare_qkv_gate()
+│             │         │    │    │    │    ├─ CUDA + gate 开启：forward_prepare_cuda_fused()
+│             │         │    │    │    │    │    → qkv_proj：QKVParallelLinear 对象
+│             │         │    │    │    │    │    → ColumnParallelLinear.forward()（继承）
+│             │         │    │    │    │    │    → UnquantizedLinearMethod.apply() → F.linear() [通用]
+│             │         │    │    │    │    │    → split() → fused_qk_gemma_rmsnorm_rope_gate()
+│             │         │    │    │    │    │      融合 Q/K 归一化、RoPE、Q/gate 拆分
+│             │         │    │    │    │    └─ 原生参照分支：forward_prepare_native() ← 你注释过
+│             │         │    │    │    │         → qkv_proj（同上）→ split/chunk
+│             │         │    │    │    │         → _apply_qk_norm() → q_norm/k_norm（GemmaRMSNorm）
+│             │         │    │    │    │         → rotary_emb()：旋转位置编码(RoPE)
+│             │         │    │    │    ├─ RadixAttention.forward()：整理 K/V 形状
+│             │         │    │    │    │    → get_attn_backend() → HybridLinearAttnBackend.forward()
+│             │         │    │    │    │    → forward_extend() / forward_decode()
+│             │         │    │    │    │    → FlashAttentionBackend.forward_extend() / forward_decode()
+│             │         │    │    │    │        ├─ 写：KVWriteLoc.for_layer() → HybridLinearKVPool.set_kv_buffer()
+│             │         │    │    │    │        │    → unwrap_write_loc()：解析本轮写入位置
+│             │         │    │    │    │        │    → _transfer_full_attention_id()：模型层号映射缓存层号
+│             │         │    │    │    │        │    → MHATokenToKVPool.set_kv_buffer() → _store_kv_layer()
+│             │         │    │    │    │        │    → _set_kv_buffer_impl() → store_cache() [普通 NHD/JIT]
+│             │         │    │    │    │        │    → _jit_kvcache_module() → module.store_cache()
+│             │         │    │    │    │        │    → StoreKVCacheKernel.run() → LaunchKernel(...)
+│             │         │    │    │    │        │    → store_kvcache_kernel()：写入 GPU 显存(GPU memory)
+│             │         │    │    │    │        ├─ prepare_paged_mha_query() → get_paged_mha_kv_cache()
+│             │         │    │    │    │        │    → HybridLinearKVPool.get_kv_buffer()
+│             │         │    │    │    │        │        ├─ _wait_for_layer()：无 HiCache 时无需等待
+│             │         │    │    │    │        │        ├─ _transfer_full_attention_id()
+│             │         │    │    │    │        │        └─ MHATokenToKVPool.get_kv_buffer()
+│             │         │    │    │    │        │             ├─ get_key_buffer() → _get_key_buffer()
+│             │         │    │    │    │        │             └─ get_value_buffer() → _get_value_buffer()
+│             │         │    │    │    │        │    → paged_kv_view()：取得共享 GPU 显存的分页视图
+│             │         │    │    │    │        └─ flash_attn_with_kvcache()：按页表实际读取 K/V
+│             │         │    │    │    │             → QK 分数 → 缩放/掩码 → softmax → V 加权和
+│             │         │    │    │    │             → o.view(...)：展平各 Q 头的输出
+│             │         │    │    │    └─ fused_sigmoid_mul()：输出门控 → o_proj（RowParallelLinear）
+│             │         │    │    │         → RowParallelLinear.forward() → UnquantizedLinearMethod.apply()
+│             │         │    │    │         → F.linear() [通用]：投影回 hidden_size
+│             │         │    │    └─ 线性注意力层 → Qwen3_5GatedDeltaNet.forward()
+│             │         │    │         ├─ _forward_input_proj()：in_proj_qkvz/in_proj_ba 生成 QKV/z/b/a
+│             │         │    │         │    → 分别做线性投影，或使用打包权重融合矩阵乘法(GEMM)
+│             │         │    │         ├─ RadixLinearAttention.forward() → HybridLinearAttnBackend.forward()
+│             │         │    │         │    → forward_extend()/forward_decode() → GDNAttnBackend 对应方法
+│             │         │    │         │        ├─ HybridReqToTokenPool.mamba2_layer_cache()
+│             │         │    │         │        │    → MambaPool.mamba2_layer_cache()：取 GPU 显存状态
+│             │         │    │         │        ├─ Prefill：_convolve_prefill() → causal_conv1d_fn()
+│             │         │    │         │        │    → fused_qkv_split_gdn_prefill() → _prefill_gates()
+│             │         │    │         │        │    → fused_gdn_gating() → GDNKernelDispatcher.extend()
+│             │         │    │         │        │    → TritonGDNKernel.extend() → chunk_gated_delta_rule()
+│             │         │    │         │        └─ Decode：causal_conv1d_update() → GDNKernelDispatcher.packed_decode()
+│             │         │    │         │             → TritonGDNKernel.packed_decode()
+│             │         │    │         │             → fused_recurrent_gated_delta_rule_packed_decode()
+│             │         │    │         │        计算包含短卷积、Q/K L2 归一化、门控和递推状态更新
+│             │         │    │         └─ RMSNormGated：输出归一化与 z 门控 → out_proj（RowParallelLinear）
+│             │         │    │              → RowParallelLinear.forward() → UnquantizedLinearMethod.apply()
+│             │         │    ├─ attn_boundary.finish() → ffn_boundary.prepare()
+│             │         │    │    → 残差相加 + post_attention_layernorm → [N]
+│             │         │    ├─ ffn_boundary.exit() → Qwen2MoeMLP.forward()：稠密前馈网络(FFN)
+│             │         │    │    ├─ gate_up_proj（MergedColumnParallelLinear）→ ColumnParallelLinear.forward()
+│             │         │    │    │    → UnquantizedLinearMethod.apply()：生成 gate/up
+│             │         │    │    ├─ SiluAndMul → BaseFusedOp.forward() → SiluAndMul.forward_cuda()
+│             │         │    │    │    → silu_and_mul()：SiLU(gate) × up
+│             │         │    │    └─ down_proj → RowParallelLinear.forward() → UnquantizedLinearMethod.apply()
+│             │         │    └─ ffn_exit.finish()：记录输出，交给下一层/最终归一化完成残差相加
+│             │         └─ residual_batch.final_norm() → access.final_norm_pair() → self.norm [N]
+│             └─ B. LogitsProcessor.forward(..., self.lm_head, ...)
+│                  │ lm_head 是 ParallelLMHead：这里直接使用权重，不调用其 forward()
+│                  → _get_pruned_states()：普通 Prefill 每请求取末 token；Decode 使用本轮各 token
+│                  → _get_logits() → _compute_lm_head() → torch.matmul(hidden_states, lm_head.weight.T)
+│                  → _copy_logits_to_buffer() → LogitsProcessorOutput(next_token_logits=[B,V])
+│                  → ModelRunner 包装为 ModelRunnerOutput，返回 TpModelWorker
+├─ ② 调用方另行执行 ModelRunner.sample()
+│    ├─ ModelRunner._preprocess_logits()：惩罚、偏置、语法掩码
+│    └─ Sampler.forward() → Sampler._preprocess_logits()：自定义处理、非有限值检查
+│         ├─ 整批贪心 → torch.argmax()
+│         ├─ 随机 → logits.div_(temperatures) → sampler_softmax() → _sample_from_probs()
+│         │    ├─ 无 top 过滤 → sampling_from_probs_torch()
+│         │    └─ 有过滤 → top-k/top-p/min-p 对应采样实现
+│         └─ 按需计算 logprob → next_token_ids：[B]
+└─ [N] 上方归一化调用的共同实现（并非采样后再执行）
+     → GemmaRMSNorm → BaseFusedOp.forward() → GemmaRMSNorm.forward_cuda() → _forward_impl()
+         ├─ 无残差 → gemma_rmsnorm()
+         └─ 有残差 → gemma_fused_add_rmsnorm()：融合残差相加与归一化
+
+QKVParallelLinear → ColumnParallelLinear → LinearBase → nn.Module 是继承关系。
+图中的 F.linear() 标的是通用计算分支；CUDA BF16 也可能使用优化内核。
+Embedding 入口沿用 language_model_only=False 配置。

@@ -3,8 +3,7 @@
   "disable_existing_loggers": false,
   "formatters": {
     "detail": {
-      "format": "[%(asctime)s] %(filename)s:%(lineno)d %(funcName)s | %(message)s",
-      "datefmt": "%Y-%m-%d %H:%M:%S"
+      "()": "sglang.srt.utils.common.DebugLogFormatter"
     }
   },
   "handlers": {

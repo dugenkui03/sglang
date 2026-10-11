@@ -1262,6 +1262,11 @@ class OpenAIServingChat(OpenAIServingBase):
 
         # Process messages and apply chat template
         processed_messages = self._process_messages(request, is_multimodal)
+        logger.info(
+            "[inf] after _process_messages, request:\n%s\nprocessed_messages:\n%s",
+            request.model_dump_json(indent=2),
+            json.dumps(vars(processed_messages), ensure_ascii=False, indent=2, default=str),
+        )
         # Build sampling parameters
         sampling_params = request.to_sampling_params(
             stop=processed_messages.stop,
@@ -1474,6 +1479,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 stop=request.stop or [],
             )
         elif self.template_manager.chat_template_name is None:
+            # tip 模板是指用户输入格式，jinja 模板是一种通用的模板
             result = self._apply_jinja_template(request, tools, is_multimodal)
         else:
             result = self._apply_conversation_template(request, is_multimodal)
@@ -1807,6 +1813,19 @@ class OpenAIServingChat(OpenAIServingBase):
         encode_kwargs: Dict[str, Any],
         use_cache: bool,
     ) -> tuple[List[int], Optional[str]]:
+        logger.info(
+            "[inf] _render_and_encode_chat_template:\n%s",
+            json.dumps(
+                {
+                    "messages": messages,
+                    "tools": tools,
+                    "template_kwargs": template_kwargs,
+                    "encode_kwargs": encode_kwargs,
+                    "use_cache": use_cache,
+                },
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
         cache_key = None
         if use_cache:
             try:
@@ -1855,6 +1874,10 @@ class OpenAIServingChat(OpenAIServingBase):
             )
             prompt_ids = self.tokenizer_manager.tokenizer.encode(
                 rendered_prompt, **encode_kwargs
+            )
+            logger.info(
+                "[inf] after apply_chat_template:\n%s",
+                json.dumps({"rendered_prompt": rendered_prompt, "prompt_ids": prompt_ids}, ensure_ascii=False, indent=2, default=str),
             )
         decoded_prompt = (
             self.tokenizer_manager.tokenizer.decode(prompt_ids)
@@ -2315,6 +2338,19 @@ class OpenAIServingChat(OpenAIServingBase):
             adapted_request/GenerateReqInput: 转换后的 SGLang 内部生成请求，包含提示词或 token IDs、
                 采样参数等，用于执行推理。
         """
+
+        logger.info(
+            "[inf] _handle_non_streaming_request, adapted_request:\n%s\n"
+            "request:\n%s\nraw_request:\n%s",
+            json.dumps(vars(adapted_request), ensure_ascii=False, indent=2, default=str),
+            request.model_dump_json(indent=2),
+            json.dumps(
+                {"method": raw_request.method, "path": raw_request.url.path}
+                if raw_request is not None else None,
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
+
         try:
             # note 核心逻辑：
             #   处理输入 → 分词 → 发给 Scheduler → 模型推理 → 收到输出 → yield 结果 → 赋值给 ret

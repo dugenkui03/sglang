@@ -14,7 +14,7 @@
 """Radix attention."""
 
 from __future__ import annotations
-
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import Enum
@@ -34,7 +34,7 @@ from sglang.srt.model_executor.runner_backend_utils.tc_piecewise_cuda_graph impo
 )
 from sglang.srt.utils.common import is_hip
 from sglang.srt.utils.custom_op import register_custom_op
-
+logger = logging.getLogger(__name__)
 _is_hip = is_hip()
 
 # When set, RadixAttention.forward runs the attention backend eagerly instead of
@@ -97,7 +97,6 @@ class AttentionType(Enum):
 
 class RadixAttention(nn.Module):
     """
-    TODO
     The attention layer implementation.
     NOTE: HuggingFace 原生注意力的 KV 存储方式，和 SGLang 的 KV 池对不上。自定义这个类方便 forward 的时候使用自定义的 KV Pool.
     """
@@ -166,19 +165,24 @@ class RadixAttention(nn.Module):
         k,
         v,
         forward_batch: ForwardBatch,
-        save_kv_cache: bool = True,  # NOTE 是否把本批新算的 K/V 写入 KV 池
+        save_kv_cache: bool = True,
         key_value_num_tokens: Optional[int] = None,
         **kwargs,
     ):
+        """
+            note 进行包括注意力计算和缓存读写以及 V 权重加合
+                简单链路只有 qkv 和 forward_batch 这几个参数
+        """
         if k is not None:
             # For cross-layer sharing, kv can be None
             assert v is not None
             if "k_rope" not in kwargs:
-                # NOTE 整理成 [token 数, KV 头数, head_dim]，与 KV 池每一格的形状一致
                 k = k.view(-1, self.tp_k_head_num, self.qk_head_dim)
                 v = v.view(-1, self.tp_v_head_num, self.v_head_dim)
             else:
+                # NOTE 按照 head 数量，对 k 向量进行分组
                 k = k.view(-1, self.tp_k_head_num, self.v_head_dim)
+                logger.info(f"RadixAttention 整理后的 k.shape{k.shape}, k_head_num:{self.tp_k_head_num}")
 
         context = get_tc_piecewise_forward_context()
         # NOTE prefill 走分段 CUDA Graph（torch.compile）时，把注意力包成自定义算子调用，内部仍交给注意力后端
@@ -296,7 +300,7 @@ class RadixAttention(nn.Module):
                     key_value_num_tokens=key_value_num_tokens,
                     **kwargs,
                 )
-            # NOTE 普通路径交给注意力后端；按需写入本轮 K/V，并读取历史 KV 计算注意力。
+            # NOTE TritonAttnBackend，Triton 是一种编写 GPU 内核(Kernel)的语言和编译器，提供基于 Python 的编程方式
             return get_attn_backend().forward(
                 q,
                 k,

@@ -1,0 +1,9 @@
+{
+  "pdf": "user_guide_zh/Qwen3.5推理调用链与核心类关系.pdf",
+  "pages": 5,
+  "paper": "A4 portrait",
+  "inheritance_groups": 8,
+  "composition_groups": 7,
+  "missing_lines": [],
+  "overflow": []
+}

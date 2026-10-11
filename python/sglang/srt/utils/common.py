@@ -42,6 +42,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import traceback
@@ -52,6 +53,7 @@ from array import array
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import lru_cache, partial
 from importlib.metadata import PackageNotFoundError, version
@@ -2588,6 +2590,57 @@ def rank0_log(msg: str):
 
     if not model_parallel_is_initialized() or get_parallel().tp_rank == 0:
         logger.info(msg)
+
+
+class DebugLogFormatter(logging.Formatter):
+    """Format debug logs with UTC+8 time, qualified method names, and details."""
+
+    _LEVEL_COLORS = {
+        "INFO": "\033[36m",
+        "DEBUG": "\033[36m",
+        "WARNING": "\033[33m",
+        "ERROR": "\033[31m",
+        "CRITICAL": "\033[31m",
+    }
+    _LOCATION_COLOR = "\033[34m"
+    _METHOD_COLOR = "\033[35m"
+    _MESSAGE_COLOR = "\033[32m"
+    _RESET = "\033[0m"
+
+    def formatTime(self, record, datefmt=None):
+        return datetime.fromtimestamp(
+            record.created, timezone(timedelta(hours=8))
+        ).strftime("%H:%M:%S")
+
+    def format(self, record):
+        method_name = record.funcName
+        frame = inspect.currentframe()
+        try:
+            # Find the recorded caller, including when logging uses stacklevel.
+            while frame is not None:
+                code = frame.f_code
+                if (
+                    code.co_filename == record.pathname
+                    and code.co_name == record.funcName
+                ):
+                    method_name = getattr(code, "co_qualname", record.funcName)
+                    break
+                frame = frame.f_back
+        finally:
+            del frame
+        message = super().format(record)
+        first_line, separator, remaining = message.partition("\n")
+        level_color = self._LEVEL_COLORS.get(record.levelname, "")
+        level_reset = self._RESET if level_color else ""
+        output = (
+            f"[{self.formatTime(record)}] {level_color}{record.levelname}{level_reset}\n"
+            f"  {self._LOCATION_COLOR}{record.filename}:{record.lineno}{self._RESET}\n"
+            f"    方法：{self._METHOD_COLOR}{method_name}(){self._RESET}\n"
+            f"      内容：{self._MESSAGE_COLOR}{first_line}"
+        )
+        if separator:
+            output += "\n" + textwrap.indent(textwrap.dedent(remaining), "        ")
+        return output + self._RESET + "\n"
 
 
 def configure_logger(server_args, prefix: str = ""):

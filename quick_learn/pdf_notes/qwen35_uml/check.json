@@ -1,0 +1,25 @@
+{
+  "pdf": "user_guide_zh/Qwen3.5核心类关系_UML.pdf",
+  "pages": 15,
+  "diagrams": 23,
+  "min_diagram_font_pt": 11.186127559016947,
+  "font": "Noto Sans CJK SC",
+  "call_tree_included": false,
+  "missing_classes": [],
+  "overflow": [],
+  "render_command": [
+    "/tmp/sglang-reflections-print-sPY6xDvc/mermaid/node_modules/.bin/mmdc",
+    "-i",
+    "quick_learn/pdf_notes/qwen35_uml/diagrams.md",
+    "-o",
+    "quick_learn/pdf_notes/qwen35_uml/rendered.svg",
+    "-c",
+    "quick_learn/pdf_notes/qwen35_uml/mermaid.json",
+    "-p",
+    "/tmp/sglang-reflections-print-sPY6xDvc/puppeteer.json",
+    "--no-font-embed",
+    "-j",
+    "3"
+  ],
+  "renderer_version": "12.0.0"
+}

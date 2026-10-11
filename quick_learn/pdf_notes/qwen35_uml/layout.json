@@ -1,0 +1,140 @@
+[
+  {
+    "id": "inherit_1_1",
+    "width": 312.328125,
+    "height": 216.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_1_2",
+    "width": 469.21929931640625,
+    "height": 456.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_1_3",
+    "width": 360.375,
+    "height": 296.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_2",
+    "width": 727.4449462890625,
+    "height": 296.0,
+    "font_pt": 11.965166634811315
+  },
+  {
+    "id": "inherit_3",
+    "width": 519.3359375,
+    "height": 296.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_4",
+    "width": 563.2061767578125,
+    "height": 316.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_5",
+    "width": 448.216552734375,
+    "height": 216.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_6",
+    "width": 778.1066284179688,
+    "height": 376.0,
+    "font_pt": 11.186127559016947
+  },
+  {
+    "id": "inherit_7",
+    "width": 524.0128784179688,
+    "height": 296.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "inherit_8",
+    "width": 634.0177001953125,
+    "height": 616.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "worker",
+    "width": 480.20062255859375,
+    "height": 56.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "runner",
+    "width": 701.5286865234375,
+    "height": 456.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "model",
+    "width": 701.0892333984375,
+    "height": 372.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "attention",
+    "width": 660.8489990234375,
+    "height": 536.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "linear_layer",
+    "width": 656.2476196289062,
+    "height": 296.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "gdn",
+    "width": 635.9903564453125,
+    "height": 376.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "mlp",
+    "width": 695.0789184570312,
+    "height": 376.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "backend",
+    "width": 425.72247314453125,
+    "height": 517.5999755859375,
+    "font_pt": 12.0
+  },
+  {
+    "id": "context",
+    "width": 545.1614990234375,
+    "height": 352.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "pool",
+    "width": 508.26171875,
+    "height": 352.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "pool_refs",
+    "width": 584.171875,
+    "height": 222.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "batch",
+    "width": 414.6390686035156,
+    "height": 352.0,
+    "font_pt": 12.0
+  },
+  {
+    "id": "output",
+    "width": 337.29644775390625,
+    "height": 352.0,
+    "font_pt": 12.0
+  }
+]

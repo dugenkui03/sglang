@@ -234,6 +234,14 @@ class LinearBase(torch.nn.Module):
         skip_bias_add: If true, skip adding bias but instead return it.
         params_dtype: Data type for the parameters.
         quant_config: Quantization configure.
+
+    linear layer 的基类，定义 对向量进行投影变换维度 的操作，比如如下：
+        输入 X：[num_tokens, input_size]
+        权重 W：[output_size, input_size]
+
+        Y = X @ W.T + bias
+
+        输出 Y：[num_tokens, output_size]
     """
 
     # Set by quant methods that attach a per-layer scheme, eagerly in
@@ -472,6 +480,8 @@ class ColumnParallelLinear(LinearBase):
             input_size, output_size, skip_bias_add, params_dtype, quant_config, prefix
         )
 
+        # Preserve the model path so shared forward logs identify the caller's module.
+        self.prefix = prefix
         self.with_bias = bias
         self.gather_output = gather_output
         self.use_presharded_weights = use_presharded_weights

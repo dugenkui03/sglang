@@ -366,10 +366,11 @@ class GDNKernelDispatcher:
         )
 
         rank0_log(
-            f"GDN kernel dispatcher: decode={self.decode_kernel.__class__.__name__}, "
-            f"extend={self.extend_kernel.__class__.__name__}, "
-            f"verify={self.verify_kernel.__class__.__name__} "
-            f"packed_decode={self.supports_packed_decode}"
+            f"GDN kernel dispatcher:\n"
+            f"        decode: {self.decode_kernel.__class__.__name__}\n"
+            f"        extend: {self.extend_kernel.__class__.__name__}\n"
+            f"        verify: {self.verify_kernel.__class__.__name__}\n"
+            f"        packed_decode: {self.supports_packed_decode}"
         )
 
     @property

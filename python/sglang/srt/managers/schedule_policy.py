@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from sglang.srt.environ import envs
@@ -1328,10 +1329,23 @@ class PrefillAdder:
         self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]
     ):
         """req 是当前从等待队列(waiting queue)中尝试选入本批的请求。"""
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] add_one_req start:\n%s",
+            json.dumps({"rid": req.rid, "prefix_len": req.prefix_len, "has_chunked_req": has_chunked_req}, ensure_ascii=False, indent=2),
+        )
         if (x := self.prefill_max_requests) is not None and len(self.can_run_list) >= x:
+            logger.info(
+                "[inf] [Scheduler] [prefill-adder] 请求数达到上限, rid=%s, "
+                "selected_count=%d, prefill_max_requests=%d, result=OTHER",
+                req.rid, len(self.can_run_list), x,
+            )
             return AddReqResult.OTHER
 
         if req.sampling_params.ignore_eos and getattr(self.tree_cache, "disable", True):
+            logger.info(
+                "[inf] [Scheduler] [prefill-adder] 转入 add_one_req_ignore_eos, rid=%s",
+                req.rid,
+            )
             return self.add_one_req_ignore_eos(req)
 
         # Reserve page_size for page-alignment overhead: the paged allocator may
@@ -1352,6 +1366,10 @@ class PrefillAdder:
         # this returns 0, so the debit sites below reuse the value.
         mamba_gap_reserve = self._mamba_gap_budget_for_req(req)
         total_tokens += mamba_gap_reserve
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] 预算检查前:\n%s",
+            json.dumps({"rid": req.rid, "cand_extend_input_len": cand_extend_input_len, "max_new": max_new, "total_tokens": total_tokens, "rem_input_tokens": self.rem_input_tokens, "rem_chunk_tokens": self.rem_chunk_tokens}, ensure_ascii=False, indent=2),
+        )
 
         # The temporary pin excludes this prefix from the evictable budget.
         # Selection itself neither allocates slots nor materializes host hits.
@@ -1366,6 +1384,10 @@ class PrefillAdder:
                 has_chunked_req=has_chunked_req,
             )
             if isinstance(admission, AddReqResult):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] 未通过准入检查, rid=%s, result=%s",
+                    req.rid, admission.name,
+                )
                 return admission
 
             # A rejected candidate must not report prefillable or queue H2D.
@@ -1378,9 +1400,19 @@ class PrefillAdder:
                     waiting_queue_len=self.waiting_queue_len,
                 )
             ):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] prefill_delayer 延后预填充, "
+                    "rid=%s, result=OTHER",
+                    req.rid,
+                )
                 return AddReqResult.OTHER
 
             if req.needs_host_load_back():
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] 尝试从 CPU 内存加载缓存到 GPU 显存, "
+                    "rid=%s, host_hit_length=%d",
+                    req.rid, req.host_hit_length,
+                )
                 load_max_new = min(max_new, admission.max_new_tokens)
                 # Reclaim can write back device victims and evict host leaves.
                 # Pin the selected host/aux match until load-back owns its locks.
@@ -1478,10 +1510,19 @@ class PrefillAdder:
             if not self._kv_shard_reserve_scratch(
                 prefix_len=admission.prefix_len, extend_len=admission.extend_len
             ):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] KV 分片临时空间预留失败, "
+                    "rid=%s, result=OTHER",
+                    req.rid,
+                )
                 return AddReqResult.OTHER
 
             self._commit_prefill_admission(req, admission, mamba_gap_reserve)
 
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] 已加入本批并扣减预算:\n%s",
+            json.dumps({"rid": req.rid, "is_chunked": admission.is_chunked, "prefix_len": req.prefix_len, "extend_len": admission.extend_len, "selected_count": len(self.can_run_list), "rem_input_tokens": self.rem_input_tokens, "rem_chunk_tokens": self.rem_chunk_tokens}, ensure_ascii=False, indent=2),
+        )
         # This verdict controls the next candidate, not the committed request.
         # NOTE 返回扣减预算后的状态，决定能否继续挑选下一个请求。
         return self.budget_state()

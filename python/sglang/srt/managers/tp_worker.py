@@ -623,6 +623,14 @@ class TpModelWorker(BaseTpWorker):
         """
         NOTE 推理的核心方法：输入类型转换；
         """
+        logger.info(
+            "[inf] [TpModelWorker]%s forward_batch_generation, start",
+            " [prefill]"
+            if (batch if batch is not None else forward_batch).forward_mode.name == "EXTEND"
+            else " [decode]"
+            if (batch if batch is not None else forward_batch).forward_mode.is_decode()
+            else "",
+        )
         # Get forward batch from schedule batch
         if batch is not None:
             # update the consumer index of hicache to the running batch

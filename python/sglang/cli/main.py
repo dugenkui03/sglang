@@ -1,7 +1,9 @@
 import argparse
+import json
 import logging
 
 from sglang.cli.utils import get_git_commit_hash
+from sglang.srt.utils.common import DebugLogFormatter
 from sglang.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -40,10 +42,11 @@ def main():
             --mamba-ssm-dtype float32
   """
     # 入口阶段尚未配置服务日志，先启用 INFO 级别日志。
+    log_handler = logging.StreamHandler()
+    log_handler.setFormatter(DebugLogFormatter())
     logging.basicConfig(
         level=logging.INFO,
-        format="[%(asctime)s] %(filename)s:%(lineno)d %(funcName)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[log_handler],
     )
     logger.info("hello dugenkui")
 
@@ -76,8 +79,8 @@ def main():
     version_parser.set_defaults(func=version)
 
     args, extra_argv = parser.parse_known_args()
-    logger.info("args（已解析参数）: %s", vars(args))
-    logger.info("extra_argv（剩余参数）: %s", extra_argv)
+    logger.info("args（已解析参数）:\n%s", json.dumps(vars(args), ensure_ascii=False, indent=2, default=str))
+    logger.info("extra_argv（剩余参数）:\n%s", json.dumps(extra_argv, ensure_ascii=False, indent=2, default=str))
 
     if args.subcommand == "serve":
         # NOTE 如果是服务启动命令， serve 逻辑分支

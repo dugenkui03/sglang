@@ -1414,7 +1414,7 @@ class HybridLinearAttnBackend(AttentionBackend):
 
         # NOTE full attention
         if self._is_full_attn(layer, kwargs.get("layer_id")):
-            # NOTE 例如使用 FlashAttentionBackend 的完整注意力层
+            # NOTE full_attn_backend 是 TritonAttnBackend
             return self.full_attn_backend.forward_decode(
                 q, k, v, layer, forward_batch, save_kv_cache, **kwargs
             )

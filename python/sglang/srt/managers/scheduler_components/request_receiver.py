@@ -107,8 +107,11 @@ class SchedulerRequestReceiver:
                 return []
 
         # NOTE 1）接收消息
-        # 接收 TokenizerManager 发送的请求参数：token、采样参数等。
+        # 接收 TokenizerManager 发送的请求参数：token、采样参数等
+        #   如果没有请求， recv_req 则为空
         recv_reqs = self._pull_raw_reqs()
+        if recv_reqs:
+            logger.info("[inf] [Scheduler] recv_requests, recv_reqs:\n%s", recv_reqs)
 
         if self.input_blocker is not None:
             recv_reqs = self.input_blocker.handle(recv_reqs)
@@ -148,6 +151,7 @@ class SchedulerRequestReceiver:
                             break
                         # NOTE 接收 TokenizerManager 的推理任务消息
                         recv_req = sock_recv(self.recv_from_tokenizer, zmq.NOBLOCK)
+                        logger.info("[inf] [Scheduler] _pull_raw_reqs, recv_req:\n%s", recv_req)
                     except zmq.ZMQError:
                         break
                     recv_reqs.append(recv_req)

@@ -947,6 +947,15 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         """
         note 接收 http 推理请求的入口函数
         """
+        logger.info(
+            "[inf] generate_request, req_obj[GenerateReqInput, EmbeddingReqInput]:\n%s\nrequest:\n%s",
+            json.dumps(vars(obj), ensure_ascii=False, indent=2, default=str),
+            json.dumps(
+                {"method": request.method, "path": request.url.path}
+                if request is not None else None,
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
 
         # NOTE 【重点】创建监听 DetokenizerManager resp 的后台任务
         # // 懒初始化，第一个请求过来在初始化
@@ -2530,6 +2539,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         """
         NOTE 创建监听 DetokenizerManager resp 的后台任务
         """
+        logger.info("[inf] 【重点】start auto_create_handle_loop：接收 detokenizer manager 返回的结果")
         # tip event_loop 已经创建了则直接返回
         if self.event_loop is not None:
             return
@@ -2566,16 +2576,28 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         NOTE 创建监听 DetokenizerManager resp 的后台任务
         """
         while True:
+            logger.info("[inf]-handle_loop, start recv_from_detokenizer")
             with self.soft_watchdog.disable():
                 # NOTE 阻塞从 DeTokenizerManager 获取 response
                 #   self.recv_from_detokenizer 是从 detokenizer 获取结果的 zmq 通信管道
                 recv_obj = await async_sock_recv(self.recv_from_detokenizer)
+                logger.info(
+                    "[inf]-handle_loop, recv_from_detokenizer:\n%s",
+                    json.dumps(
+                        {
+                            "type": type(recv_obj).__name__,
+                            "rids": getattr(recv_obj, "rids", None),
+                        },
+                        ensure_ascii=False, indent=2, default=str,
+                    ),
+                )
             if isinstance(
                 recv_obj,
                 (BatchStrOutput, BatchEmbeddingOutput, BatchTokenIDOutput),
             ):
                 # NOTE 将 DeTokenizerManager response 处理后赋值给 ReqState 并通知 wait_one_response()
                 await self._handle_batch_output(recv_obj)
+                logger.info("[inf]-handle_loop, handler_batch_output success")
             else:
                 self._result_dispatcher(recv_obj)
             self.last_receive_tstamp = real_time()
@@ -2590,6 +2612,18 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         ],
     ):
         """NOTE 将 DeTokenizerManager response 处理后赋值给 ReqState 并通知 wait_one_response()"""
+        logger.info(
+            "[inf]- untokenizer manager 结果： _handle_batch_output:\n%s",
+            json.dumps(
+                {
+                    "rids": recv_obj.rids,
+                    "output_strs": getattr(recv_obj, "output_strs", None),
+                    "output_ids": getattr(recv_obj, "output_ids", None),
+                    "finished_reasons": recv_obj.finished_reasons,
+                },
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
         recv_obj.time_stats = unwrap_from_pickle(recv_obj.time_stats)
         if isinstance(recv_obj, (BatchStrOutput, BatchTokenIDOutput)):
             customized_info = unwrap_from_pickle(recv_obj.customized_info)
@@ -2598,6 +2632,16 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
         pending_notify: dict[str, ReqState] = {}
         batch_notify_size = get_serving().batch_notify_size
         # tip 返回多个 请求/rid 的结果，遍历
+        logger.info(
+            "[inf]-_handle_batch_output:\n%s",
+            json.dumps(
+                {
+                    "pending_rids": list(self.rid_to_state),
+                    "received_rids": recv_obj.rids,
+                },
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
         for i, rid in enumerate(recv_obj.rids):
             # tip 找到 rid 对应的 ReqState
             state = self.rid_to_state.get(rid, None)

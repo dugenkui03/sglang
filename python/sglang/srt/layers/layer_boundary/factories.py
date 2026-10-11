@@ -1045,6 +1045,8 @@ def append_stages(*stages, prepared_from=None):
         A tuple of StageBoundary objects in declaration order. Their
         declarations are usable at once and gain their place in the stack when
         it closes, which is also when their plans are bound.
+
+        note *stages 是可变参数，可以传递多个值
     """
     if not stages:
         raise ValueError("append_stages needs at least one stage")

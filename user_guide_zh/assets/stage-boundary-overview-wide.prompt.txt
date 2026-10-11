@@ -1,0 +1,44 @@
+Use case: infographic-diagram
+Asset type: Chinese educational infographic for a source-code learning guide, suitable for printing.
+Primary request: Explain SGLang's Stage concept and how StageDeclaration, StageBoundary, and real model computation relate, using ONE Qwen3.5 full-attention Transformer decoder layer with a dense MLP as the concrete example.
+Composition: ONE polished wide landscape image, approximately 3:2, high resolution, white background, generous whitespace, crisp readable Simplified Chinese and code identifiers. NO overall title, no cover heading. Small section labels and enclosing-box labels are allowed. Flat technical textbook diagram with calm blue/teal computation cards, pale orange boundary cards, thin dark arrows; avoid decorative illustrations, 3D effects, logos, watermarks. Strong hierarchy; do not create a wall of prose.
+Scientific accuracy: Stage means a logical computation stage inside a Transformer layer. Attention and FFN are two stages. Each Stage has input/output boundary handling around its actual computation. StageBoundary does NOT itself perform attention/MLP. append_stages is called during model construction, not every forward. It initially returns StageBoundary objects with plan=None; layer_stack completion binds plans using neighboring stages. Norm modules are passed separately from StageDeclaration. Residual addition, communication, quantization and fusion are conditional, not unconditional at every boundary. Both stages can run sequentially on the SAME GPU.
+
+LAYOUT AND EXACT DISPLAY COPY:
+Top 60% of the image: a small section label "推理时：每轮 forward 执行". Below it a single broad enclosing outline labelled "一个 Transformer 层（全注意力 + 普通 MLP）". Within this outline, place two large adjacent stage regions, connected LEFT TO RIGHT.
+Left region header: "注意力阶段（Attention Stage）"
+Small identity line: "边界对象：attn_boundary"
+Inside this left stage, arrange THREE clear cards in a horizontal row:
+1. Orange card, label "prepare()", body "准备输入", smaller body "按需残差合并 · input_layernorm"
+2. Blue card, label "self_attention()", body "执行核心计算", smaller body on two lines "QKV → 注意力 → 门控 → o_proj"
+3. Orange card, label "finish()", body "交接输出", smaller body "登记待完成的工作"
+Connect those three cards with solid arrows.
+Right region header: "前馈网络阶段（FFN Stage）"
+Small identity line: "边界对象：ffn_boundary"
+Inside this right stage, also THREE cards in a horizontal row:
+1. Orange card, label "prepare()", body "准备输入", smaller body "按需残差合并 · post_attention_layernorm"
+2. Teal card, label "self.mlp()", body "执行核心计算", smaller body "gate_up → 激活与门控 → down"
+3. Orange card, label "ffn_exit.finish()", body "完成阶段交接", smaller body "按计划完成或延后工作"
+Under the FFN cards, one small but readable annotation: "ffn_boundary.exit() 选择收尾策略"
+Solid data arrows: "hidden_states" enters the left Attention prepare card; output of Attention finish enters FFN prepare; FFN finish outputs to a small "下一层" label outside the layer outline.
+Under the two stage regions INSIDE the big layer outline, a thin neutral annotation strip:
+"Boundary 管理：残差（Residual）· 归一化（Normalization）· 按需通信、量化与融合"
+Use a tiny simple legend nearby: orange "阶段衔接", blue/teal "核心计算". Maintain consistent colors.
+
+Bottom 35%: a small section label "初始化时：先声明，再绑定".
+Use THREE horizontally arranged roomy explanatory cards joined with thin arrows:
+Card A label "声明规则（StageDeclaration）"
+Inside show two short rows: "kind：Attention / FFN" and "read / update：输入处理与残差更新"
+Below the card add "归一化模块 norm、融合选项 fusions 单独传入".
+Card B label "append_stages(...)"
+Inside show: "(声明, norm, options) × 2"
+Then: "返回 attn_boundary、ffn_boundary"
+Then small line: "创建 StageBoundary，plan 暂未绑定"
+Card C label "layer_stack 结束 → _bind_stack()"
+Inside show: "根据前后阶段绑定执行方案 plan"
+Then: "将 norm、入口与出口策略装入边界对象"
+Draw ONE elegant dashed upward arrow from Card C towards the top layer outline, label "推理时按 plan 执行". This is configuration, not tensor data, so dashed arrow must be visually different from the solid data arrows.
+Bottom-most small single-line footer: "Stage 是层内的逻辑计算阶段；同一张 GPU 也会依次执行多个 Stage。"
+
+Text and visual constraints:
+Render the quoted labels verbatim in clear Simplified Chinese, using readable monospace for code names, no typos, no invented labels. Avoid placing long code identifiers in tiny boxes; use line breaks and enough width. Do not add a global title. Keep every panel wholly on the canvas with readable margins. Diagram should emphasize entity relationships and initialization-versus-inference, not internals of attention kernels, equations, GPU hardware or full field lists. If space is tight, enlarge the canvas or reduce decorative whitespace before reducing text legibility.

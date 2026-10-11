@@ -272,7 +272,9 @@ class AttentionBackend(ABC):
         save_kv_cache: bool = True,
         **kwargs,
     ):
-        """Run forward on an attention layer."""
+        """Run forward on an attention layer.
+           注意力计算会先走到这里，然后路由到 prefill\decode\混合模式
+        """
         if forward_batch.forward_mode.is_idle():
             return q.new_empty(q.shape[0], layer.tp_q_head_num * layer.v_head_dim)
         elif forward_batch.forward_mode.is_decode():

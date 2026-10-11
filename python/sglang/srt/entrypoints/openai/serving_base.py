@@ -83,26 +83,28 @@ class OpenAIServingBase(ABC):
             # Validate request
             error_msg = self._validate_request(request)
             if error_msg:
+                logger.error("[inf] validate request error:\n%s", error_msg)
                 return self.create_error_response(error_msg)
 
             # Log the raw OpenAI request payload before conversion to tokenized form.
             request_logger = self.tokenizer_manager.request_logger
+            logger.info(
+                "[inf] request_logger:\n%s",
+                json.dumps(vars(request_logger), ensure_ascii=False, indent=2, default=str),
+            )
             if request_logger.log_requests and request_logger.log_requests_level >= 2:
                 request_logger.log_openai_received_request(request, request=raw_request)
 
             # Convert to internal format
-            # NOTE 参数类型转换
-            # 把 OpenAI/x 等接口的请求格式，转换成 SGLang 推理引擎使用的内部请求格式，重点使用 adapted_request
-            # 两个入参数只是类型不同但都是通过 http 请求的原始参数解析而来的
-            #   HTTP 请求中的 JSON
-            #       ↓ FastAPI 解析、校验
-            #   ChatCompletionRequest
-            #       ↓ 本方法转换
-            #   GenerateReqInput
-            #       ↓
-            #   交给内部推理流程处理
+            # note 这个里边会对输入进行token化 _render_and_encode_chat_template
             adapted_request, processed_request = self._convert_to_internal_request(
                 request, raw_request
+            )
+            logger.info(
+                "[inf] after _convert_to_internal_request(), adapted_request:\n%s\n"
+                "processed_request:\n%s",
+                json.dumps(vars(adapted_request), ensure_ascii=False, indent=2, default=str),
+                processed_request.model_dump_json(indent=2),
             )
 
             # 判断 adapted_request 是否是 GenerateReqInput 或 EmbeddingReqInput 的实例

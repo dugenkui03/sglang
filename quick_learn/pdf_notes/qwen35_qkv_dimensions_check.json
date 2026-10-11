@@ -1,0 +1,8 @@
+{
+  "pdf": "user_guide_zh/print_pdf/基础知识七：从日志理解 QKV 与 Gate 的维度.pdf",
+  "pages": 2,
+  "a4_portrait": true,
+  "full_config_retained": true,
+  "printable_margin_overflow": [],
+  "preview_dir": "/tmp/sglang-qkv-dimensions-pdf-preview"
+}

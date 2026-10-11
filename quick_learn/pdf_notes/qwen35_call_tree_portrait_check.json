@@ -1,0 +1,15 @@
+{
+  "pdf": "user_guide_zh/Qwen3.5推理调用链_单页竖版.pdf",
+  "pages": 1,
+  "paper": "A4 portrait",
+  "tree_font_pt": 8,
+  "line_height_pt": 7.7,
+  "margin_mm": 5,
+  "title": false,
+  "header": false,
+  "notes": false,
+  "source_lines": 114,
+  "tree_lines": 105,
+  "missing_lines": [],
+  "overflow": []
+}

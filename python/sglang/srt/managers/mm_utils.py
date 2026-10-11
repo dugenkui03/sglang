@@ -792,6 +792,7 @@ def prepare_mm_inputs(
             )
         else:
             input_embeds = embed_tokens(input_ids)
+            logger.info(f"对输入进行向量化-多模态链路，input_ids.shape:{input_ids.shape},\t embedding.shape:{input_embeds.shape}")
         # Copy to pre-allocated buffer if available (for CUDA graph address stability)
         if forward_batch.input_embeds is not None:
             forward_batch.input_embeds.copy_(input_embeds)

@@ -122,3 +122,5 @@ def store_cache(
         size_limit,
         reserved_skip_index,
     )
+    logger.info("算子层-写入 KV 到 KV Cache Pool成功：\n k.shape=%s, v.shape=%s, 位置信息： k_cache.shape=%s, v_cache.shape=%s, indices.shape=%s, indices=%s",
+        k.shape, v.shape, k_cache.shape, v_cache.shape, indices.shape, indices.tolist())

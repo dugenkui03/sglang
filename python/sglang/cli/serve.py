@@ -90,6 +90,7 @@ def _print_diffusion_help(_request: ServeRequest) -> None:
 
 def _run_llm(request: ServeRequest) -> None:
     """llm 模型 服务启动入口"""
+    logger.info("run_llm enter")
     if any(arg in request.argv for arg in ("-h", "--help")):
         _print_llm_help(request)
         return

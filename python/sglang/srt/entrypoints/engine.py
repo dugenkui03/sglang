@@ -913,6 +913,7 @@ class Engine(EngineScoreMixin, EngineBase):
             Tuple of (SchedulerInitResult, scheduler_procs).
             scheduler_procs is None for RayEngine (uses Ray actors instead).
         """
+        logger.info("开始启动scheduler")
         scheduler_procs = []
         use_dp_controller = (
             get_parallel().num_dp_ranks > 1 or get_exec().moe.ep_join_mode == "scale"
@@ -1139,7 +1140,7 @@ class Engine(EngineScoreMixin, EngineBase):
         """
         startup_tic = time.perf_counter()
 
-        # 【Step 1】准备配置与进程通信端口，供后续组件初始化使用。
+        # note 准备配置与进程通信端口，供后续组件初始化使用。
         # Configure global environment
         configure_logger(server_args)
         server_args.resolve_once()
@@ -1209,8 +1210,7 @@ class Engine(EngineScoreMixin, EngineBase):
             restore_context(context_before_publish)
             raise
 
-        # 【Step 2】启动 Scheduler、Detokenizer，并初始化 TokenizerManager。
-        # 启动调用返回后，Scheduler 子进程仍可能正在加载模型；Step 3 再等待就绪。
+        # note 启动 Scheduler、Detokenizer，并初始化 TokenizerManager
         # Launch scheduler processes
         # Passed only when there is one: this hook is an override point, and a
         # subclass written against the three-argument signature must keep working.

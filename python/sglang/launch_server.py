@@ -1,6 +1,8 @@
 """Launch the inference server."""
 
 import asyncio
+import json
+import logging
 import os
 import sys
 import warnings
@@ -12,6 +14,8 @@ from sglang.srt.utils import kill_process_tree
 from sglang.srt.utils.common import suppress_noisy_warnings
 
 suppress_noisy_warnings()
+
+logger = logging.getLogger(__name__)
 
 
 def run_server(server_args):
@@ -33,6 +37,13 @@ def run_server(server_args):
     # folds into `smg_grpc_mode`), and `prepare_server_args` returns raw input.
     server_args.resolve_once()  #
     cfg = resolving_view(server_args)
+    # cfg 是解析后配置的只读视图；导出配置字段，而不是视图的内部属性。
+    logger.info(
+        "dugenkui   cfg（解析后的配置）:\n%s",
+        json.dumps(
+            server_args.resolved_dict(), ensure_ascii=False, indent=2, default=str
+        ),
+    )
 
     if cfg.encoder_only:
         # For encoder disaggregation

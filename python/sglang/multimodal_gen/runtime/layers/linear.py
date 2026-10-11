@@ -513,15 +513,17 @@ class ColumnParallelLinear(LinearBase):
     def forward(self, input_: torch.Tensor) -> tuple[torch.Tensor, Parameter | None]:
         """
         NOTE QKVParallelLinear 继承 ColumnParallelLinear，并使用当前方法执行线性投影。
-
         TAG 这里没有 super.forward()
         """
+
+        logger.info("ColumnParallelLinear 线性计算 开始计算\ninput_.shape=%s", input_.shape)
         bias = self.bias if not self.skip_bias_add else None
 
         # Matrix multiply.
         assert self.quant_method is not None
         # NOTE quant_config=None 时，quant_method 使用 UnquantizedLinearMethod。
         output_parallel = self.quant_method.apply(self, input_, bias)
+        logger.info("ColumnParallelLinear 线性计算 计算完成\n input_.shape=%s, output_parallel.shape=%s", input_.shape, output_parallel.shape)
         if self.gather_output:
             # All-gather across the partitions.
             output = tensor_model_parallel_all_gather(

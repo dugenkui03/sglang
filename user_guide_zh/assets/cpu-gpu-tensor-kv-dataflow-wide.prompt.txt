@@ -1,0 +1,44 @@
+Generation mode: built-in Image Gen
+
+INITIAL PROMPT
+Use case: scientific-educational infographic-diagram.
+Create a polished, very legible Chinese educational infographic for a programmer learning SGLang inference. Original landscape raster image about 16:10, high resolution, white background, understated blue/teal/orange flat technical illustration, attractive small CPU/RAM/GPU hardware icons, precise clean connectors, generous whitespace. NO overall title, no watermark, no branding. All text large readable simplified Chinese, with the English terms specified below.
+
+Main diagram roughly upper 75%: left host area, right a clear large GPU enclosure. Show hardware and software together but distinguish roles correctly.
+Left host area contains:
+1. CPU chip labelled "CPU：执行 Python / PyTorch". Caption "调度任务、处理 CPU 数据".
+2. Separate RAM module/card labelled "CPU 内存 (CPU memory)". Inside two short rows "Python 对象与 Tensor 元信息" and "shape / dtype / device / 数据地址". A small second area "CPU 侧数值数据". CPU has local read/write arrow to CPU memory.
+3. Small software bridge on CPU side "CUDA 运行时 / 驱动".
+
+Right GPU enclosure labelled simply "GPU", contains two distinct large sections:
+A. "计算单元 (Compute units)" with three tiny kernel tiles "QKV 投影", "注意力计算", "写入 KV cache". These are computations, not storage.
+B. "GPU 显存 (GPU memory)" with three storage tiles "模型权重", "临时 Tensor：hidden_states、K/V", "KV cache：预分配缓存槽位". A short note inside memory panel "不同软件分配区域，并非硬件分区".
+Connect GPU compute units with GPU memory using short solid teal arrows labeled "读入数据" and "写回结果".
+From CPU through CUDA runtime/driver into GPU compute units use a BLUE command arrow labelled "提交任务 / 启动内核". This is a control path, not transferring all Tensor contents.
+From the Tensor metadata row in CPU memory to GPU memory use a THIN GRAY DOTTED arrow labelled "引用 GPU 数据；不复制数值". Its endpoint should clearly be a GPU Tensor storage tile, not compute.
+Across bottom of hardware panels show two distinct ORANGE transfer arrows between "CPU 侧数值数据" and "GPU 显存", labelled respectively "CPU → GPU：.to('cuda')" and "GPU → CPU：.cpu() / .tolist()". Mark "典型通道：PCIe" between them. These paths explicitly transfer numeric data, separate from blue task submission. Do not draw command path as moving tensor bytes. Avoid tangled or crossing lines; route numeric copy path along outside bottom of main diagram and pointer line between panels.
+
+Lower 25% inset spanning width, lightly shaded: a compact concrete SGLang example labelled "当前项目：把本轮 K/V 写入缓存".
+Show a short left-to-right numeric flow:
+"临时 K Tensor（GPU 显存）" displaying k = [[[1, 2]], [[3, 4]]] and shape = [2 token, 1 head, 2 维].
+Arrow through box "store_cache 内核（GPU 执行）" labelled "loc = [2, 9]".
+Right cache tile labelled "当前层 K 缓存（GPU 显存）" with ONLY two rows "槽位 2 ← [[1, 2]]" and "槽位 9 ← [[3, 4]]".
+Below this inset one bold short takeaway: "这里只在 GPU 显存中读写，不把 K/V 搬到 CPU 内存。"
+Small bottom legend three items: blue solid "任务指令", orange solid "CPU ↔ GPU 数据搬运", gray dotted "对象引用".
+Accuracy constraints: CPU executes Python; GPU compute units execute kernels; GPU memory stores data, never portray memory as doing arithmetic. Python Tensor object metadata resides host-side and may reference GPU numeric storage. References/shape inspection aren't host-device data transfer. This example copies GPU numeric data into fixed cache slots, not reassigning per-slot pointers. Do not overfill with additional concepts, model details, new sections, multi-GPU, cache trees, or page tables. Keep all connectors unambiguous, Chinese perfectly legible.
+
+EDIT 1
+Edit this educational diagram with ONLY the following targeted corrections; preserve all existing Chinese text, numbers, overall layout, panels and icons.
+1. The two vertical teal arrows between GPU compute units (upper box) and GPU memory (lower box) have reversed meanings. Correct them EXACTLY: the LEFT arrow labelled “读入数据” MUST point UPWARD from GPU memory into compute units. The RIGHT arrow labelled “写回结果” MUST point DOWNWARD from compute units into GPU memory. This is critical scientific accuracy.
+2. Make the entire canvas background solid opaque pure WHITE, including all outside gaps, around center arrow labels, and underneath the legend. No transparency or black background. Smooth clean edges; text rendered sharply with no noisy outlines.
+3. The local CPU-to-CPU-memory “读 / 写” double arrow should be teal, since it is data access rather than task submission. Keep blue reserved for submitting GPU tasks and kernel launch.
+4. Leave a comfortable white margin around the bottom three-item legend so no text is clipped. Retain landscape aspect and no overall title.
+Keep the cache numeric example unchanged. Do not add any content.
+
+FINAL EDIT
+Precisely edit ONLY the orange CPU-memory ↔ GPU-memory transfer labels in this image. Preserve EVERYTHING else, including the now-correct upward “读入数据” arrow and downward “写回结果” arrow, white opaque background, text, panels, layout and cache example.
+There are two orange horizontal arrows between CPU memory and GPU memory.
+Add the exact text "CPU → GPU：上传数据" immediately ABOVE the upper right-pointing orange arrow.
+Replace the incorrect bottom orange text "GPU ↔ CPU copy / tolist()" with the exact text "GPU → CPU：取回数据" immediately BELOW the lower left-pointing orange arrow.
+Keep the text between the two arrows "典型通道：PCIe" unchanged.
+No Python API names anywhere in these two labels. Only these two edits. All text large, sharp and legible.

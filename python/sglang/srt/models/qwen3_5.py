@@ -1156,20 +1156,20 @@ class Qwen3_5LinearDecoderLayer(nn.Module):
         if build_stages:
             self.attn_boundary, self.ffn_boundary = append_stages(
                 (
-                    declare_attn(
+                    declare_attn( # NOTE atten
                         read=NormQuantReadout(
                             fp8_input=Fp8Input.TUPLE_AND_BF16
                             if accepts_fp8_input
                             else None
                         )
                     ),
-                    self.input_layernorm,
+                    self.input_layernorm, # NOTE 当前阶段的处理方式：输入归一化
                     {
-                        "fusions": boundary_fusions,
+                        "fusions": boundary_fusions, # TODO 算子融合配置
                     },
                 ),
                 (
-                    declare_ffn(
+                    declare_ffn( # tip fnn
                         sparse=is_layer_sparse,
                         next_layer_sparse=is_next_layer_sparse,
                     ),
@@ -1183,6 +1183,7 @@ class Qwen3_5LinearDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         **kwargs,
     ):
+        logger.info(f"Qwen3_5LinearDecoderLayer(全注意力线性层计算) forward, layer_id: {self.layer_id}, hidden_states.shape: {hidden_states.shape}")
         forward_batch = kwargs.get("forward_batch", None)
 
         hidden_states = self.attn_boundary.prepare(
@@ -1460,13 +1461,63 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
 
     def forward_prepare_cuda_fused(self, positions, hidden_states):
         """Fused QK GemmaRMSNorm + NeoX RoPE + gate deinterleave."""
+
+        logger.info("开始计算 QKV 向量\nhidden_states.shape=%s, positions.shape=%s, positions前5个元素(这里是位置编号，还不是rotary编码)=%s",
+            hidden_states.shape, positions.shape, positions.reshape(-1)[:5].tolist())
+
+        # tip 这样理解这个计算
+        #   proj 投影是线性计算
+        #   线性计算这里用的是 QKVParallelLinear -> ColumnParallelLinear.forward() -> UnquantizedLinearMethod.apply()
+        #           线性计算和embedding的【矩阵计算】都通过类似 UnquantizedLinearMethod 来
+        #
+        # 调用栈
+        # Qwen3_5AttentionDecoderLayer.forward_prepare_cuda_fused()
+        # → self.qkv_proj(hidden_states)        // QKVParallelLinear 对象
+        # → ColumnParallelLinear.forward(input_)    // 实际执行的是 QKVParallelLinear 父类的 forward() 方法
+        #     │
+        #     ├─ ① self.quant_method.apply(self, input_, bias)
+        #     │    → UnquantizedLinearMethod.apply()
+        #     │         → layer = qkv_proj 对象，x = hidden_states，bias = None
+        #     │         → _bf16_gemm_dispatch_impl()：选择矩阵乘法实现
+        #     │         → F.linear(x, layer.weight, bias)：当前形状走这个分支
+        #     │              → x @ layer.weight.T
+        #     │              → [1, 1024] @ [1024, 5120] → [1, 5120]
+        #     │
+        #     └─ ② return output, output_bias
+        #          → qkv 接收 output：包含尚未拆开的 Q、Gate、K、V
+        #          → _ 接收 output_bias：当前为 None
+        #
+        # attn_output_gate=True 表示启用注意力输出门控(Attention Output Gate)，qkv_proj 会输出一个与 q 相同维度的向量
+        # qkv：[1, 5120]
+        # ├─ q_gate：[1, 4096] → 再拆成 Q 2048 维、Gate 2048 维
+        # ├─ K：     [1, 512]
+        # └─ V：     [1, 512]
+        # NOTE qkv 在注意力计算之后的加权的 v 向量维度和 q 相同，因为每个维度的 q 和 kv加权后都会得到当前维度的 v_x
+        #
+        # tip
+        # 距离 gate 的使用
+        #
+        # attn_output  = [[2, 4],       gate = [[ 0,   -1.10],  // attn_output 是 总体加权v/注意力计算结果，[2，4]、[6，8] 分别是0、1个token的注意力结果
+        #                 [6, 8]]              [ 1.10,  0   ]]
+        #
+        # sigmoid(gate) ≈ [[0.5,  0.25],        // sigmoid 表示将 gate 中的元素转换成 0,1 值
+        #                  [0.75, 0.5 ]]
+        #
+        # attn_output * sigmoid(gate)       // 逐个元素相乘
+        #               ≈ [[1,   1],
+        #                  [4.5, 4]]
+        #
+        #
         qkv, _ = self.qkv_proj(hidden_states)
+
         if self.attn_output_gate:
             q_gate, k, v = qkv.split(
                 [self.q_size * 2, self.kv_size, self.kv_size], dim=-1
             )
         else:
             q_gate, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+
+        # 拆出 gate，对 qk 进行归一化
         q_out, k_out, gate_out = fused_qk_gemma_rmsnorm_rope_gate(
             q_gate,
             k,
@@ -1486,6 +1537,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         q = q_out.view(seq_len, -1)
         k = k_out.view(seq_len, -1)
         gate = gate_out.view(seq_len, -1) if gate_out is not None else None
+        logger.info("Qwen3_5AttentionDecoderLayer 进行 qkv_proj计算获取 qkv结果，输入hidden_states.shape: %s, 输出q.shape: %s, k.shape: %s, v.shape: %s, gate.shape: %s", hidden_states.shape, q.shape, k.shape, v.shape, gate.shape)
         return q, k, v, gate
 
     def forward_prepare_native(self, positions, hidden_states):
@@ -1504,6 +1556,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         # 非量化常规路径：QKVParallelLinear 继承的 ColumnParallelLinear.forward()
         #   → UnquantizedLinearMethod.apply()；启用量化时使用对应 quant_method。
         qkv, _ = self.qkv_proj(hidden_states)
+        logger.info(f"Qwen3_5LinearDecoderLayer forward_prepare_native, 获取qkv向量，输入hidden_states.shape: {hidden_states.shape}, 输出qkv.shape: {qkv.shape}")
 
         if self.attn_output_gate:
             q_gate, k, v = qkv.split(
@@ -1516,18 +1569,19 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             # gate stays as 3D strided view; fused_sigmoid_mul handles it directly
         else:
             #
-            # NOTE 第二部分
+            # NOTE 第一部分：拆分qkv
             #
-            # qkv 是 [num_tokens, output_size_per_partition]
+            # 拆分 qkv 是 [num_tokens, output_size_per_partition]
             #   split(size_list, dim) 沿着 dim 维度，将一个 tensor 拆分成多个 tensor，拆分规则按照 size_list 来
             #
             # Qwen3_5AttentionDecoderLayer.__init__() 时：
             #   self.q_size = self.num_heads * self.head_dim // q_head数量 * q_dim
             #   self.kv_size = self.num_kv_heads * self.head_dim // kv_head * kv_dim
             q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+            logger.info(f"Qwen3_5LinearDecoderLayer forward_prepare_native, 计算qkv向量，输入qkv.shape: {qkv.shape}, 输出q.shape: {q.shape}, k.shape: {k.shape}, v.shape: {v.shape}")
             gate = None
 
-        # NOTE 第三部分
+        # NOTE 第二部分
         #
         # 目的是控制 Q @ K.T 的结果尺度（我之前一直以为是在计算之后控制的）
         #     Q 放大 10 倍，K 也放大 10 倍
@@ -1595,8 +1649,8 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-        # NOTE QKV 投影、Q/K 归一化和 RoPE 的准备入口；按设备和门控配置选择融合/原生路径。
         if _is_cuda and self.attn_output_gate:
+            # NOTE 这里计算 qkv 向量，并进行归一化
             return self.forward_prepare_cuda_fused(
                 positions=positions,
                 hidden_states=hidden_states,
@@ -1629,14 +1683,19 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
     ) -> torch.Tensor:
         """Full attention forward pass.
 
-        NOTE _prepare_qkv_gate() → KV 缓存读写及注意力 → 可选输出门控 → o_proj。
+        NOTE：QKV 投影 → Q/K 归一化 → 注意力计算 → 输出门控 → o_proj（注意，这里是解码阶段，所以如果是单个请求debug shape 第一个维度和 batch size 是1）
         """
+        logger.info(f"开始注意力计算(QKV 投影 → Q/K 归一化 → 注意力计算...), hidden_states.shape: {hidden_states.shape},forward_batch.batch_size:{forward_batch.batch_size}")
         q, k, v, gate = self._prepare_qkv_gate(
             positions=positions,
             hidden_states=hidden_states,
             forward_batch=forward_batch,
         )
+        # tip: 已经拆开了
+        logger.info(f"step 1 完成qkv向量计算，q.shape: {q.shape}, k.shape: {k.shape}, v.shape: {v.shape}, gate.shape: {gate.shape}, head_dim: {self.head_dim}\n 开始 attention 计算")
 
+        # NOTE 这里进行：1） kv cache 的写入；2）历史kv cache 的读取；3）注意力
+        #   attn 类型是 RadixAttention
         attn_output = self.attn(q, k, v, forward_batch)
 
         if self.attn_output_gate:
@@ -1661,7 +1720,26 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         captured_last_layer_outputs: Optional[AuxHiddenStateAccumulator] = None,
         **kwargs,
     ):
-        # NOTE 阶段边界（LayerBoundary）处理输入通信、残差和归一化。
+        """NOTE 单层全注意力(Full Attention)流程，普通 MLP 路径：
+
+        Qwen3_5AttentionDecoderLayer.forward()
+            │
+            ├─ ① self.attn_boundary.prepare()：按需完成求和、残差合并，执行 input_layernorm。
+            │
+            ├─ ② self.self_attention()：QKV 投影 → Q/K 归一化 → RoPE → 注意力计算 → 输出门控 → o_proj。
+            │
+            ├─ ③ self.attn_boundary.finish()：交接注意力结果，登记待完成的残差/求和工作。
+            │
+            ├─ ④ self.ffn_boundary.prepare()：按需完成求和、残差合并，执行 post_attention_layernorm。
+            │
+            ├─ ⑤ self.ffn_boundary.exit()：确定前馈网络(FFN)阶段的收尾策略。
+            │
+            ├─ ⑥ self.mlp()：gate_up_proj → SiLU(gate) × up → down_proj。
+            │
+            └─ ⑦ ffn_exit.finish()：按策略完成或交接求和、残差工作，返回本层结果。
+        """
+        logger.info(f"开始 full attention 全注意力层处理, hidden states shape: {hidden_states.shape}, forward_batch.batch_size: {forward_batch.batch_size}")
+        # TODO 输入层归一化
         hidden_states = self.attn_boundary.prepare(
             hidden_states,
             forward_batch,
@@ -1671,6 +1749,7 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
         # fused AR+quant hands down a (fp8, scale) / (bf16, fp8, scale) tuple
         hs = hidden_states[0] if isinstance(hidden_states, tuple) else hidden_states
         if not forward_batch.forward_mode.is_idle() and hs.shape[0] > 0:
+            # NOTE 核心一：QKV 投影 → Q/K 归一化 → 注意力计算 → 输出门控 → o_proj
             hidden_states = self.self_attention(
                 positions=positions,
                 hidden_states=hidden_states,
@@ -1814,6 +1893,7 @@ class Qwen3_5ForCausalLM(nn.Module):
             layer_type = config.layers_block_type[idx]
             # NOTE 通过类级映射选择实现，子类可以覆盖 decoder_layer_types。
             layer_class = self.decoder_layer_types[layer_type]
+            logger.info(f"Qwen3_5ForCausalLM-init get_layer, layer_id: {idx}, layer_type: {layer_type}, layer_class: {layer_class}")
             if layer_type == "attention":
                 prefix = add_prefix("self_attn", prefix)
             else:
@@ -1951,6 +2031,7 @@ class Qwen3_5ForCausalLM(nn.Module):
             if input_embeds is None:
                 # NOTE
                 hidden_states = self.embed_tokens(input_ids)
+                logger.info(f"Qwen3_5ForCausalLM token向量化（language_model_only=true才会调用到这里） embed_tokens in forward, input_ids.shape: {input_ids.shape}, hidden_states.shape: {hidden_states.shape}")
             else:
                 hidden_states = input_embeds
             residual_batch.start(forward_batch)
@@ -1962,13 +2043,14 @@ class Qwen3_5ForCausalLM(nn.Module):
 
         aux_hidden_states = AuxHiddenStateList()
         # Pass through decoder layers
+        logger.info(f"Qwen3_5ForCausalLM start transformer layer calculate")
         for layer_idx in range(self.start_layer, self.end_layer):
             # NOTE 遍历 每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer
             layer = self.layers[layer_idx]
             with get_global_expert_distribution_recorder().with_current_layer(
                 layer_idx
             ):
-                # NOTE 调用所选 decoder layer 的 forward()，残差由阶段边界管理。
+
                 hidden_states = layer(
                     positions=positions,
                     hidden_states=hidden_states,
@@ -1977,6 +2059,8 @@ class Qwen3_5ForCausalLM(nn.Module):
                     if getattr(layer, "_is_layer_to_capture", False)
                     else None,
                 )
+                logger.info("Qwen3_5ForCausalLM 完成 Transformer 层计算\nlayer_idx=%s, hidden_states.shape=%s",
+                    layer_idx, hidden_states.shape)
 
             # Process deepstack embeddings if provided
             if (

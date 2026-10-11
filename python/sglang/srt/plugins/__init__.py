@@ -52,6 +52,7 @@ for ep in entry_points(group="sglang.srt.plugins", name="hello"):
 
 """
 
+import json
 import logging
 from collections.abc import Callable
 from importlib.metadata import entry_points
@@ -196,6 +197,11 @@ def load_plugins():
     plugins = load_plugins_by_group(
         GENERAL_PLUGINS_GROUP,
         excluded_dists=_get_excluded_dists(),
+    )
+    logger.info(
+        "Loaded general plugins (%d):\n%s",
+        len(plugins),
+        json.dumps(plugins, ensure_ascii=False, indent=2, default=str),
     )
 
     # tip

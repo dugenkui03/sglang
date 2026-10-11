@@ -1835,6 +1835,7 @@ async def openai_v1_chat_completions(
             scope["app"] = self
     openai_serving_chat 对象是 OpenAIServingChat 类型
     """
+    logger.info("[inf] start inf req:\n%s", request.model_dump_json(indent=2))
     return model_json_response(
         await raw_request.app.state.openai_serving_chat.handle_request(
             request, raw_request
@@ -2963,6 +2964,7 @@ def launch_server(
     2. Inter-process communication is done through IPC (each process uses a different port) via the ZMQ library. NOTE
     """
 
+    logger.info("dugenkui，开始启动")
     # Launch subprocesses
     # NOTE 太重要了，启动服务重要组件
     #   主进程里只有 TokenizerManager；Scheduler 和 DetokenizerManager 都是 mp.Process 子进程，彼此靠 ZMQ（ZeroMQ）通信

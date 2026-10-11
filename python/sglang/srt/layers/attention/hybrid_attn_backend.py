@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 import torch
@@ -20,6 +21,9 @@ from sglang.srt.runtime_context import (
 if TYPE_CHECKING:
     from sglang.srt.layers.attention.verify_mask import VerifyMask
     from sglang.srt.speculative.spec_info import SpecInput
+
+
+logger = logging.getLogger(__name__)
 
 
 class HybridAttnBackend(AttentionBackend):
@@ -228,6 +232,7 @@ class HybridAttnBackend(AttentionBackend):
     ):
         """Delegate forward to the appropriate backend based on forward mode."""
         backend = self._select_backend(forward_batch.forward_mode)
+        logger.info("HybridAttnBackend 选择 backend: %s", type(backend).__name__)
         return backend.forward(
             q=q,
             k=k,

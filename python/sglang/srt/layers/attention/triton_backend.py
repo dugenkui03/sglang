@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
 
@@ -58,7 +59,7 @@ from sglang.srt.utils import (
     is_xpu,
     next_power_of_2,
 )
-
+logger = logging.getLogger(__name__)
 _is_cuda = is_cuda()
 _is_hip = is_hip()
 _is_gfx942 = is_gfx942_supported()
@@ -1544,14 +1545,24 @@ class TritonAttnBackend(AttentionBackend):
 
     def _set_kv_buffer(
         self,
-        forward_batch: ForwardBatch,
-        layer: RadixAttention,
-        loc_info,
-        k: torch.Tensor,
+        forward_batch: ForwardBatch, # 请求
+        layer: RadixAttention, # 保存 layer_id 等数据，是当前 transformer layer 的一个对象
+        loc_info,   # tip 保存 kv 的位置信息
+        k: torch.Tensor, # 要保存的 k tensor
         v: torch.Tensor,
         k_scale=None,
         v_scale=None,
     ) -> None:
+
+        # note 计算的 kv 并没有保存到 kv cache pool 中，所以还是要执行写操作
+        #  【重要】只要是 tensor.Tensor 类型数据，基本是保存在 GPU 中
+        #
+        # GPU 显存
+        #     ├─ 模型权重：用于计算
+        #     ├─ 本轮计算结果：K、V
+        #     │       ↓ 复制数值到指定槽位
+        #     └─ KV cache：k_buffer[layer_idx][kv_index]，V 同理
+
         # DCP writes to the local physical shard (loc = out_cache_loc //
         # dcp_size) through the masked path so each rank only stores the tokens
         # it owns. Non-DCP keeps the original write loc and plain set_kv_buffer.
@@ -1572,7 +1583,9 @@ class TritonAttnBackend(AttentionBackend):
         else:
             loc = loc_info
             kwargs = {}
+
         if k_scale is None and v_scale is None:
+            # MHATokenToKVPool#set_kv_buffer
             self.token_to_kv_pool.set_kv_buffer(layer, loc, k, v, **kwargs)
         else:
             self.token_to_kv_pool.set_kv_buffer(
@@ -1609,6 +1622,7 @@ class TritonAttnBackend(AttentionBackend):
             o = q.new_empty((q.shape[0], layer.tp_q_head_num * layer.v_head_dim))
         else:
             o = torch.empty_like(q)
+        # NOTE 这里创建了 output，也就是 qk 对 v 加权后的结果，这里也看出来 加权v的形状同 q
 
         if k is None and v is None:
             pool = self.token_to_kv_pool
@@ -1634,6 +1648,7 @@ class TritonAttnBackend(AttentionBackend):
                 if layer.k_scale is None:
                     self._set_kv_buffer(forward_batch, layer, loc_info, k, v)
                 elif self.use_mla:
+                    logger.info("TritonAttnBackend prefill/extend 保存 KV 数据到 Cache Pool，layer_id=%s, k.shape=%s, v.shape=%s", layer.layer_id, k.shape, v.shape)
                     # For MLA, scale K manually before storing since MLATokenToKVPool
                     # doesn't accept scale parameters. Clone to protect k from mutation
                     # since it's used later in the attention kernel.
@@ -1797,11 +1812,11 @@ class TritonAttnBackend(AttentionBackend):
             k.contiguous() if self.dllm_attention is None else k,
             v.contiguous() if self.dllm_attention is None else v,
             o.view(-1, layer.tp_q_head_num, layer.v_head_dim),
-            self.token_to_kv_pool.get_key_buffer(layer.layer_id),
-            self.token_to_kv_pool.get_value_buffer(layer.layer_id),
+            self.token_to_kv_pool.get_key_buffer(layer.layer_id), # tip k cache
+            self.token_to_kv_pool.get_value_buffer(layer.layer_id), # tip k cache
             self.forward_metadata.qo_indptr,
             kv_indptr,
-            kv_indices,
+            kv_indices, # TODO kv_indices 要获取的 kv 值？
             self.forward_metadata.custom_mask,
             causal,
             self.forward_metadata.mask_indptr,
@@ -2192,6 +2207,7 @@ class TritonAttnBackend(AttentionBackend):
         score_mod=None,
         aux_tensors=None,
     ):
+        logger.info("TritonAttnBackend 开始注意力计算，layer_id=%s, q.shape=%s, k.shape=%s, v.shape=%s", layer.layer_id, q.shape, k.shape, v.shape)
         # During torch.compile, there is a bug in rotary_emb that causes the
         # output value to have a 3D tensor shape. This reshapes the output correctly.
         q = q.reshape(-1, layer.tp_q_head_num * layer.qk_head_dim)
@@ -2204,7 +2220,7 @@ class TritonAttnBackend(AttentionBackend):
 
         logits_soft_cap = logit_capping_mod(layer.logit_capping_method, layer.logit_cap)
 
-        if save_kv_cache:
+        if save_kv_cache: # tip 注意，没传递这个参数的时候默认为true
             if self.use_mla:
                 if layer.k_scale is not None:
                     # MLATokenToKVPool doesn't accept scale parameters; k is unused
@@ -2220,6 +2236,7 @@ class TritonAttnBackend(AttentionBackend):
                     v,
                 )
             else:
+                logger.info("开始保存 KV 数据到 Cache Pool，save_kv_cache = true && (not self.use_mla)")
                 self._set_kv_buffer(
                     forward_batch,
                     layer,

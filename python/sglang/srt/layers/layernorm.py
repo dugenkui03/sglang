@@ -1148,7 +1148,7 @@ class GemmaRMSNorm(BaseFusedOp):
 
     def _forward_impl(
         self,
-        x: torch.Tensor,
+        x: torch.Tensor, # tip 要归一化的tensor
         residual: Optional[torch.Tensor] = None,
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -1156,14 +1156,32 @@ class GemmaRMSNorm(BaseFusedOp):
         if needs_reshape:
             original_shape = x.shape
             x = x.contiguous().reshape(-1, original_shape[-1])
+        if residual is not None and post_residual_addition is not None:
+            residual = residual + post_residual_addition
+        log_norm = logger.isEnabledFor(logging.INFO) and not (
+            x.is_cuda and torch.cuda.is_current_stream_capturing()
+        )
+        if log_norm:
+            # 残差分支会原地修改 x；先记录残差合并后、归一化前的输入。
+            norm_input = x.float()
+            if residual is not None:
+                norm_input = norm_input + residual.float()
+            input_mean = norm_input.mean().item()
+            input_first5 = norm_input.reshape(-1)[:5].tolist()
+            del norm_input
         if residual is not None:
-            if post_residual_addition is not None:
-                residual = residual + post_residual_addition
             gemma_fused_add_rmsnorm(
                 x, residual, self.weight.data, self.variance_epsilon
             )
-            return x, residual
-        out = gemma_rmsnorm(x, self.weight.data, self.variance_epsilon)
+            out = x
+        else:
+            out = gemma_rmsnorm(x, self.weight.data, self.variance_epsilon)
+        # if log_norm:
+            # NOTE 归一化 效果是使得每个元素的绝对值同时变大或者同时变小
+            # logger.info("GemmaRMSNorm 归一化前后\nshape=%s, residual=%s, mean=%.4f -> %.4f, input前5个元素=%s, out前5个元素=%s",
+            #     tuple(out.shape), residual is not None, input_mean, out.float().mean().item(), input_first5, out.reshape(-1)[:5].tolist())
+        if residual is not None:
+            return out, residual
         if needs_reshape:
             out = out.reshape(original_shape)
         return out
