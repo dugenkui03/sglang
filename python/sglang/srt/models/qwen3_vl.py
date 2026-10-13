@@ -1388,7 +1388,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             not self.language_model_only and "mrope_section" in self.config.rope_scaling
         )
 
-        # TODO 干啥的
+
         self.logits_processor = LogitsProcessor(self.config)
         self.pooler = Pooler(pooling_type=PoolingType.LAST, normalize=True)
         self.capture_aux_hidden_states = False
@@ -1691,6 +1691,8 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 #         -> _get_pruned_states()
                 #         -> _get_logits()
                 #         -> _compute_lm_head()：非量化常规路径执行 hidden_states @ lm_head.weight.T
+                logger.info("%s.forward 开始 lm_head 投影与 logits 计算\ninput_ids.shape=%s, hidden_states.shape=%s, lm_head.weight.shape=%s, forward_batch.batch_size=%s",
+                    type(self).__name__, getattr(input_ids, "shape", None), hidden_states.shape, getattr(getattr(self.lm_head, "weight", None), "shape", None), forward_batch.batch_size)
                 result = self.logits_processor(
                     input_ids,
                     hidden_states,
@@ -1698,15 +1700,9 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                     forward_batch,
                     aux_hidden_states,
                 )
-                aux_shapes = (
-                    aux_hidden_states.shape
-                    if isinstance(aux_hidden_states, torch.Tensor)
-                    else [state.shape for state in aux_hidden_states]
-                    if aux_hidden_states is not None
-                    else None
-                )
-                logger.info("%s.forward logits_processor 计算完成\ninput_ids.shape=%s, hidden_states.shape=%s, lm_head.weight.shape=%s, forward_batch.forward_mode=%s, forward_batch.batch_size=%s, aux_hidden_states.shapes=%s, result.next_token_logits.shape=%s",
-                    type(self).__name__, getattr(input_ids, "shape", None), hidden_states.shape, getattr(getattr(self.lm_head, "weight", None), "shape", None), forward_batch.forward_mode, forward_batch.batch_size, aux_shapes, getattr(result.next_token_logits, "shape", None))
+                next_token_logits = result.next_token_logits
+                logger.info("%s.forward logits_processor 计算完成\ninput_ids.shape=%s, hidden_states.shape=%s, lm_head.weight.shape=%s, forward_batch.batch_size=%s, result.next_token_logits.shape=%s, result.next_token_logits前5个元素=%s",
+                    type(self).__name__, getattr(input_ids, "shape", None), hidden_states.shape, getattr(getattr(self.lm_head, "weight", None), "shape", None), forward_batch.batch_size, getattr(next_token_logits, "shape", None), next_token_logits.reshape(-1)[:5].tolist() if next_token_logits is not None else None)
                 return result
             else:
                 return self.pooler(hidden_states, forward_batch)

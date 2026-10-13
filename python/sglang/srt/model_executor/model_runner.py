@@ -2123,7 +2123,7 @@ class ModelRunner:
 
     def sample(
         self,
-        logits_output: LogitsProcessorOutput,
+        logits_output: LogitsProcessorOutput, # tip 每个请求对应的分数
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
         """Sample and compute logprobs and update logits_output.
@@ -2134,12 +2134,34 @@ class ModelRunner:
 
         Returns:
             A list of next_token_ids
+
+        ModelRunner.sample(logits_output, forward_batch)
+            │
+            ├─ ① ModelRunner._preprocess_logits()
+            │    → 按配置应用惩罚、词表偏置、语法约束
+            │
+            ├─ ② self.sampler(...)
+            │    → Sampler.forward()
+            │         │
+            │         ├─ 取出 logits_output.next_token_logits
+            │         │
+            │         ├─ 贪心采样：torch.argmax(logits, -1)
+            │         │    → 选择最高分 token
+            │         │
+            │         └─ 常规随机采样
+            │              → logits / temperature → softmax
+            │              → Sampler._sample_from_probs()
+            │                   → 按 top_k/top_p/min_p 配置筛选并采样
+            │
+            └─ ③ 返回 next_token_ids
+                → 每个请求的下一 token ID
         """
         # LogitsProcessorOutput is normally invocation-scoped, but CUDA graph
         # runners may reuse backing objects. Never leak an auxiliary result from
         # a previous replay into a request with no observer state.
         logits_output.auxiliary_device_output = None
         observer = self.sampling_observer
+        logits_before = logits_output.next_token_logits.reshape(-1)[:10].tolist()
         # Preserve two-argument overrides when observation is inactive.
         if observer is not None and observer.is_active(forward_batch.sampling_info):
             observer_state = self._preprocess_logits(
@@ -2151,6 +2173,10 @@ class ModelRunner:
             observer_state = self._preprocess_logits(
                 logits_output, forward_batch.sampling_info
             )
+
+        logits_after = logits_output.next_token_logits.reshape(-1)[:10].tolist()
+        logger.info("logits 预处理前后（展平后的前10个元素）\nbefore=[%s]\nafter =[%s]",
+            ", ".join(f"{value:10.4f}" for value in logits_before), ", ".join(f"{value:10.4f}" for value in logits_after))
 
         # Sample the next tokens
         next_token_ids = self.sampler(

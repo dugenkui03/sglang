@@ -185,6 +185,7 @@ class Sampler(nn.Module):
         )
         sampling_mask_capture = None
 
+        # NOTE ④ 全部请求为贪心采样(top_k=1，含 temperature=0 转换)时，直接 argmax 选取最高分 token。
         if sampling_info.is_all_greedy:
             _trace_e2e_sampler("greedy_enter")
             if _use_aiter and not _disable_aiter_greedy_sample:
@@ -248,6 +249,7 @@ class Sampler(nn.Module):
                     logprobs = logprobs_via_logsoftmax_kernel
             else:
                 # Standard path: do softmax and sample from probs.
+                # NOTE ⑤ 常规随机采样：logits / temperature → softmax → 按 top_k/top_p/min_p 筛选 → 按概率选 token。
                 logits.div_(sampling_info.temperatures)
 
                 # Deterministic inference must derive the returned logprobs

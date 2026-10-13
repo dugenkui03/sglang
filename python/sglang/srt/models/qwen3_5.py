@@ -1764,8 +1764,8 @@ class Qwen3_5AttentionDecoderLayer(nn.Module):
             # NOTE Dense 使用普通 MLP，MoE 使用专家网络；退出边界完成本阶段输出处理。
             if isinstance(self.mlp, Qwen2MoeSparseMoeBlock):
                 hidden_states = self.mlp(
-                    hidden_states,
-                    forward_batch,
+                    hidden_states, # NOTE 注意力层的输出
+                    forward_batch, # ForwardBatch
                     defer_finalize=ffn_exit.defer_moe_finalize,
                 )
             else:
@@ -2045,12 +2045,11 @@ class Qwen3_5ForCausalLM(nn.Module):
         # Pass through decoder layers
         logger.info(f"Qwen3_5ForCausalLM start transformer layer calculate")
         for layer_idx in range(self.start_layer, self.end_layer):
-            # NOTE 遍历 每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer
             layer = self.layers[layer_idx]
             with get_global_expert_distribution_recorder().with_current_layer(
                 layer_idx
             ):
-
+                # NOTE 遍历 每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer
                 hidden_states = layer(
                     positions=positions,
                     hidden_states=hidden_states,
@@ -2068,6 +2067,7 @@ class Qwen3_5ForCausalLM(nn.Module):
                 and input_deepstack_embeds.numel() > 0
                 and layer_idx < 3
             ):
+                # tip 多模态链路
                 sep = self.hidden_size * layer_idx
                 hidden_states = residual_batch.add_to_output(
                     hidden_states,
@@ -2078,6 +2078,7 @@ class Qwen3_5ForCausalLM(nn.Module):
         if not self.pp_group.is_last_rank:
             return residual_batch.to_pp(hidden_states, forward_batch)
 
+        shape_before = hidden_states.shape
         hidden_states = residual_batch.final_norm(
             hidden_states,
             forward_batch,
@@ -2085,6 +2086,8 @@ class Qwen3_5ForCausalLM(nn.Module):
             finalize_norm=self.flashinfer_mnnvl_cutedsl_fusion,
             skip_empty=True,
         )
+        logger.info("最终残差合并与归一化\nhidden_states.shape：处理前=%s，处理后=%s",
+            shape_before, hidden_states.shape)
 
         if len(aux_hidden_states) == 0:
             return hidden_states
