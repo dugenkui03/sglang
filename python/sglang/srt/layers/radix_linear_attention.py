@@ -139,6 +139,8 @@ class RadixLinearAttention(nn.Module):
             )
             return output
 
+        # NOTE 常规入口：RadixLinearAttention.forward() → HybridLinearAttnBackend.forward()。
+        # 后端根据当前线性注意力层分派到对应实现。
         return get_attn_backend().forward(
             layer=self,
             forward_batch=forward_batch,

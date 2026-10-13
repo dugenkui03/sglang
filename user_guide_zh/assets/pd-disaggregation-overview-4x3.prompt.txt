@@ -1,0 +1,35 @@
+Use case: scientific-educational.
+Asset: Chinese educational illustration embedded in a SGLang article about Prefill–Decode disaggregation.
+Create a new landscape raster image, EXACT 4:3 aspect ratio, ideally 1536 × 1152 pixels. FULLY OPAQUE solid white background, crisp navy Chinese sans-serif lettering, clean blue/green/orange technical illustration with subtle isometric GPU hardware. Absolutely NO overall title, no headline, no title banner, no chapter number, no watermark. Begin directly with the illustrated scene. Small labels beside objects and short explanatory captions ARE needed.
+
+Primary goal: readers should SEE separate GPU resources processing the input and generating output, with a KV cache passed between them. This must be a concrete GPU/token/cache illustration, not just a generic flowchart of labeled boxes and not a diagram of source-code functions.
+
+Main scene, upper roughly 65%, read mostly left to right:
+- Far left: small client icon and two request cards A and B, each showing a few prompt-token tiles. Labels: “客户端 Client”, “提示词与聊天历史”.
+- Beside client: compact router appliance labeled “路由器 Router / SMG”. Small dashed grey control arrows from router to BOTH the Prefill group and the Decode group, caption “为请求选择 P / D 实例”. Keep grey routing arrows visually distinct from orange KV data transfer; KV must NEVER pass through the router.
+- Center: a blue Prefill instance illustrated as a concrete GPU board with compute chip, model-weight plate and input-token tiles being processed in a group. Object labels: “预填充 Prefill”, “GPU 组”, “模型权重”, “批量处理输入”. Its output is a clearly visible orange matrix/cache stack labeled “键值缓存 KV Cache”; nearby concise annotation “保存已处理 Token 的 Key / Value”. Use the cache as intermediate tensor data, not a text answer or model weights.
+- Right: a separate green Decode instance, concrete GPU board with the SAME model-weight plate design, its own orange cache stack, and an output strip of green token tiles linked sequentially: “1 → 2 → 3 → …”. Object labels: “解码 Decode”, “GPU 组”, “模型权重”, “逐步生成输出”.
+- A prominent orange arrow DIRECTLY from the Prefill cache to Decode cache, labeled “KV 传输” and “Mooncake / NIXL”. Under Decode, concise dependency note “收到对应 KV 后继续生成”.
+- A small brace or caption linking the two weight plates: “两侧加载同一模型，分别执行不同阶段”. The groups are separate resources, not different layers of one partitioned model. Do not show independent generation of the same request before its KV arrives.
+- GPU drawings and cache/token objects should carry the explanation; use modest amount of text. Show only one Prefill instance and one Decode instance in the main scene, each can depict a small stack of GPU boards to suggest a group. No Ascend, NPU, Huawei, Experts, MoE, or unrelated flags.
+
+Lower roughly 30%, one compact, accurate two-lane timing illustration, with a tiny rightward time arrow labeled “时间” and lanes “Prefill GPU” and “Decode GPU”:
+- Prefill lane: a blue P(A) block first, then a blue P(B) block.
+- Decode lane: begins A’s green sequential output-token blocks only AFTER P(A) and a short orange KV-transfer segment. Label green blocks “A·1”, “A·2”, “A·3”, “A·4”.
+- A’s Decode overlaps B’s Prefill horizontally in time. Draw a faint shared overlap highlight around that concurrent interval.
+- A short orange diagonal/downward arrow connects END of P(A) to START of Decode(A), labeled “A 的 KV”.
+- Keep a modest idle interval on Decode before KV arrival; never start Decode A before P(A) finishes.
+- Caption: “Decode(A) 与 Prefill(B) 可同时进行”.
+- Small footer, not a title: “独立调度、分别扩容，减少输入处理对持续输出的干扰”.
+- Tiny note near the KV link or footer: “需要额外的 KV 传输”.
+
+Typography: clearly legible simplified Chinese, accurate English terms Prefill, Decode, KV Cache, Router / SMG, Mooncake / NIXL. Large enough to read at half-page width. No long paragraphs, no giant headline, no enclosing title. No performance multipliers, no claim each request is necessarily faster. Preserve scientific dependency for each request while explaining concurrency across different requests.
+
+Revision prompt (precise connection and timing corrections):
+Edit the supplied illustration with precise scientific corrections to connection endpoints and timing markers ONLY. Keep the GPU hardware drawings, all text, colors, white opaque background, overall layout and 4:3 landscape aspect ratio unchanged. Keep NO overall title.
+
+1. The router currently has two dashed grey arrows both ending at the blue Prefill GPU group. Fix ONLY the lower dashed grey routing arrow: it must connect the Router / SMG to the GREEN Decode GPU group, clearly terminating on the green group. Route this grey dashed line through the open white space below the main hardware scene, avoiding the existing labels and not intersecting the timeline below. The upper grey routing arrow stays connected to Prefill. This communicates the router selects BOTH P and D instances. The bold orange KV arrow must remain a DIRECT Prefill-cache to Decode-cache link and never pass through the router.
+
+2. In the bottom timeline, restrict the pale blue overlap highlight and its double-headed horizontal marker to the EXACT interval shared by the blue P(B) block and the green Decode(A) output blocks: start at the LEFT edge of the first green A·1 block, after the orange KV transfer block ENDS; end at the RIGHT edge of the blue P(B) block. The caption “Decode(A) 与 Prefill(B) 可同时进行” remains. Move dashed vertical boundaries to these two corrected endpoints. Keep P(A), P(B), all orange KV transfer graphics, the green A·1 through A·4 blocks, waiting interval and time axes unchanged. Do not include KV-transfer time or the time after P(B) ends in the concurrency highlight.
+
+Preserve every other object, label and geometry. No new headings, new panels or added explanations.

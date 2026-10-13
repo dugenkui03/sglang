@@ -69,9 +69,15 @@ _is_npu = is_npu()
 class MemoryPoolConfig:
     """Resolved memory pool config, shared between target and draft workers."""
 
+    # NOTE KV 池能保存多少个 token、也就是多少个KV编号
+    #   由可用于 KV 的 GPU 显存（GPU memory）预算、每 token 的缓存大小及配置上限共同决定
     max_total_num_tokens: int
+    # NOTE Scheduler 最多能同时跑多少个请求，也就是 ReqToTokenPool 的槽位数
+    #   --max-running-requests
     max_running_requests: Optional[int] = None
+
     full_max_total_num_tokens: Optional[int] = None
+    # swa(Sliding Window Attention)
     swa_max_total_num_tokens: Optional[int] = None
     unified_memory_pool_bytes: Optional[int] = None
 
@@ -81,6 +87,8 @@ class MemoryPoolConfig:
     c4_state_pool_size: int = 0
     c128_state_pool_size: int = 0
 
+    # NOTE 显存池给 权重和KV池使用的显存比例
+    #   --mem-fraction-static
     mem_fraction_static: Optional[float] = None
 
     # Unified pool only: the profiled byte budget the buffer is sized from,

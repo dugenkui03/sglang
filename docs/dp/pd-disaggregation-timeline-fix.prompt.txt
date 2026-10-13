@@ -1,0 +1,16 @@
+Edit this exact 1448×1086 LANDSCAPE 4:3 infographic. Preserve the exact 4:3 aspect ratio, all six panels, all text, all colors, all other blocks, and the entire composition. Make ONLY one tiny local correction in panel 3, the BLUE P(A) time block and its orange A KV arrow. Do not redesign anything else.
+
+CRITICAL SCIENTIFIC ERROR TO FIX:
+In panel 3, the lower green A·D1 starts at x≈220, while the upper blue P(A) ends at x≈253. This means decode appears to start before prefill completes. Fix it by SHORTENING P(A), not by extending it.
+
+Source-image pixel coordinates (1448×1086):
+- Existing blue P(A) rectangle is approximately x=146..253, y=557..597.
+- Keep its LEFT edge at x=146 and its height unchanged.
+- MOVE its RIGHT edge LEFT to x=200, so it becomes a compact blue box x=146..200. Center the label “P(A)” inside, using a slightly smaller readable font if necessary.
+- The former P(A) region x=201..253 must become empty background, matching the surrounding pale panel, with no lingering old rectangle or letter fragments.
+- The green A·D1 stays unchanged at x≈220..286, y≈654..689.
+- Replace the orange A KV arrow so it starts EXACTLY from the newly shortened P(A)'s RIGHT END at approximately (200,598) and goes diagonally down-right to A·D1's LEFT START at approximately (220,650). Label remains “A 的 KV”.
+- Thus the visual order on the common time axis is: P(A) ENDS at x=200, a visible 20-pixel transfer gap, then A·D1 STARTS at x=220.
+- Add a very thin gray dotted vertical guide at x=200 from the P(A) end to the lower time axis if useful to make the ordering unmistakable.
+- DO NOT move the green A decode blocks. DO NOT change P(B), P(C), or the B KV arrow. DO NOT modify any other panels, the title, or footer.
+Preserve sharp Chinese text and exact 4:3 ratio. This is a tiny precise edit, all other pixels and layout should remain as close to the reference as possible.

@@ -102,8 +102,10 @@ def resolve_linear_attn_backends(
         decode=decode, prefill=prefill, verify=LinearAttnKernelBackend(verify)
     )
     rank0_log(
-        f"Linear attention kernel backend: decode={backends.decode.value}, "
-        f"prefill={backends.prefill.value}, verify={backends.verify.value}"
+        f"Linear attention kernel backend:\n"
+        f"        decode: {backends.decode.value}\n"
+        f"        prefill: {backends.prefill.value}\n"
+        f"        verify: {backends.verify.value}"
     )
     return backends
 

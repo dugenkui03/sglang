@@ -558,6 +558,7 @@ def _fwd_kernel(
             # downcasting q to fp8. No-op for a bf16 cache. (Do NOT revert to q.to(fp8).)
             # On all other platforms keep the original q.to(k.dtype) downcast.
             # TODO: remove this branch once the gfx1250 fp8 tl.dot issue is resolved.
+            # NOTE 历史 QK 打分：Q @ K.T // for
             if IS_GFX1250:
                 qk = tl.dot(q, k.to(q.dtype))
             else:
@@ -612,6 +613,7 @@ def _fwd_kernel(
                     aux0_len,
                 )
 
+            # NOTE 作用是实现 Causal Mask，对当前token后边的不关注 // for
             qk = tl.where(final_mask, qk, float("-inf"))
 
             row_max = tl.max(qk, 1)
@@ -644,6 +646,7 @@ def _fwd_kernel(
                 mask=mask_n[:, None] & mask_dv[None, :],
                 other=0.0,
             )
+            # TODO 历史 V 加权求和：重缩放旧 acc，累加 p @ V（乘 v_scale）。 // for
             if USE_FP8_PREFIX:
                 p_dot = (p * FP8_MAX).to(v.dtype)
                 acc = acc * re_scale[:, None] + tl.dot(p_dot, v) * (v_scale / FP8_MAX)
@@ -727,6 +730,7 @@ def _fwd_kernel(
                 K_Extend + offs_k, mask=(mask_n[None, :]) & (mask_d[:, None]), other=0.0
             )
 
+            # NOTE 本轮 QK 打分：Q @ K.T，随后按 sm_scale 缩放。 // for
             qk = tl.dot(q, k, out_dtype=tl.float32)
             if BLOCK_DPE > 0:
                 offs_kpe = (
@@ -768,6 +772,7 @@ def _fwd_kernel(
                     aux0_len,
                 )
 
+            # NOTE 掩码与分块 softmax：屏蔽位置置 -inf，计算未归一化权重 p，累计分母 deno。 // for
             qk = tl.where(final_mask, qk, float("-inf"))
 
             row_max = tl.max(qk, 1)
@@ -790,6 +795,7 @@ def _fwd_kernel(
             v = tl.load(
                 V_Extend + offs_v, mask=mask_n[:, None] & mask_dv[None, :], other=0.0
             )
+            # NOTE 本轮 V 加权求和：重缩放旧 acc，累加 p @ V。 // for
             if USE_FP8_EXTEND:
                 p_dot = (p * FP8_MAX).to(v.dtype)
                 acc = acc * re_scale[:, None] + tl.dot(p_dot, v) * (1.0 / FP8_MAX)
@@ -833,6 +839,7 @@ def _fwd_kernel(
         + cur_head * stride_oh
         + offs_dv[None, :]
     )
+    # NOTE 最终归一化：acc / deno_safe 得到 softmax 加权和，写入 GPU 显存中的 O_Extend。
     deno_safe = tl.where(no_kv, 1.0, deno)
     if STORE_TRANSPOSE:
         tl.store(
@@ -849,15 +856,15 @@ def _fwd_kernel(
 
 
 def extend_attention_fwd(
-    q_extend,
-    k_extend,
-    v_extend,
-    o_extend,
-    k_buffer,
-    v_buffer,
+    q_extend,  # 本轮 Q：[token 数, 本卡 Q 头数, Q/K 头维度]
+    k_extend,  # 本轮 K：[token 数, 本卡 KV 头数, Q/K 头维度]
+    v_extend,  # 本轮 V：[token 数, 本卡 KV 头数, V 头维度]
+    o_extend,  # 输出空间：[token 数, 本卡 Q 头数, V 头维度]，待 GPU 内核写入
+    k_buffer,  # 当前层全部槽位的 K 缓存 Tensor 引用，数据在 GPU 显存
+    v_buffer,  # 当前层全部槽位的 V 缓存 Tensor 引用，数据在 GPU 显存
     qo_indptr,
     kv_indptr,
-    kv_indices,
+    kv_indices,  # 一维历史 KV 槽位索引，kv_indptr 标出各请求的索引区间
     custom_mask,
     is_causal,
     mask_indptr,

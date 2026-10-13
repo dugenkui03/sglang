@@ -1,0 +1,75 @@
+Pipeline: built-in Image Gen
+Input image: k-buffer-layered-write-geometry.png
+
+Upright orientation and contrast:
+Use case: precise-object-edit, scientific-educational.
+Edit the supplied geometry-textbook diagram. KEEP the entire LEFT k_buffer layer overview unchanged, including top-to-bottom indices 0,1,2 and the selected middle layer. Keep the thin black technical linework, white background, Chinese captions, numeric examples, before/after composition, shape labels, indices=[3,4], two bottom assignment expressions, and footnotes. ONLY redraw the CENTER token blocks and RIGHT cache with a matching upright orientation and stronger lightness contrast.
+
+The user wants two upright token matrices resembling game cartridges, inserted into two adjacent positions in a solid array, rather than flat plates lying on top of each other. No literal game machine, connectors, labels, or decorative hardware: only countable tensor grid prisms.
+
+Use the SAME precise axis convention in the CENTER and RIGHT drawings:
+X = slot direction, horizontal across the page to the RIGHT.
+Y = K head direction, vertically DOWN, 2 head units high.
+Z = head_dim direction, receding diagonally UP/RIGHT into the page, 3 dimension units deep.
+Thus each token is a THIN UPRIGHT card in the YZ plane, with a visible large side face of exactly 2 head ROWS and 3 dimension COLUMNS. The X thickness is just 1 slot. Cards stand vertically, parallel to each other and parallel to the final cache slots. Do NOT draw a horizontal tabletop data face.
+Keep ample clear space for labels.
+
+CENTER:
+- Orange token A is an upright thin cuboid shape [1,2,3]. Its main visible vertical side face is a slanted parallelogram, exactly TWO rows tall and THREE columns along the depth. Put 1,2,3 across the upper head row; 4,5,6 across the lower head row. Exactly one number in each of its 6 cells. Its narrow front edge has 2 cells vertically; its top edge has 3 cells along the depth and is only 1 slot thick.
+- Teal token B has identical upright geometry. Its 6 side-face cells contain 7,8,9 upper row and 10,11,12 lower row.
+- Place A above B within the center panel as before, independent before writing.
+- Keep captions "token A · k[0:1]" and "token B · k[1:2]" and "每块 shape = [1, 2, 3]".
+- Token A should be visibly DARKER in lightness: flat medium-dark ochre-orange fill, approximately #C7883F. Token B visibly LIGHTER: very pale blue-teal fill, approximately #D4EBEB. They must remain distinguishable in grayscale as well as by hue. Black cell numbers and outlines, no shading gradients. Use the exact corresponding colors in the final cache.
+
+RIGHT:
+Redraw k_buffer[1] as ONE connected cuboid of SIX touching upright cartridge-sized regions, shape [6,2,3], with slots arranged horizontally along X.
+The drawing must have these EXACT counts:
+- Large FRONT face: SIX slot columns horizontally, TWO head rows vertically. Exactly FIVE interior vertical grid lines and ONE interior horizontal grid line.
+- Visible RIGHT side face: THREE head_dim columns along oblique depth, TWO head rows vertically. Exactly TWO interior depth dividers and ONE interior horizontal grid line.
+- TOP face: SIX slot columns horizontally, THREE head_dim rows in oblique depth. Exactly FIVE slot dividers and TWO depth dividers.
+All faces meet consistently. Hidden outer edges may be dashed, visible grid fine solid.
+The six adjacent upright regions are indexed 0,1,2,3,4,5 from LEFT to RIGHT. Print these indices centered under their respective FRONT face columns. Do not label the depth divisions as slots.
+Slot 3 = FOURTH column from the left, completely ochre-orange across BOTH head rows and ALL THREE depth cells.
+Slot 4 = FIFTH column from the left, completely pale teal across BOTH head rows and ALL THREE depth cells.
+The two colored upright regions TOUCH, and remain integral parts of the WHOLE cuboid. They look like two cartridges fully seated side-by-side; do NOT pull apart, offset, or explode any region. Other regions remain white. Do not write numeric data on hidden interior faces.
+Add two small matching downward insertion arrows just ABOVE the colored regions, one per region, to suggest slipping the cards into slots. Arrows must target slot 3 and slot 4 only.
+Dimension brackets must match this NEW orientation:
+- horizontal width of the front = "槽位数 = 6"
+- vertical height = "K 头数 = 2"
+- oblique depth = "head_dim = 3"
+Keep "写入后：k_buffer[1]" and "shape = [6, 2, 3]" above it, and the assignments below it unchanged:
+"k_buffer[1][3] ← k[0]"
+"k_buffer[1][4] ← k[1]"
+
+Keep the center-to-right arrow "按编号写入". Keep the top allocation sentence and both bottom explanatory sentences. The operation copies K values into already allocated GPU cache slots; this visual reorientation does not change the tensor shape, number of elements, or indexing. Geometric counts and head_dim=3 must be exact. Preserve every other part of the original diagram.
+
+Align input planes:
+Make ONE targeted correction to the supplied diagram: rotate ONLY the two CENTER input token cards by 90 degrees about the vertical axis, so their broad 2-by-3 numeric faces are PARALLEL to the cache's upright slot planes. Preserve absolutely everything else, including the entire left overview, entire right cache grid with 6 slots/2 heads/3 depth dimensions, captions, arrows, colors, shapes, footnotes, white background and textbook line art.
+
+Currently the two center cards incorrectly face forward; their 3 numeric columns run horizontally. The right cache's matching 3 dimension units run along the oblique depth. Change each input card to show its broad numeric face on the RIGHT SIDE, with an extremely narrow FRONT EDGE. This small change will make it visually possible to insert the cards straight into the depicted slots.
+
+For EACH center card:
+- The front edge face is ONE NARROW column wide, TWO head rows high. Width about 25 pixels, height about 135 pixels. NO numbers on this narrow front edge.
+- The main RIGHT SIDE face is a broad vertical parallelogram with THREE equal columns extending back/up/right and TWO head rows vertically. Put the six numbers on THIS broad side face.
+- The top edge face is a narrow horizontal strip, one slot wide by three head_dim segments in depth.
+- Exact counts: narrow front edge = 1 column x 2 rows; main right side = 3 columns x 2 rows; narrow top = 1 x 3.
+- All numbers follow the plane perspective. For A, head row 0 reads 1,2,3 from front/left to back/right along the sloping depth; head row 1 reads 4,5,6 directly below. For B rows 7,8,9 and 10,11,12.
+- Keep A dark ochre-orange and B pale teal, including their matching cache colors.
+
+For reference within the existing 1774-by-887 composition, approximate A geometry:
+front edge rectangle corners (610,285), (640,285), (640,420), (610,420).
+large numeric RIGHT SIDE parallelogram corners (640,285), (885,220), (885,355), (640,420).
+Its only interior grid lines: two depth divisions splitting the long diagonal edges into thirds, and one head divider halfway down its height.
+Its narrow top strip corners (610,285),(640,285),(885,220),(855,220).
+B uses the identical geometry shifted downward roughly 250 pixels.
+These coordinates only clarify orientation; maintain clean composition and labels with sufficient spacing. Do not add coordinate labels to the picture.
+
+The right-hand cache is already correct and must remain pixel-faithful in appearance: don't alter, recolor or regrid it. Do not change token data values or tensor shapes.
+
+Final color coverage:
+Edit ONLY the right-hand cache illustration in the supplied diagram, preserving every other element precisely, especially the two upright token cards and all grids and labels.
+
+1. Completely REMOVE the two small orange and teal downward arrows above the cache. Do not move them or replace them. Leave that area clean white. The large black horizontal "按编号写入" arrow between panels stays.
+2. On the TOP surface of the cache, make the orange slot-3 strip extend continuously ALL THE WAY from the FRONT edge to the BACK edge, coloring all THREE of its head_dim cells, including the farthest rear cell. Similarly the pale teal slot-4 strip must cover all THREE depth cells fully, right through to the back edge. At present their farthest top cells are white: correct that. Preserve the thin black grid lines. The colored strips must connect exactly to the corresponding colored front columns indexed 3 and 4. This represents two FULL upright cards occupying those slots, each spanning both head rows and all three head dimensions.
+3. Leave slots 0,1,2,5 white. Preserve the exact 6 slot columns, 2 head rows, 3 depth cells. No extra arrows, no new text, no other edits.
+Keep the orange dark and the teal pale so they differ in both hue and lightness.

@@ -1,0 +1,84 @@
+Generation mode: built-in image_gen (redesign of the previous illustration)
+Reference: user_guide_zh/assets/batching-entities-state-flow-wide.png
+User correction: Focus on relationships between entities; use only simple sketches for internal logic, especially RadixCache. Keep the title-free landscape layout and place the image at the end of the article.
+
+Use case: infographic-diagram
+Asset type: Revised Chinese educational illustration for a source-code learning article.
+Input image: Image 1 is the existing illustration to redesign. Preserve its readable Chinese typography and clean flat visual language only. Completely replace its information architecture and composition.
+
+Primary request:
+Make an ENTITY RELATIONSHIP EXPLAINER. The previous illustration spent too much space on internal algorithms and a chronological workflow. This revision must devote its space to clear, labelled connections BETWEEN entities: management, containment, references and index mappings. Every entity gets a simple symbol and at most a short role description. Do not carry over the previous dense text, tables, stages, internal logic or numbered examples.
+
+Canvas:
+Wide landscape 3:2, high resolution. NO OVERALL TITLE and no headline banner. White/light neutral background, generous whitespace, crisp Simplified Chinese, exact code identifiers, tasteful blue/teal/amber/violet semantic accents, refined flat diagram. All letters and arrows legible at ordinary display size. Lines terminate visibly at the correct object; avoid ambiguous joins and overlaps. No watermark or logo.
+
+Overall composition:
+Three tiers of ENTITIES, not a sequence of procedural steps. Small local tier labels are allowed:
+"调度与规则"
+"请求容器"
+"资源与缓存"
+Place control entities along the top, two spacious request containers in the middle, and the resource relationship network in the lower half. Use containment drawings for things that really contain items. Relationships and whitespace should dominate over text. Prefer short edge labels rather than explanatory paragraphs.
+
+TOP TIER:
+Three small cards, left to right:
+A. "SchedulePolicy" / "排序规则", with a simple list icon.
+B. "Scheduler" / "协调请求与批次", with a simple coordinator icon.
+C. "PrefillAdder" / "判断哪些请求能入批", with a simple gate/check icon.
+Edges: Scheduler → SchedulePolicy labelled "调用"; Scheduler → PrefillAdder labelled "创建".
+A small bracket/connector from Scheduler to the two middle request containers is labelled "管理".
+Do not draw the three top entities as a chronological pipeline.
+
+MIDDLE TIER:
+Left: one outlined container labelled "waiting_queue" / "等待入批". It contains two or three little document cards, each only labelled "Req". No tokens, lengths, time stamps or fields.
+Right: one outlined container labelled "ScheduleBatch" / "批次中的请求". It contains one prominent "Req" card and one or two quieter Req cards. One small note beneath its name: "例如 running_batch：持续 Decode 的批次".
+Containment must clearly show that Req is an element held in the request containers. The prominent Req card in the batch will be the origin of reference connections below.
+One blue arrow from waiting_queue to ScheduleBatch labelled "选入 Req". Its meaning is a change in request membership, not copying tensor data.
+SchedulePolicy has a thin connector down to waiting_queue labelled "排序".
+PrefillAdder has a thin connector to the request-selection arrow labelled "筛选".
+No separate Prefill processing stages, finish stage, chunk loop or detailed retraction timeline. This drawing explains entity relationships.
+
+LOWER TIER:
+Arrange resources as a readable network: ReqToTokenPool on the left, KV allocator above KV pool in the middle, RadixCache on the right. Use a subtle open grouping boundary labelled "资源与缓存", without suggesting that Scheduler exclusively owns these resources.
+
+Left resource:
+"ReqToTokenPool"
+"请求槽位与 KV 编号映射"
+Icon: a tiny abstract table of a few blank rows, with one row highlighted. No numeric example and no fields.
+A connector from the prominent Req inside ScheduleBatch to this table is labelled "占用请求槽位".
+
+Center upper resource:
+"KV 分配器"
+"管理空闲 KV 编号"
+Icon: a few simple blank allocation tickets.
+One short vertical arrow down to the KV pool is labelled "分配 / 回收编号".
+Do NOT connect PrefillAdder directly to KV data generation.
+
+Center lower resource:
+"KV 池"
+"存放实际 K/V 数据"
+Icon: a simple memory grid with a few cells containing "K/V". No address examples, no per-layer diagram.
+A connector from ReqToTokenPool into KV 池 is labelled "按 KV 编号定位".
+
+Right resource:
+"RadixCache"
+"前缀 → KV 编号"
+A SIMPLE miniature tree of about five unlabelled nodes. Label just one representative node "TreeNode". No locks, no reference counts, no 0-to-1 transition, no algorithms, no detailed cleanup explanation. The tree belongs INSIDE the RadixCache card.
+A connector from the prominent Req inside ScheduleBatch to this TreeNode is labelled "引用命中节点". This is a reference, not containment: Req is not inside the radix tree.
+A connector from RadixCache to the KV pool is labelled "索引可复用 KV".
+The actual K/V stays in the pool; the tree only holds index metadata.
+
+STATE/RELATION LEGEND:
+One light dotted connector from the resources grouping boundary up the outside right margin to PrefillAdder, labelled "读取资源状态". It denotes an abstract dependency on resource state, not exact code calls. Keep it thin so it does not compete with the main relationships.
+At the bottom, only two short unobtrusive lines:
+"容器持有 Req，前缀树包含 TreeNode；引用关系连接请求与资源。"
+"规则读取状态，入批与释放改变状态。"
+No banner or large summary heading.
+
+Hard constraints:
+- This must be substantially SIMPLER than the reference. No detailed text panels, no bullet lists, no code-field lists, no memory address tables, no timestamps, no capacities, no budgets or formulas, no lock_ref, no prepare_for_extend, no algorithm steps, no internal diagrams beyond tiny icons.
+- The primary information is on labelled relationship edges and actual containment boundaries.
+- running_batch is an example instance of ScheduleBatch, not a separate class or a fixed nested sub-container.
+- ReqToTokenPool stores indices, KV pool stores data, RadixCache stores prefix-to-index metadata.
+- PrefillAdder judges admission and keeps budget state; it does not allocate the actual K/V tensor data.
+- Spell exactly: Scheduler, SchedulePolicy, PrefillAdder, waiting_queue, ScheduleBatch, running_batch, Req, ReqToTokenPool, RadixCache, TreeNode.
+- Keep title-free landscape composition.

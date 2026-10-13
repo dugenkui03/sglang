@@ -150,6 +150,7 @@ def resolve_layer_indices(
     model_num_layers = _compute_model_num_layers(
         model=model, model_config=model_config, is_draft_worker=is_draft_worker
     )
+    # NOTE 确定当前流水线并行（Pipeline Parallelism）阶段负责的层范围。
     pp_range = _resolve_pp_layer_range(model=model, model_num_layers=model_num_layers)
     num_effective_layers = pp_range.end_layer - pp_range.start_layer
 

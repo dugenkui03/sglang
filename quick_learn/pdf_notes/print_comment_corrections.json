@@ -1,0 +1,515 @@
+[
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 389,
+    "old": "        #   读写 KV cache",
+    "new": "        #   读写卷积状态 conv_states 与递推状态 ssm_states",
+    "reason": "这里构造 RadixLinearAttention，GDN 后端读取卷积与递推状态，而非普通逐 token KV cache。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 390,
+    "old": "        #   计算注意力分数",
+    "new": "        #   执行因果卷积，准备 Q/K/V",
+    "reason": "GDNAttnBackend 使用 causal_conv1d_update/causal_conv1d_fn。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 391,
+    "old": "        #   softmax",
+    "new": "        #   根据 a、b 等参数进行门控递推，不使用 softmax",
+    "reason": "GDN 的计算不经过标准 softmax 注意力。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 392,
+    "old": "        #   V 的加权和",
+    "new": "        #   更新历史状态并计算本轮输出",
+    "reason": "GDN 从递推状态计算注意力输出。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 968,
+    "old": "        # tag self.attn_tp_size、self.kv_tp_size 等参数配置可知 QKV head 数量不一样",
+    "new": "        # tag self.attn_tp_size、self.kv_tp_size 决定本卡 Q 与 K/V 的头数；Q 头数与 KV 头数可以不同",
+    "reason": "Q与KV头数也可以相同，取决于模型配置及并行度。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 969,
+    "old": "        #   但是，QKV 维度一定是一样的",
+    "new": "        #   这里 Q/K/V 的每个头共用 head_dim；拼接所有头后的 q_size 与 kv_size 可以不同",
+    "reason": "区分单头维度与总投影宽度，且不推广到所有注意力实现。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1014,
+    "old": "            self.head_dim, # 头数",
+    "new": "            self.head_dim, # 每个头的向量维度",
+    "reason": "head_dim 是单头维度，并非头数。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1121,
+    "old": "            NOTE 对 KV 进行归一化，目的是控制 Q @ K.T 的结果尺度（我之前一直以为是在计算之后控制的）",
+    "new": "            NOTE 对 Q、K 进行归一化，目的是控制 Q @ K.T 的结果尺度（我之前一直以为是在计算之后控制的）",
+    "reason": "本方法只对 q、k 归一化，不处理 v。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1211,
+    "old": "        # 调用链路： -> QKVParallelinear.super().. -> ColumnParallelinear.forward() -> UnquantizedLinearMethod.apply()",
+    "new": "        # 调用链路： QKVParallelLinear 对象调用 -> 继承的 ColumnParallelLinear.forward() -> quant_method.apply()；未量化时为 UnquantizedLinearMethod.apply()",
+    "reason": "QKVParallelLinear 没有先执行自己的 forward 再调用 super.forward；量化实现取决于配置。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1308,
+    "old": "        hidden_states: torch.Tensor,  # 没缓存token对应的 embedding",
+    "new": "        hidden_states: torch.Tensor,  # 本轮 token 在当前层的 hidden_states（已经过输入归一化）",
+    "reason": "self_attention 接收当前层隐状态，不是始终接收原始 embedding。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1356,
+    "old": "        hidden_states: torch.Tensor,  # 本轮输入token embedding 的结果",
+    "new": "        hidden_states: torch.Tensor,  # 当前 Decoder 层输入的 hidden_states；首层来自 embedding，后续层来自上一层",
+    "reason": "逐层前向时隐状态不断变化，并非每层都是 embedding 原值。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1541,
+    "old": "            #   layers_block_type 是个函数，将类型统一成了： attention(=full_attention) 和 linear_attention",
+    "new": "            #   layers_block_type 是属性：按 full_attention_interval 生成 attention（全注意力）和 linear_attention 的逐层类型列表",
+    "reason": "Qwen3_5TextConfig 继承 Qwen3NextConfig 的 @property，当前实现按间隔生成，不是单纯映射 layer_types 字符串。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1565,
+    "old": "        # NOTE 创建所有的 transformer layer",
+    "new": "        # NOTE 创建当前 PP stage 负责的 transformer layer，其他层用占位模块表示",
+    "reason": "make_layers 按 start_layer/end_layer 创建实际层。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1611,
+    "old": "        \"\"\"这里仅仅 embedding 和 transformer 计算\"\"\"",
+    "new": "        \"\"\"这里执行 embedding、当前 PP stage 的 transformer 层计算；最后一个 stage 再执行最终 norm\"\"\"",
+    "reason": "该方法包含末尾 self.norm，原注释遗漏归一化。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1614,
+    "old": "        #   embedding // 只有第一层 transformer 需要计算",
+    "new": "        #   embedding 在第一个 PP stage、进入 transformer 层之前计算；若已有 input_embeds 则直接使用",
+    "reason": "Embedding 是独立模块，条件为 pp_group.is_first_rank，不是第一层 transformer 内部。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_5.py",
+    "line": 1631,
+    "old": "            # NOTE 遍历 每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer",
+    "new": "            # NOTE 遍历当前 PP stage 负责的每一层 transformer layer，layer 也是 nn.Module 的实现，是 Qwen3_5AttentionDecoderLayer 或者是 Qwen3_5LinearDecoderLayer",
+    "reason": "实际循环 range(self.start_layer,self.end_layer)。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_vl.py",
+    "line": 1318,
+    "old": "                    #   [x, hidden_size] * [hidden_size, vocal_size] -> [x, vocal_size] 表示词表每个token的输出可能性分数",
+    "new": "                    #   [x, hidden_size] @ weight.T -> [x, vocab_size]：得到词表各 token 的 logits（未归一化分数，TP 时权重可按词表分片）",
+    "reason": "修正 vocab 拼写，并区分 logits 和概率；权重可能为本卡词表分片。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_vl.py",
+    "line": 1449,
+    "old": "        input_ids: torch.Tensor,  # tip [a,b,c...] 是输入 每个请求最新输入 tokenID",
+    "new": "        input_ids: torch.Tensor,  # tip 本轮参与计算的 token ID 拼接成一维；普通 decode 通常每请求一个，prefill 可以多个",
+    "reason": "input_ids 不是所有模式下都每请求只有一个最新token。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_vl.py",
+    "line": 1476,
+    "old": "            # hidden_states 形状是 [num_tokens, hidden_size]",
+    "new": "            # 最后一个 PP stage 的 hidden_states 为 [num_tokens, hidden_size]；中间 stage 返回 PPProxyTensors",
+    "reason": "文本模型非最后PP stage返回PPProxyTensors。"
+  },
+  {
+    "file": "python/sglang/srt/models/qwen3_vl.py",
+    "line": 1477,
+    "old": "            #   num_tokens：prefill 的时候等于输入token之和；decode的时候等于请求数量",
+    "new": "            #   num_tokens：prefill 为各请求本轮实际计算的 token 数之和；普通 decode 通常等于本轮请求数量",
+    "reason": "分块prefill和前缀缓存复用时不等于完整输入token总数。"
+  },
+  {
+    "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+    "line": 346,
+    "old": "            weight_loader=self.weight_loader,  # create_weights()-> 给 VocabParallelEmbedding 创建 weight 权重空间(没数据)，weight_loader 将具体的权重数据拷贝到空间中",
+    "new": "            weight_loader=self.weight_loader,  # create_weights()-> 给 VocabParallelEmbedding 分配尚未初始化的 weight 参数空间，并将 weight_loader 回调附到 weight 上；随后回调拷贝本卡权重分片",
+    "reason": "torch.empty并非零/没有数据；create_weights此处保存回调而非立即调用。"
+  },
+  {
+    "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+    "line": 541,
+    "old": "                # NOTE token -> embedding，调用到 UnquantizedEmbeddingMethod.embedding()",
+    "new": "                # NOTE token -> embedding，未量化时调用 UnquantizedEmbeddingMethod.embedding()",
+    "reason": "self.quant_method 也可能来自量化配置。"
+  },
+  {
+    "file": "python/sglang/srt/layers/linear.py",
+    "line": 991,
+    "old": "        quant_config: Optional[QuantizationConfig] = None, # Qwen3_5AttentionDecoderLayer 调用过来的时候为 None",
+    "new": "        quant_config: Optional[QuantizationConfig] = None, # 由调用方传入量化配置；未使用量化配置时为 None",
+    "reason": "Qwen3_5AttentionDecoderLayer 将自身 quant_config 原样向下传递。"
+  },
+  {
+    "file": "python/sglang/srt/layers/quantization/unquant.py",
+    "line": 204,
+    "old": "        # NOTE 给 layer/VocabParalellelEmbedding 创建变量 weight 并赋 torch.empty(...)",
+    "new": "        # NOTE 把 torch.empty(...) 创建的 Parameter 注册为 layer.weight（尚未加载实际权重）",
+    "reason": "注册的是Parameter对象；torch.empty值未初始化。"
+  },
+  {
+    "file": "python/sglang/srt/layers/quantization/unquant.py",
+    "line": 206,
+    "old": "        # NOTE 给 layer/VocabParalellelEmbedding 数值属性，包括 weight_loader() 方法",
+    "new": "        # NOTE 给 weight 参数对象附加属性，包括 embedding 层的 weight_loader 回调",
+    "reason": "set_weight_attrs 的目标是 weight 参数，而不是 layer。"
+  },
+  {
+    "file": "python/sglang/srt/layers/quantization/unquant.py",
+    "line": 207,
+    "old": "        #     在 x 地方统一加载模型",
+    "new": "        #     随后由模型 load_weights() 取出并调用该回调，拷贝实际权重",
+    "reason": "原注释 x 为未解决占位，调用点已经明确。"
+  },
+  {
+    "file": "python/sglang/srt/layers/quantization/unquant.py",
+    "line": 222,
+    "old": "            layer.weight,  # tip weight (Tensor): The embedding matrix with number of rows equal to the maximum possible index + 1, // 类似 [vocab_size, hidden_size] 向量，input_ 会来查表获取对应token的embedding",
+    "new": "            layer.weight,  # tip weight (Tensor): The embedding matrix with number of rows equal to the maximum possible index + 1, // 本卡权重形状为 [num_embeddings_per_partition, hidden_size]，input_ 会来查表获取对应token的embedding",
+    "reason": "该embedding权重按词表TP分片且可能padding，不总是全局vocab_size。"
+  },
+  {
+    "file": "python/sglang/srt/model_loader/loader.py",
+    "line": 982,
+    "old": "                # NOTE 重点，init 模型相关类，比如 Qwen3_5ForConditionalGeneration.__init()__()",
+    "new": "                # NOTE 重点，init 模型相关类，比如 Qwen3_5ForConditionalGeneration.__init__()",
+    "reason": "修正方法名笔误。"
+  },
+  {
+    "file": "python/sglang/srt/model_loader/loader.py",
+    "line": 990,
+    "old": "            #   1）_get_all_weights()   // 下载所有模型权重",
+    "new": "            #   1）_get_all_weights() 返回权重生成器；遍历时读取权重，需要时准备或下载文件",
+    "reason": "该函数是generator，调用时不立即下载；本地目录不下载。"
+  },
+  {
+    "file": "python/sglang/srt/model_loader/loader.py",
+    "line": 999,
+    "old": "                model,  # tip 模型架构类，具体权重数据还没加载",
+    "new": "                model,  # tip 模型对象，实际 checkpoint 权重数据尚未加载",
+    "reason": "_initialize_model 返回的是实例，不是类。"
+  },
+  {
+    "file": "python/sglang/srt/model_loader/loader.py",
+    "line": 1000,
+    "old": "                # NOTE 模型下载链路",
+    "new": "                # NOTE 权重生成器被遍历后进入以下准备链路；使用本地目录时跳过下载",
+    "reason": "避免认为调用_get_all_weights本身同步下载且无条件下载。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1217,
+    "old": "        # ipc in-processs communication 进程内通信",
+    "new": "        # IPC = Inter-Process Communication，进程间通信。",
+    "reason": "IPC 不是 in-process communication。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1720,
+    "old": "            # NOTE 【核心】inference + sample",
+    "new": "            # NOTE 【核心】执行模型前向得到 logits；普通生成的采样由调用方随后触发。",
+    "reason": "_forward_raw 返回 ModelRunnerOutput，没有在这里调用 sample。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1914,
+    "old": "                # NOTE 普通的 inference + sample链路",
+    "new": "                # NOTE 普通 eager 前向链路：得到 logits，采样在后续单独执行。",
+    "reason": "EagerRunner.execute 不负责普通生成采样。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1135,
+    "old": "        1. 当前 scheduler 应该加载哪一份模型权重：按 tp_rank / pp_rank 只保留自己那份切片，",
+    "new": "        1. 建立 tp_rank / pp_rank 等并行上下文，供后续加载器选择本卡的权重切片，",
+    "reason": "初始化通信负责建立上下文，实际加载和切片在后续加载器/weight_loader。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1136,
+    "old": "           各卡从磁盘各读各的，加载本身不通信（R-Fork 等远程加载除外）",
+    "new": "           常规文件加载路径由各进程读权重；远程加载等路径另有数据传输。",
+    "reason": "避免绝对地断言所有加载过程均不通信。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/model_runner.py",
+    "line": 1138,
+    "old": "           - TP（Tensor Parallelism）：每层 all-reduce，把各卡算出的部分结果相加",
+    "new": "           - TP（Tensor Parallelism）：按层与实现执行 all-reduce 等通信，合并各卡的部分计算结果",
+    "reason": "不是模型每一层或每个 TP 算子都必有 all-reduce。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+    "line": 809,
+    "old": "            # 每个请求上一次推理结果tokenID，要给到模型：计算 kv；推理下一个 token",
+    "new": "            # 本轮待计算的 token ID；prefill 是未缓存片段，普通 decode 是各请求上轮生成的 token。",
+    "reason": "input_ids 取决于 forward_mode，不能只描述 decode。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+    "line": 813,
+    "old": "            # 各个请求的输入长度，是个 tensor",
+    "new": "            # 各请求截至本轮输入末尾的总序列长度，包含已缓存前缀与本轮输入；形状为 [batch_size]。",
+    "reason": "seq_lens 不是仅本轮新输入的 token 数。"
+  },
+  {
+    "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+    "line": 111,
+    "old": "    # tip auto 给 IntEnum 自动编号，从0开始递增",
+    "new": "    # tip auto 给 IntEnum 自动编号；默认从 1 开始递增。",
+    "reason": "IntEnum auto 默认值从 1 开始。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 1315,
+    "old": "        \"\"\"extend_range 记录本轮要计算的 token 在 full_untruncated_fill_ids\"\"\"",
+    "new": "        \"\"\"extend_range 记录本轮待计算 token 在 full_untruncated_fill_ids 中的 [start, end) 区间。\"\"\"",
+    "reason": "补足区间定义，避免把整个 fill_ids 当作本轮输入。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 1319,
+    "old": "        \"\"\"返回本批次要计算的批次：肯定是从0开始、但是可能执行到某个阶段\"\"\"",
+    "new": "        \"\"\"返回截至本轮结束位置的完整 token 序列，包含已缓存前缀；本轮新输入还需去掉该前缀。\"\"\"",
+    "reason": "get_fill_ids 从 0 截到 extend_range.end，不代表全部元素都要本轮重算。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2144,
+    "old": "    # tip 每个请求上一次推理结果tokenID，要给到模型：计算 kv；推理下一个 token",
+    "new": "    # tip 本轮待计算的 token ID：prefill 为未缓存片段；普通 decode 为每个请求上轮生成的 token。",
+    "reason": "input_ids 不能一概解释成上轮结果。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2164,
+    "old": "    # 各个请求的输入长度，是个 tensor",
+    "new": "    # 各请求截至本轮输入末尾的总序列长度，包含已缓存前缀和本轮输入。",
+    "reason": "seq_lens 区分总序列长度与新增输入长度。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2304,
+    "old": "            # RadixCache（Scheduler、RadixCache、显卡、TpModelWorker、ModelRunner 是一一对应的；",
+    "new": "            # 常规部署下，本 Scheduler 使用对应 worker 的 RadixCache 与本卡缓存池；",
+    "reason": "Scheduler/ModelRunner/物理卡并非所有配置都严格一一对应，例如 draft worker。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2312,
+    "old": "            spec_algorithm=spec_algorithm,  # 投机函数",
+    "new": "            spec_algorithm=spec_algorithm,  # 推测解码算法配置",
+    "reason": "spec_algorithm 为算法配置/枚举，不是函数。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2483,
+    "old": "        # 每个请求的截止位置，也是本轮输入token（包括缓存要计算的）的总长度",
+    "new": "        # 每个请求截至本轮末尾的总序列长度，包含命中缓存的前缀和本轮待计算 token。",
+    "reason": "原注释把缓存与待计算长度含混地混称为输入 token。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2485,
+    "old": "        # 在当前prefill token数量和输入数量，取最大的组合成 列表",
+    "new": "        # 每个请求取“本轮截止位置”与“原始提示词长度”的较大值。",
+    "reason": "max 比较的是序列末尾位置与原始提示词长度，不是本轮 prefill token 数。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 2489,
+    "old": "        # 本次要参与计算的 token 长度（和 input_ids 数据相同，但是后续使用不同）",
+    "new": "        # 各请求本轮待计算 token 的数量；对应 input_ids 中各段的长度。",
+    "reason": "extend_lens 是长度而不是 input_ids 的相同数据。"
+  },
+  {
+    "file": "python/sglang/srt/managers/schedule_batch.py",
+    "line": 3608,
+    "old": "    # 本轮要计算的 batch，要么是 prefill（EXTEND），要么是 decode（DECODE）",
+    "new": "    # 本轮要计算的 batch，例如 prefill（EXTEND）、decode（DECODE）或混合批（MIXED）。",
+    "reason": "ForwardMode 不只 EXTEND 和 DECODE。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 259,
+    "old": "    NOTE 映射请求到他的 KV Index，这里保存的只是 KV 编号/index，数据保存在 req_to_token 中",
+    "new": "    NOTE req_to_token 保存请求槽位到 KV 编号的映射；实际 K/V 向量保存在 token_to_kv_pool。",
+    "reason": "区分映射表与实际 KV 数据。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 282,
+    "old": "        NOTE 形状是 形状是 [_alloc_size + 1, max_context_len] tensor 保存了每个请求到这个请求中所有token对应的 KV 编号",
+    "new": "        NOTE req_to_token 形状为 [_alloc_size, max_context_len]，保存请求槽位、token 位置到 KV 编号的映射。",
+    "reason": "torch.zeros 实际维度没有再加 1。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 283,
+    "old": "             NOTE - _alloc_size 是能同时执行的请求数量，+1 是因为第一行不保存数据",
+    "new": "             NOTE _alloc_size = size + 1；size 个真实请求槽位之外，编号 0 留给补齐的假请求。",
+    "reason": "_alloc_size 已含保留行。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 292,
+    "old": "        # NOTE 同时执行请求的最大数量",
+    "new": "        # NOTE size 个真实请求槽位，加上编号 0 的保留行。",
+    "reason": "_alloc_size 比真实请求容量多一行。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 299,
+    "old": "                # NOTE 形状是 [_alloc_size + 1, max_context_len]，_alloc_size 表示同时最多跑的请求数量",
+    "new": "                # NOTE 形状是 [_alloc_size, max_context_len]；_alloc_size 已包含编号 0 的保留行。",
+    "reason": "注释重复加一，与实际分配形状矛盾。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 305,
+    "old": "        # NOTE 保存 req slot 的编号，从 1 到 _alloc_size",
+    "new": "        # NOTE 空闲 req slot 编号为 1 到 _alloc_size - 1，即 1 到 size。",
+    "reason": "range 右边界不包含。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 319,
+    "old": "        NOTE 给 list[Req] 分配 请求编号",
+    "new": "        NOTE 给 list[Req] 分配或复用 req slot，并保存到 req_pool_idx；这不是客户端 rid。",
+    "reason": "内部请求槽位与客户端 rid 不同。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 1865,
+    "old": "        head_num: k/v 向量的 head num",
+    "new": "        head_num: 本缓存池在本卡保存的 K/V head 数量",
+    "reason": "TP 时是本卡 head 数，不是总头数。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 1868,
+    "old": "        dtype：向量每个元素占用的字节数量，比如 bf16 占 2 字节，fp8 占 1 字节",
+    "new": "        dtype：缓存元素的数据类型，例如 bfloat16 每个元素 2 字节，float8 每个元素 1 字节",
+    "reason": "dtype 是类型，不是字节数变量。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 1869,
+    "old": "        layer_num：跟模型层数一致",
+    "new": "        layer_num：本缓存池所管理的层数，不一定等于整个模型的总层数",
+    "reason": "PP 和混合 attention 池不一定保存全模型全部层。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 1871,
+    "old": "        综上，一个 kv index 占用的容量：",
+    "new": "        普通、各层维度相同且不计量化辅助数据时，一个 KV 编号的 K/V 数据容量：",
+    "reason": "原公式需排除量化 scale 等额外开销和异构层。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/memory_pool.py",
+    "line": 2391,
+    "old": "        NOTE 读取 V 向量的方法",
+    "new": "        NOTE 读取本层 K 缓冲区；需要时先等待该层的 KV 传输完成。",
+    "reason": "get_key_buffer 返回 K，不是 V。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/radix_cache.py",
+    "line": 315,
+    "old": "    NOTE Scheduler - RadixCache - 物理显卡 是一一对应的",
+    "new": "    NOTE 常规每卡一个 Scheduler 的部署中，各进程维护本卡对应的 RadixCache；多卡请求可在各卡有对应缓存。",
+    "reason": "物理 GPU 与逻辑缓存对象不是所有配置都严格一一对应。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/radix_cache.py",
+    "line": 648,
+    "old": "                #   KV Cache Pool 中的 KV Index 分为3类：",
+    "new": "                #   在普通前缀缓存路径中，KV 编号可按分配状态粗分为：",
+    "reason": "此前三类描述不应视作覆盖所有缓存变体的严格分类。"
+  },
+  {
+    "file": "python/sglang/srt/mem_cache/radix_cache.py",
+    "line": 650,
+    "old": "                #       2. 被分配但是没有使用的：比如decode计算对应的KV Index；",
+    "new": "                #       2. 已分配但尚未纳入前缀树的：可已写入 K/V，也可正在等待本轮写入；",
+    "reason": "已分配但不在 radix 中的 KV 不等于没有使用。"
+  },
+  {
+    "file": "python/sglang/srt/managers/scheduler.py",
+    "line": 1893,
+    "old": "        1. RequestReceiver.recv_request()：接收并广播 TokenizerManager的请求",
+    "new": "        1. SchedulerRequestReceiver.recv_requests()：接收并广播 TokenizerManager 的请求",
+    "reason": "改正实际类名和复数方法名。"
+  },
+  {
+    "file": "python/sglang/srt/managers/scheduler.py",
+    "line": 1935,
+    "old": "            # 1）本轮要计算的 batch，要么是 prefill（EXTEND），要么是 decode（DECODE）",
+    "new": "            # 1）本轮要计算的 batch，例如 EXTEND、DECODE 或混合批 MIXED，也可能为空。",
+    "reason": "NextBatchPlan 支持 mixed/idle 等，不仅两种模式。"
+  },
+  {
+    "file": "python/sglang/srt/managers/scheduler.py",
+    "line": 3422,
+    "old": "            # NOTE 【重要】每次请求都有优先尝试 get_new_batch_prefill 获取 prefill 任务",
+    "new": "            # NOTE 普通调度路径通常先尝试 get_new_batch_prefill，获取可运行的 prefill 批。",
+    "reason": "描述对象是每轮调度而非每个请求，且有专门模式分支。"
+  },
+  {
+    "file": "python/sglang/srt/managers/scheduler.py",
+    "line": 3703,
+    "old": "            # tip 如果在 tag 1 或者 tag 2处已经判断运行资源使用完了、即 batch_is_full 为true，则后续请求都在这里break、不组装batch",
+    "new": "            # tip batch_is_full 时尝试优先级抢占；未启用抢占或抢占失败才 break，保留此前已选中的请求。",
+    "reason": "原注释忽略 preempt_to_schedule 成功时仍继续调度。"
+  },
+  {
+    "file": "python/sglang/srt/managers/scheduler.py",
+    "line": 4238,
+    "old": "                # NOTE 给 batch.input_ids 赋值：每个请求上次推理的 token 都保存在 future_map中（req_slot -> tokenID)",
+    "new": "                # NOTE 组装本轮 input_ids：prefill 取待计算片段，普通 decode 按 req slot 从 FutureMap 取上轮 token。",
+    "reason": "resolve_forward_inputs 不只执行 decode 的 FutureMap gather。"
+  },
+  {
+    "file": "python/sglang/srt/managers/tp_worker.py",
+    "line": 691,
+    "old": "                    logits_output, forward_batch  # 保存了每个 token 出现可能的分数",
+    "new": "                    logits_output, forward_batch  # 前者含 logits，后者提供批次与采样参数。",
+    "reason": "原注释将分数含混地归到 forward_batch。"
+  },
+  {
+    "file": "python/sglang/srt/managers/detokenizer_manager.py",
+    "line": 453,
+    "old": "                # in a prior \"�\" recovery step; we skip it from this step's",
+    "new": "                # in a prior \"\\ufffd\" recovery step; we skip it from this step's",
+    "kind": "display_escape",
+    "reason": "将 Unicode replacement character 写成等价转义，避免 PDF 字符映射错误；代码语义不变。"
+  },
+  {
+    "file": "python/sglang/srt/managers/detokenizer_manager.py",
+    "line": 456,
+    "old": "                if new_text and not new_text.endswith(\"�\"):",
+    "new": "                if new_text and not new_text.endswith(\"\\ufffd\"):",
+    "kind": "display_escape",
+    "reason": "将 Unicode replacement character 写成等价转义，避免 PDF 字符映射错误；代码语义不变。"
+  }
+]

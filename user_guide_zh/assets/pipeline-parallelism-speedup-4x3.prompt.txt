@@ -1,0 +1,82 @@
+Use case: scientific-educational
+Asset type: Chinese learner-guide infographic explaining pipeline parallelism speedup.
+Primary request: Explain visually why all input chunks still depend on earlier work, yet total completion time can fall from 4 seconds to 3 seconds because two GPU groups work at the same time. The central teaching moment is the second second, interval [1,2].
+
+Canvas: exact 4:3 landscape, high resolution, fully opaque white background. No large overall title. Use clean textbook typography in simplified Chinese, dark navy text, believable illustrated GPU cards with layer stacks, distinct orange for input chunk A and blue for chunk B, pale gray for waiting. Actual timelines with an identical scale are essential; this is a conceptual hardware illustration plus a precise schedule comparison, not a software function flowchart. No decorative mascots, logos or code.
+
+Composition:
+A compact setup strip at top (~15% height), then two wide timeline panels stacked vertically (~28% height each), then a concise dependence-and-takeaway strip at bottom (~25% height). Wide left-to-right time axes, no dense text.
+
+SETUP STRIP:
+Show one input sequence as orange token tiles A followed by blue token tiles B, labeled "同一请求：输入先 A 后 B".
+Show two physical GPU-group illustrations connected by a forward arrow:
+"GPU 组 1：模型前 10 层" → "GPU 组 2：模型后 10 层".
+Each image chunk must travel through BOTH groups. The two groups each own a different set of layers.
+Small clear assumption line:
+"教学假设：每组处理一块用 1 秒，处理完整输入用 2 秒；忽略通信及分块额外开销。"
+
+PANEL 1:
+Heading: "① 整段输入传递：总耗时 4 秒"
+Use a horizontal timeline with 5 equally spaced boundary ticks: 0秒, 1秒, 2秒, 3秒, 4秒.
+Two aligned rows, with illustrated GPU badges on the left:
+Row "GPU 组 1｜前 10 层":
+- one continuous purple compute bar occupying [0,2], labeled "完整输入 A+B".
+- light gray waiting area [2,4], labeled "等待".
+Row "GPU 组 2｜后 10 层":
+- light gray waiting area [0,2], labeled "等待前段结果".
+- one continuous purple compute bar occupying [2,4], labeled "完整输入 A+B".
+Draw a thin downward dependency arrow at time 2 from the first row end to second row start.
+Completion flag at time 4, labeled "全部完成".
+Do not divide the full-input bar into A/B subcomputations: in this panel the entire input is handed over together.
+
+PANEL 2:
+Heading: "② 分块流水线：总耗时 3 秒"
+Use the SAME horizontal positions and scale, again ticks 0秒, 1秒, 2秒, 3秒, 4秒.
+Row "GPU 组 1｜前 10 层":
+- orange bar A from [0,1], label "A".
+- blue bar B from [1,2], label "B".
+- light gray idle area [2,3], label "本段已完成".
+Row "GPU 组 2｜后 10 层":
+- gray waiting area [0,1], label "等待".
+- orange bar A from [1,2], label "A".
+- blue bar B from [2,3], label "B".
+At time 3, a clearly vertical finish line and flag "全部完成".
+The full-width [3,4] area after the finish line is pale green, with a bracket along that final one-second interval labeled "提前 1 秒完成". It is SAVED ELAPSED TIME, not active GPU work.
+Use thin dependency arrows downwards from GPU 1 A's end at t=1 to GPU 2 A's start at t=1, and from GPU 1 B's end at t=2 to GPU 2 B's start at t=2.
+MOST IMPORTANT: frame the shared interval [1,2] spanning BOTH GPU rows with a prominent green outline and very light green column highlight, without changing the A/B bar colors. Add an unmistakable callout pointing exactly to this interval:
+"提速就在第 2 秒！"
+"GPU 1 算 B，GPU 2 算 A，同时进行"
+At interval [1,2], GPU1 must have BLUE B and GPU2 must have ORANGE A. Never swap these.
+There must be NO orange/blue computing after t=3.
+
+BOTTOM:
+Two balanced compact illustrated explanations:
+LEFT has a clock 4s → 3s, and four small compute tiles to indicate the same amount of work in both examples.
+Heading "计算工作量相同，执行时间重叠"
+Body:
+"两组 GPU 各计算 2 秒"
+"其中 1 秒同时工作，总耗时变为 3 秒"
+RIGHT has two small local KV memory stacks attached to the respective GPU-group badges, to explain dependencies; don't draw KV being sent from GPU1 to GPU2.
+Heading "依赖仍然保留"
+Body:
+"每块仍依次经过前 10 层 → 后 10 层"
+"B 在前段使用 A 的前段 KV"
+"B 在后段使用 A 的后段 KV"
+Small bilingual term label "流水线并行 Pipeline Parallelism"
+Footer:
+"示意非实测：实际收益取决于分块大小、算子效率与通信开销。"
+
+Accuracy: The timing is an explicitly idealized teaching example, not a benchmark or a claim that PP always accelerates. Causal attention dependency is preserved within each local layer's KV cache; later chunk B at the front stage only needs A's front-stage state, while A runs the back stage. Each group performs two seconds of computation in either diagram, total four GPU-group-seconds of compute. End-to-end durations are exactly 4 and 3 seconds. No claim of 2x or 3x speedup. Pipeline filling/draining waits remain visible. All original layers and input work are retained. No impossible backward dependency arrows, no duplicate A or B in either group in panel 2. Precise bar placement and text legibility take precedence over ornamental effects.
+
+Generation mode: Built-in image_gen tool; new image.
+Context: User discussion of pipeline parallelism and causal-attention dependencies.
+Timing: Constructed teaching example, not measured SGLang performance.
+
+Revision prompt (built-in edit mode):
+Edit this existing Chinese pipeline-parallelism infographic. Preserve the full 4:3 landscape canvas, all panels, GPU illustrations, text, work bars, colors, layout and the correct green highlight of interval [1,2]. Make ONLY these precise corrections:
+
+1. In panel ②, the red dashed "全部完成" vertical line is incorrectly a little to the RIGHT of the 3秒 tick. Move that red dashed line LEFT so it is EXACTLY aligned with the 3秒 tick and the RIGHT EDGE of GPU组2's blue B bar (approximately x=1073 on the 1448px-wide source). Move the red flag and its "全部完成" label with it. The pale green saved-time region must start on that exact same boundary t=3. The double-ended "提前 1 秒完成" green arrow must span exactly t=3 to t=4, starting at x=1073 and ending at the 4秒 tick x=1318. The B compute bar still ends at exactly t=3. Leave the correctly positioned time ticks and compute bars in place.
+
+2. In the bottom-left comparison, replace only the small line "总计 4 个 GPU·秒（两种方式相同）" with "每组计算 2 秒，两种方式工作量相同". Keep the four computation tiles and the 4秒→3秒 clocks.
+
+Do not change any other content. Maintain sharp readable Chinese and exact 4:3 aspect ratio, opaque white background.

@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>基本常识八：普通 MLP、门控 MLP 与 MoE</title><style>
+@page { size: A4 portrait; margin: 12mm 12mm 14mm;
+  @bottom-right { content: counter(page) " / " counter(pages); font: 9pt "Noto Sans CJK SC"; color: #666; } }
+* { box-sizing: border-box; }
+body { margin: 0; color: #17202a; font: 10.7pt/1.36 "Noto Sans CJK SC", sans-serif; }
+.figure { width: 100%; margin: 0 0 6mm; break-inside: avoid; }
+.figure img { display: block; width: 100%; height: auto; }
+h1 { font-size: 16pt; line-height: 1.35; margin: 0 0 5mm; }
+section { break-inside: avoid; margin: 0 0 6mm; }
+.section-1 { break-before: page; }
+h2 { font-size: 13pt; line-height: 1.35; margin: 0 0 3mm; }
+table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+th, td { border: 0.35pt solid #b9c1ca; padding: 1.8mm 2.4mm; text-align: left; vertical-align: top; overflow-wrap: break-word; }
+th { background: #edf1f5; font-weight: 700; }
+tbody tr:nth-child(even) { background: #f7f9fb; }
+code { font: 9.8pt/1.36 "DejaVu Sans Mono", "Noto Sans CJK SC", monospace; }
+</style></head><body><div class="figure"><img alt="三种 FFN 结构对比" src="../../user_guide_zh/assets/ffn-mlp-gated-moe-comparison.png"></div><h1>基本常识八：普通 MLP、门控 MLP 与 MoE</h1><section class="section-0"><h2>① 普通多层感知机(Multi-Layer Perceptron, MLP)</h2><table><colgroup><col style="width:37%"><col></colgroup><thead><tr><th>图中组件</th><th>一句话说明</th></tr></thead><tbody><tr><td>输入 <code>x</code></td><td>当前 token 的隐藏向量，维度为 <code>hidden_size</code>。</td></tr><tr><td><code>up_proj</code></td><td>线性投影(Linear Projection)，将输入向量扩展到中间维度。</td></tr><tr><td>激活函数 <code>GELU</code></td><td>激活函数(Activation Function)，对投影后的元素进行非线性变换。</td></tr><tr><td><code>down_proj</code></td><td>线性投影，将中间向量转换回 <code>hidden_size</code>。</td></tr><tr><td>输出 <code>y</code></td><td>本模块处理后的 token 向量，维度与输入相同。</td></tr></tbody></table></section><section class="section-1"><h2>② 门控 MLP(Gated MLP)</h2><table><colgroup><col style="width:37%"><col></colgroup><thead><tr><th>图中组件</th><th>一句话说明</th></tr></thead><tbody><tr><td>输入 <code>x</code></td><td>同上。</td></tr><tr><td><code>gate_proj</code></td><td>将输入投影为门控分支(gate)的向量。</td></tr><tr><td><code>up_proj</code></td><td>同上。</td></tr><tr><td>激活函数 <code>SiLU</code></td><td>激活作用同上，这里使用 <code>SiLU</code> 并作用于 gate 分支。</td></tr><tr><td>逐元素相乘 <code>⊙</code></td><td>计算 <code>SiLU(gate) × up</code>，得到门控后的中间向量。</td></tr><tr><td><code>down_proj</code></td><td>同上。</td></tr><tr><td>输出 <code>y</code></td><td>同上。</td></tr><tr><td><code>gate_up_proj</code></td><td>将 gate、up 两路权重合并，通过一次线性投影同时得到两路结果。</td></tr><tr><td><code>Qwen2MoeMLP</code></td><td>当前 Qwen3.5-0.8B 使用的门控 MLP 实现类。</td></tr></tbody></table></section><section class="section-2"><h2>③ 混合专家(Mixture of Experts, MoE)</h2><table><colgroup><col style="width:37%"><col></colgroup><thead><tr><th>图中组件</th><th>一句话说明</th></tr></thead><tbody><tr><td>输入 <code>x</code></td><td>同上。</td></tr><tr><td>路由器(Router)</td><td>根据当前 token 的向量选择专家，并给出用于合并结果的路由权重。</td></tr><tr><td>专家 0、专家 2</td><td>被选中的专家分别用自身权重对同一个 <code>x</code> 做 MLP 计算，内部可采用上面的门控结构。</td></tr><tr><td>专家 1</td><td>当前 token 未选中这个专家，因此它不参与这个 token 的计算。</td></tr><tr><td>权重 <code>0.7</code>、<code>0.3</code></td><td>示例中的路由权重(Routing Weights)，分别决定两个专家输出的贡献。</td></tr><tr><td>加权求和 <code>Σ</code></td><td>计算 <code>0.7 × y0 + 0.3 × y2</code>，合并被选中专家的输出。</td></tr><tr><td>输出 <code>y</code></td><td>同上。</td></tr><tr><td><code>Qwen2MoeSparseMoeBlock</code></td><td>当前项目中负责专家路由、专家计算和结果合并的 MoE 前馈模块实现类。</td></tr></tbody></table></section></body></html>

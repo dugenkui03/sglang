@@ -84,8 +84,8 @@ class HookRegistry:
     def register(
         cls,
         target: str,
-        hook: Callable,
-        hook_type: HookType = HookType.AFTER,
+        hook: Callable, # NOTE
+        hook_type: HookType = HookType.AFTER, # NOTE
         *,
         source: HookSource | None = None,
     ):
@@ -348,7 +348,9 @@ def _propagate_patch(original: object, wrapped: object, source_module: object) -
 
 
 def _wrap_fn(original_fn: Callable, hook: Callable, hook_type: HookType) -> Callable:
-    """Create a wrapper function based on the hook type."""
+    """Create a wrapper function based on the hook type.
+        NOTE 根据 hook_type 对 original_fn 进行包装
+    """
     if hook_type == HookType.REPLACE:
 
         @functools.wraps(original_fn)
@@ -399,6 +401,7 @@ def plugin_hook(
     type: HookType = HookType.AFTER,
 ) -> Callable:
     """Decorator that registers a function or class as a hook on *target*.
+    NOTE 通过注解使用 plugin
 
     Usage::
 

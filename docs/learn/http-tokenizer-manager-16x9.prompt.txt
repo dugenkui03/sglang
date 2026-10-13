@@ -1,0 +1,85 @@
+Use case: infographic-diagram
+Asset type: A Chinese educational infographic for a local SGLang source-code learning document.
+Primary request: Create one polished, information-rich but clearly readable LANDSCAPE infographic explaining HTTP service + TokenizerManager. Widescreen aspect ratio exactly 16:9; target 2560 × 1440 or higher with this ratio. This is a finished illustrated technical learning poster, not a website screenshot.
+Language: Simplified Chinese, with exact English code identifiers. All Chinese characters must be crisp and correctly written.
+Style: Clean technical textbook/editorial infographic; light near-white background, high-contrast dark navy text, blue input flow, orange interprocess submission arrows, green result-return arrows, violet multi-worker routing. Subtle pale panels, thin rules, restrained flat illustrations of documents, CPU, GPU, envelopes and process boundaries. Strong hierarchy and generous internal spacing. Absolutely no dark title gradient, no decorative clutter, no fake UI, no watermark.
+Typography: Large very legible Chinese title, clear section headings, short one-line or two-line explanatory captions, monospaced code names. Avoid tiny footnotes. Use 3 horizontal bands: header; a wide dominant core-flow panel (~43% height); three equal detail panels (~35% height); a compact footer strip (~10% height). Maintain comfortable outer margins.
+
+HEADER:
+Title verbatim: "一、HTTP 服务 + TokenizerManager"
+Subtitle verbatim: "一次纯文本、非流式请求：接收 → 分词 → 提交 → 等待 → 返回"
+Small scope badge: "普通部署 · 单请求 · stream=false"
+Small color key: "蓝：输入处理    橙：提交请求    绿：结果返回"
+
+MAIN WIDE PANEL — label "① 核心链路：请求发出去，结果按 rid 找回来"
+Draw a generous dashed process boundary covering the LEFT and CENTER, labeled "主进程：HTTP 服务 + TokenizerManager". To its RIGHT, outside this boundary, draw two vertically stacked process cards: Scheduler above, Detokenizer below.
+Inside the process boundary, the upper request flow goes LEFT TO RIGHT:
+- Two independent API branches on the left. Upper branch: "/v1/chat/completions" → "OpenAIServingChat" (caption "校验 · 对话模板 · 协议转换"). Lower branch: "/generate" → "原生接口入口". These branches merge directly into the central TokenizerManager box. Do NOT connect Chat to /generate.
+- On the merge arrow write "GenerateReqInput".
+- Central prominent box titled "TokenizerManager.generate_request". Inside, show three short numbered stages:
+  "1  登记请求状态：rid → state"
+  "2  准备输入：获取 token IDs"
+  "3  组装请求：token IDs + 采样参数"
+- An orange arrow from this box leaves the main-process boundary and reaches the Scheduler card. Arrow label in two lines: "_dispatch_to_scheduler → sock_send" / "发送 TokenizedGenerateReqInput".
+- Scheduler card text: "Scheduler 子进程" / "收请求 → 组 batch → 模型推理" / "普通部署同时处理 Prefill 与 Decode".
+- A green DOWN arrow leads from Scheduler to "Detokenizer 子进程" / "输出 token IDs → 文本".
+- From Detokenizer, a green result flow returns RIGHT TO LEFT through the LOWER part of the main-process boundary, without colliding with the input arrows. In logical order from right to left use four compact connected cards:
+  "handle_loop" / "持续接收下游结果"
+  → "_handle_batch_output" / "按 rid 保存结果，event.set()"
+  → "_wait_one_response" / "等待事件，完成后 yield"
+  → "_build_chat_response" / "组装完整 JSON → 客户端"
+- Between _handle_batch_output and _wait_one_response, label the connector "唤醒对应请求".
+- The last response card is explicitly the Chat response branch. A small caption "Chat 响应" is enough.
+- Include one small short note within the main panel: "非流式：中间输出累积，生成完成后一次返回。"
+Make arrow directions unmistakable and correct. Downstream GPU work belongs to Scheduler, not TokenizerManager. The return flow from Detokenizer must reach handle_loop before _handle_batch_output, then _wait_one_response, then the Chat response.
+
+BOTTOM LEFT DETAIL PANEL — label "② 输入 token 化，究竟做了什么？"
+A clear small diagram:
+"input_text" / "输入文本" → "tokenizer.encode(...)" → "input_ids" / "token ID 序列"
+Then these three concise explanatory items, all readable:
+"已有 input_ids → 直接复用；Chat 模板处理可能已完成分词。"
+"_create_tokenized_object：封装输入和采样参数，不会再次分词。"
+"普通文本分词通常在 CPU；input_embeds 通常为 None。"
+A highlighted formula bar:
+"总预算 = 输入 token 数 + max_new_tokens"
+Small caption directly below formula: "输入占多少 + 最多再生成多少，受模型上下文预算约束。"
+Do not say token IDs are vectors; do not show made-up exact token IDs.
+
+BOTTOM CENTER DETAIL PANEL — label "③ Socket：共用通信地址，两端收发"
+The key illustration is a horizontal send/receive pair:
+Left: "TokenizerManager" with "PUSH socket" below.
+Right: "Scheduler" with "PULL socket" below.
+An orange RIGHT-POINTING arrow connects PUSH to PULL. The connector label BETWEEN the endpoints says exactly, wrapped for legibility:
+"已分词请求"
+"（共用通信地址 scheduler_input_ipc_name）"
+Do not move the common-address label to an unrelated legend: it belongs on this connector.
+Below the left socket: "bind=True"; below the right socket: "bind=False → connect".
+Below this illustration write these short lines:
+"PUSH / PULL 决定收发；bind / connect 决定如何接入。"
+"sock_send = 序列化 + 发送"
+"Socket 是通信接口；这里由 ZeroMQ 提供消息通信。"
+"HTTP 是面向客户端的应用层协议。"
+This panel describes SINGLE tokenizer worker mode. Add small badge "单 worker". Do not draw HTTP as a transport underneath ZeroMQ.
+
+BOTTOM RIGHT DETAIL PANEL — label "④ 多 worker：多份输入处理进程"
+Show two parallel rows entering a shared router, then one scheduler:
+"请求 A → Tokenizer worker 0" (small line "处理输入、分词")
+"请求 B → Tokenizer worker 1" (small line "处理输入、分词")
+Both orange branches merge into "MultiTokenizerRouter" (caption "转发"), then orange arrow to "Scheduler".
+Use neat green dashed return branches from the router toward the two workers, conveying results routed back to the original worker. Keep return arrows distinct from submission arrows.
+Three short explanatory captions:
+"每个 worker 都在提交前处理输入，无需下游再次分词。"
+"提交可以共用地址；每个 worker 有自己的结果接收地址。"
+"http_worker_ipc：标记结果应返回哪个 worker。"
+The two workers process DIFFERENT requests concurrently; never portray one request requiring repeated tokenization in each worker.
+
+FOOTER STRIP — label "读代码时，记住这两行"
+Display the following exact two lines of code with an explanatory caption at the right:
+"gen = tokenizer_manager.generate_request(...)"
+Caption: "创建异步生成器，函数体尚未执行"
+"ret = await gen.__anext__()"
+Caption: "推进执行并等待下一次 yield；本例得到完整结果"
+Small final note: "__anext__() 不等于生成一个 token。"
+
+Overall constraints:
+Maintain 16:9 LANDSCAPE, not a portrait poster. Clear readable text and coherent arrows matter more than decoration. No cropped labels. No extra topics such as LoRA, multimodal or embeddings models. Do not imply separate Prefill and Decode services in ordinary deployment. Do not imply TokenizerManager performs GPU inference. Keep code spellings exact. Do not put the instructions or English scaffolding labels in the image.

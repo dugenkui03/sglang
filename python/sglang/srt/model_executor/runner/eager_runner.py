@@ -82,6 +82,8 @@ if TYPE_CHECKING:
 
 
 class EagerRunner(BaseRunner):
+    """NOTE 即时执行（Eager）链路，直接执行模型前向计算。"""
+
     def __init__(self, model_runner: ModelRunner, *, run_warmup: bool = True) -> None:
         super().__init__(model_runner)
         mr = model_runner
@@ -221,10 +223,12 @@ class EagerRunner(BaseRunner):
             forward_batch.forward_mode = ForwardMode.EXTEND
             mode = ForwardMode.EXTEND
         if mode.is_decode():
+            # NOTE Decode
             return self._execute_decode(forward_batch, pp_proxy_tensors)
         if mode.is_idle():
             return self._execute_idle(forward_batch, pp_proxy_tensors)
         if mode.is_extend(include_draft_extend_v2=True):
+            # NOTE Prefill
             return self._execute_extend(forward_batch, pp_proxy_tensors)
         raise ValueError(f"Invalid forward mode for eager runner: {mode}")
 
@@ -246,6 +250,15 @@ class EagerRunner(BaseRunner):
         forward_batch: ForwardBatch,
         pp_proxy_tensors=None,
     ) -> Union[LogitsProcessorOutput, PPProxyTensors]:
+        """
+        NOTE 执行一次 forward
+        返回结果：
+            不开 Pipeline Parallelism 或者是 Pipeline Parallelism 的最后一段 返回 LogitsProcessorOutput，
+                LogitsProcessorOutput#next_token_logits基本数据结构是 [请求数, vocab_size]：
+                    1）请求数量是指forward可以同时处理多个推理请求；
+                    2）vocab_size 是词汇表大小、也就是token总体数量，每个位置都记录了对应token的分数，后边归一化等处理后得到这个token被选中的概率
+            PP 的中间段：返回 PPProxyTensors，是要传给下一段卡的隐藏向量
+        """
         model_runner = self.model_runner
         enable_pdmux = self.enable_pdmux
         attn_backend, pdmux_ctx = self._resolve_decode_pdmux()
@@ -263,8 +276,11 @@ class EagerRunner(BaseRunner):
         ctx = device_timer_ctx(model_runner.device_timer, "decode")
 
         with ctx, pdmux_ctx:
+            # NOTE 进行一次 forward 计算
+            #  原生模型路径主要根据 config.json#architectures 及注册表选择实现
+            #  qwen3.8-27B 可以参考 Qwen3_5ForConditionalGeneration(Qwen3VLForConditionalGeneration)#forward()方法
             return model_runner.model.forward(
-                forward_batch.input_ids,
+                forward_batch.input_ids,  # 普通 Decode：每个请求本轮待计算的一个 token ID
                 forward_batch.positions,
                 forward_batch,
                 **kwargs,
@@ -272,9 +288,12 @@ class EagerRunner(BaseRunner):
 
     def _execute_extend(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # 推理入参
         pp_proxy_tensors=None,
     ) -> Union[LogitsProcessorOutput, PPProxyTensors, EmbeddingPoolerOutput]:
+        """
+        NOTE Prefill 推理链路
+        """
         model_runner = self.model_runner
         kwargs = model_runner._extend_forward_kwargs(forward_batch, pp_proxy_tensors)
 
@@ -378,6 +397,11 @@ class EagerRunner(BaseRunner):
                 # Other group-sharing models keep owning the layout in forward().
                 ret = self._execute_extend_cp(forward_batch, kwargs)
             else:
+                # NOTE qwen 3.5 架构模型看 Qwen3_5ForConditionalGeneration
+                #   对应模型卡 config.json 配置：
+                #       "architectures": [
+                #            "Qwen3_5ForConditionalGeneration"
+                #       ]
                 ret = model_runner.model.forward(
                     forward_batch.input_ids,
                     forward_batch.positions,

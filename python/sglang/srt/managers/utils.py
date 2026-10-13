@@ -49,7 +49,9 @@ def allocate_distinct_stream(device_module, avoid_streams):
 
 @dataclasses.dataclass
 class GenerationBatchResult:
+    # NOTE 保存每个 token 的分数
     logits_output: Optional[LogitsProcessorOutput] = None
+
     pp_hidden_states_proxy_tensors: Optional[PPProxyTensors] = None
     next_token_ids: Optional[
         Union[torch.Tensor, List[torch.Tensor], List[List[int]]]

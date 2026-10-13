@@ -1,0 +1,45 @@
+Use case: infographic-diagram
+Asset type: publication-ready Chinese educational infographic embedded in a SGLang learning article.
+Primary request: Explain Decode Context Parallelism (DCP) for a reader who knows Prefill and autoregressive Decode. Show exactly which part of generating ONE token is parallelized, its KV-cache structural basis, and the source of speedup.
+Format: landscape 4:3, preferably 2048 x 1536, sharp readable Chinese sans-serif, white background, navy headings, restrained blue/teal/purple/orange technical palette, flat illustrations, clear left-to-right data flow. No tall poster, watermark, robots or decorative GPU racks. Use the full canvas with generous internal spacing.
+
+Title (verbatim): "DCP：在生成一个 token 时并行处理历史上下文"
+Subtitle: "解码上下文并行（Decode Context Parallelism）"
+Scope caption: "示例：MLA 模型 · 同一个请求 · 4 张 GPU"
+
+TOP BAND — locate the optimization in time.
+Draw a left-to-right timeline:
+"预填充 Prefill 已完成" → "第 n 轮解码 Decode" → "输出 token n" → "下一轮：token n+1"
+Emphasize the current Decode box and draw a subtle zoom connector into the main attention diagram. Caption: "每一步内部并行；token 之间保留自回归依赖"
+Do not imply multiple future tokens of the same request are emitted independently by different GPUs.
+
+MAIN DIAGRAM — one attention layer, about 50% of canvas.
+Small heading: "历史位置 0～7 的 KV 已缓存"
+At left one query box: "本轮查询 Q". Its arrows fan out to FOUR clearly separated GPU rows:
+"GPU 0" / "保存并读取 KV 0、4" / "计算局部注意力"
+"GPU 1" / "保存并读取 KV 1、5" / "计算局部注意力"
+"GPU 2" / "保存并读取 KV 2、6" / "计算局部注意力"
+"GPU 3" / "保存并读取 KV 3、7" / "计算局部注意力"
+Illustrate each cached history position as a small labeled KV tile. Across the four GPUs show every position 0 through 7 exactly once. Position numbers denote complete KV entries for history tokens, NOT coordinates within one token's vector.
+Each GPU sends "局部结果 + LSE" to one logical communication-and-merge node labeled "跨卡通信与合并".
+Then arrow to "完整注意力结果" and a smaller continuation arrow "后续模型计算与采样" toward a single "token n".
+This merge node represents distributed logical merging, not a required fifth GPU or a central host.
+Inside/beneath merge node: "按归一化信息正确合并"
+Small footnote below diagram: "示意一个 MLA 注意力层；省略当前 token 的 KV 写入等细节。"
+
+BOTTOM BAND — two concise explanation cards.
+Card A heading: "为什么可以这样拆？"
+Text lines:
+"结构基础：MLA 多个查询头共享压缩 KV"
+"普通 TP：各卡仍保存、读取完整历史 KV"
+"计算基础：局部注意力 + LSE → 正确合并"
+Make clear that all history positions still contribute and that the diagram is specific to the MLA path described in this article. Do not generalize KV duplication to all attention architectures.
+
+Card B heading: "加速来自哪里？"
+Text lines:
+"DCP4：每卡历史 KV 存储 / 读取约为原来的 1/4"
+"多卡并行处理各自的上下文分片"
+"代价：增加跨卡通信与合并"
+Footer: "长上下文下收益更明显；实际速度取决于读取量、通信与其他计算。"
+
+Scientific constraints: DCP shards one request along history-token positions, within an existing TP group. It does not reduce the number of history tokens attended to, independently generate four output tokens, or guarantee a fourfold end-to-end speedup. The four GPUs receive the required DCP-group query heads and compute against disjoint local KV shards; LSE enables the correct normalized merge. Keep all terms, token IDs, flow directions and labels accurate. Large text and sparse, clear visual hierarchy are more important than decoration.

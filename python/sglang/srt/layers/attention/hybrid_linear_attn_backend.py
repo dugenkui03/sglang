@@ -1179,7 +1179,8 @@ class Mamba2AttnBackend(MambaAttnBackendBase):
 
 
 class HybridLinearAttnBackend(AttentionBackend):
-    """Manages a full and linear attention backend"""
+    """Manages a full and linear attention backend
+    """
 
     def __init__(
         self,
@@ -1407,10 +1408,17 @@ class HybridLinearAttnBackend(AttentionBackend):
         b: Optional[torch.Tensor] = None,  # For GDN linear attention
         **kwargs,
     ):
+        """
+            NOTE Decode 阶段按层类型分派完整注意力或线性注意力。
+        """
+
+        # NOTE full attention
         if self._is_full_attn(layer, kwargs.get("layer_id")):
+            # NOTE full_attn_backend 是 TritonAttnBackend
             return self.full_attn_backend.forward_decode(
                 q, k, v, layer, forward_batch, save_kv_cache, **kwargs
             )
+        # NOTE Qwen3.5 的 GDN 层使用 GDNAttnBackend；具体后端取决于模型配置
         return self.linear_attn_backend.forward_decode(
             q=q,
             k=k,
@@ -1467,6 +1475,9 @@ class HybridLinearAttnBackend(AttentionBackend):
         b: Optional[torch.Tensor] = None,  # For linear attention
         **kwargs,
     ):
+        """
+           NOTE 根据当前 forward 模式和层类型分派注意力计算。
+        """
         is_linear_attn = not self._is_full_attn(layer, kwargs.get("layer_id"))
 
         if forward_batch.forward_mode.is_idle():
@@ -1476,6 +1487,7 @@ class HybridLinearAttnBackend(AttentionBackend):
                 )
             return q.new_empty(q.shape[0], layer.tp_q_head_num * layer.v_head_dim)
         elif forward_batch.forward_mode.is_decode():
+            # NOTE decode 链路进行注意力计算
             return self.forward_decode(
                 layer,
                 forward_batch,
@@ -1489,6 +1501,7 @@ class HybridLinearAttnBackend(AttentionBackend):
                 **kwargs,
             )
         else:
+            # NOTE prefill 链路进行注意力计算
             return self.forward_extend(
                 layer,
                 forward_batch,

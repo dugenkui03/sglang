@@ -1,0 +1,36 @@
+Pipeline: built-in Image Gen
+
+Use case: scientific-educational.
+Create a NEW polished Chinese educational infographic, wide landscape about 16:10, high resolution, opaque white background, NO overall title, no watermark. The user wants a strong sense of spatial depth: use clean isometric 3D cutaway blocks, small cuboid cells, exploded tensor slices, and vertically stacked cache layers like floors of a building. Do NOT use a text tree, text-only flowchart, flat table as the main visual, or screenshot/code-panel design. Explanatory Chinese is short and secondary to the spatial illustration. Crisp large readable text, engineering textbook quality, light neutral blue/gray storage with ORANGE and TEAL highlights, subtle shadows, no decorative unrelated objects.
+
+SUBJECT and EXACT SIMPLE EXAMPLE:
+Show ONLY K buffer structure, allocating slot indices, and writing two token K data blocks. Three cache layers indexed 0,1,2. Each layer is a separate Tensor in GPU memory, shape [5,2,3]: 5 slots, 2 K heads, 3 scalar coordinates per head. Slot 0 is a reserved padding slot; slots 1,2,3,4 are usable. We illustrate writing into cache layer 1. Token A goes to slot 1, token B to slot 3.
+A's K block is a 2-row by 3-column matrix [[1,2,3],[4,5,6]], colored orange.
+B's K block is [[7,8,9],[10,11,12]], colored teal.
+Two source blocks together have shape [2,2,3]. No V buffer, no attention math, no CPU architecture, no page tables.
+
+SPATIAL COMPOSITION:
+Upper thin band (about 15%): phase label "① 分配槽位" and a simple single row of FIVE numbered cuboid bins 0 1 2 3 4, with slot 0 gray crosshatched and labeled "预留", bins 1 orange outline and 3 teal outline, rest empty. Beside it concise result "indices = [1, 3]". Small explanatory note "分配器先取得可用编号". This allocates numeric slots only, not new tensors or floors.
+
+Left lower quadrant (about 25% width): phase label "② 选中缓存层". A three-floor exploded tower of cache tensor slabs, bottom floor labeled "k_buffer[0]", middle "k_buffer[1]", top "k_buffer[2]". Middle floor highlighted and slightly pulled out horizontally with a magnifier/extraction connector into the large central illustration; other floors understated. Label whole tower "k_buffer" and vertical arrow "缓存层编号". Label beneath middle floor "每层 shape = [5, 2, 3]". The floor index represents cache layer indexing, not the original transformer layer numbers.
+
+Large central focus (about 50% width): phase label "③ 按编号写入". Zoom the middle floor into a genuine 3D tensor shown as FIVE clearly separated parallel rectangular slices along a diagonal depth axis, with consistent isometric perspective. Each slice is exactly a 2-row by 3-column panel made of 6 small cuboids. The five slices collectively form a depth-exploded [5 slots, 2 heads, 3 coordinates] cuboid. They are arranged in order 0,1,2,3,4 with visible space, and EVERY slice index label is clearly connected to that slice. Use nearby 3-axis dimension brackets: depth axis "槽位数 = 5", slice vertical dimension "K 头数 = 2", slice horizontal dimension "每头维度 = 3". Slot 0 reserved gray hatch, slot 1 orange highlighted with the 2×3 block A data written on its cells, slot 2 pale empty, slot 3 teal highlighted with B data, slot 4 pale empty. The exploded spacing must make the selected faces visible; don't hide token blocks behind other slices. Use a tidy visual order and no crisscross arrows.
+
+Right (about 25% width, or lower-right with ample space): two separate solid 3D 2×3 data tiles, orange A and teal B. All six front-face cells legibly numbered in row-major order:
+Orange top row 1 2 3, bottom row 4 5 6, labelled "token A：k[0]".
+Teal top row 7 8 9, bottom row 10 11 12, labelled "token B：k[1]".
+Small combined caption "本轮 k.shape = [2, 2, 3]".
+Route one orange solid arrow FROM token A's tile INTO selected cache slot 1, and one teal solid arrow FROM token B INTO selected slot 3. Arrowheads must point TO the cache. Label arrows simply "写入槽位 1" and "写入槽位 3". This is copying numeric values to existing allocated GPU cache slots.
+
+Bottom short strip of supporting text, no large code block, only two formulas and one conceptual note:
+"k_buffer[1][1] ← k[0]" (orange)
+"k_buffer[1][3] ← k[1]" (teal)
+"每个槽位保存一整块 [K 头数, 每头维度] 数据。"
+Tiny readable footnote: "逻辑上按四级索引理解；实际是列表中的多个三维 Tensor，数据位于 GPU 显存。"
+
+Important accuracy:
+- The four logical levels are layer, slot, head, coordinate. Real k_buffer is a Python list of separate 3D GPU tensors, NOT an actual 4D contiguous torch Tensor. Stacked floors are a logical illustration, not physically separated GPU hardware floors.
+- Slots are preallocated GPU memory. Allocating indices assigns existing slots, writing copies K numerical data into them.
+- The same slot indices apply across layers; this illustration selects layer 1 to show its own K values, not a fresh index allocation per layer.
+- EXACT shape consistency: 3 floor slabs, 5 slices per layer, each selected slot exactly 2 heads × 3 coordinates, two input token matrices. Keep dimensions and numbering readable. Do not write 256 or 4097 in this simplified graphic.
+- Do NOT fill the picture with paragraphs or nested text tree diagrams. Use physical spatial tensor blocks as the main explanation, inspired by a hand-drawn cuboid sketch. Keep main labels perfectly spelled and don't crop any arrows or labels.

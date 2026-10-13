@@ -74,6 +74,8 @@ class OpenAIServingBase(ABC):
     ) -> Union[Any, StreamingResponse, ErrorResponse]:
         """Handle the specific request type with common pattern
         If you want to override this method, you should be careful to record the validation time.
+
+            tip /v1/chat/completions 会调用到这个方法
         """
         received_time = monotonic_time()
 
@@ -81,18 +83,31 @@ class OpenAIServingBase(ABC):
             # Validate request
             error_msg = self._validate_request(request)
             if error_msg:
+                logger.error("[inf] validate request error:\n%s", error_msg)
                 return self.create_error_response(error_msg)
 
             # Log the raw OpenAI request payload before conversion to tokenized form.
             request_logger = self.tokenizer_manager.request_logger
+            logger.info(
+                "[inf] request_logger:\n%s",
+                json.dumps(vars(request_logger), ensure_ascii=False, indent=2, default=str),
+            )
             if request_logger.log_requests and request_logger.log_requests_level >= 2:
                 request_logger.log_openai_received_request(request, request=raw_request)
 
             # Convert to internal format
+            # note 这个里边会对输入进行token化 _render_and_encode_chat_template
             adapted_request, processed_request = self._convert_to_internal_request(
                 request, raw_request
             )
+            logger.info(
+                "[inf] after _convert_to_internal_request(), adapted_request:\n%s\n"
+                "processed_request:\n%s",
+                json.dumps(vars(adapted_request), ensure_ascii=False, indent=2, default=str),
+                processed_request.model_dump_json(indent=2),
+            )
 
+            # 判断 adapted_request 是否是 GenerateReqInput 或 EmbeddingReqInput 的实例
             if isinstance(adapted_request, (GenerateReqInput, EmbeddingReqInput)):
                 # Only set timing fields if adapted_request supports them
                 adapted_request.received_time = received_time
@@ -102,7 +117,7 @@ class OpenAIServingBase(ABC):
                 return await self._handle_streaming_request(
                     adapted_request, processed_request, raw_request
                 )
-            else:
+            else:  # note 非 stream 链路
                 return await self._handle_non_streaming_request(
                     adapted_request, processed_request, raw_request
                 )
@@ -181,6 +196,8 @@ class OpenAIServingBase(ABC):
         """Handle non-streaming request
 
         Override this method in child classes that support non-streaming requests.
+
+        看子类实现
         """
         return self.create_error_response(
             message=f"{self.__class__.__name__} does not support non-streaming requests",
@@ -190,7 +207,7 @@ class OpenAIServingBase(ABC):
 
     def _validate_request(self, _: OpenAIServingRequest) -> Optional[str]:
         """Validate request"""
-        pass
+        pass  # pass 是 Python 的占位语句，表示 这里什么也不做
 
     def create_error_response(
         self,

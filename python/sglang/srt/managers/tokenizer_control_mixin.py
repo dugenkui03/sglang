@@ -174,7 +174,8 @@ def _lora_load_needs_cleanup(results: List[LoRAUpdateOutput], lora_name: str) ->
 
 
 class TokenizerControlMixin:
-    """Mixin for TokenizerManager's control-plane operations (weights, cache, lora,
+    """
+    Mixin for TokenizerManager's control-plane operations (weights, cache, lora,
     profile, internal state, etc.) -- everything that talks to the scheduler via
     FanOutCommunicator, as opposed to data-plane inference requests multiplexed by rid.
     """

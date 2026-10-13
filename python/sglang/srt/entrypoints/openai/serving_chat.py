@@ -267,7 +267,9 @@ def _build_video_config(request: ChatCompletionRequest) -> dict[str, Any] | None
 
 
 class OpenAIServingChat(OpenAIServingBase):
-    """Handler for /v1/chat/completions requests"""
+    """Handler for /v1/chat/completions requests
+    处理 /v1/chat/completions 请求，生成聊天回复。
+    """
 
     _default_sampling_params_logged = False
     _KIMI_K3_GENERATION_STUB_TOKENS = 3
@@ -277,6 +279,10 @@ class OpenAIServingChat(OpenAIServingBase):
         tokenizer_manager: TokenizerManager,
         template_manager: TemplateManager,
     ):
+        """
+        NOTE 使用 tokenizer_manager 初始化 接收 OpenAI 请求的对象，在接收请求的时候使用
+            handle_request() 属于服务处理器；TokenizerManager 通过 generate_request() 接收内部生成任务。
+        """
         super().__init__(tokenizer_manager)
         self.template_manager = template_manager
         self.tool_call_parser = self.tokenizer_manager.config_value("tool_call_parser")
@@ -1195,6 +1201,17 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request = None,
     ) -> tuple[GenerateReqInput, ChatCompletionRequest]:
+        """
+        将 http 解析而来的参数转换成内部使用的参数
+
+            HTTP 请求中的 JSON
+                ↓ FastAPI 解析、校验
+            ChatCompletionRequest
+                ↓ 本方法转换
+            GenerateReqInput
+                ↓
+            交给内部推理流程处理
+        """
 
         # Header-based opt-in (same rationale as request_headers.py).
         if raw_request is not None and not request.return_input_ids_in_sglext:
@@ -1245,6 +1262,11 @@ class OpenAIServingChat(OpenAIServingBase):
 
         # Process messages and apply chat template
         processed_messages = self._process_messages(request, is_multimodal)
+        logger.info(
+            "[inf] after _process_messages, request:\n%s\nprocessed_messages:\n%s",
+            request.model_dump_json(indent=2),
+            json.dumps(vars(processed_messages), ensure_ascii=False, indent=2, default=str),
+        )
         # Build sampling parameters
         sampling_params = request.to_sampling_params(
             stop=processed_messages.stop,
@@ -1457,6 +1479,7 @@ class OpenAIServingChat(OpenAIServingBase):
                 stop=request.stop or [],
             )
         elif self.template_manager.chat_template_name is None:
+            # tip 模板是指用户输入格式，jinja 模板是一种通用的模板
             result = self._apply_jinja_template(request, tools, is_multimodal)
         else:
             result = self._apply_conversation_template(request, is_multimodal)
@@ -1790,6 +1813,19 @@ class OpenAIServingChat(OpenAIServingBase):
         encode_kwargs: Dict[str, Any],
         use_cache: bool,
     ) -> tuple[List[int], Optional[str]]:
+        logger.info(
+            "[inf] _render_and_encode_chat_template:\n%s",
+            json.dumps(
+                {
+                    "messages": messages,
+                    "tools": tools,
+                    "template_kwargs": template_kwargs,
+                    "encode_kwargs": encode_kwargs,
+                    "use_cache": use_cache,
+                },
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
         cache_key = None
         if use_cache:
             try:
@@ -1838,6 +1874,10 @@ class OpenAIServingChat(OpenAIServingBase):
             )
             prompt_ids = self.tokenizer_manager.tokenizer.encode(
                 rendered_prompt, **encode_kwargs
+            )
+            logger.info(
+                "[inf] after apply_chat_template:\n%s",
+                json.dumps({"rendered_prompt": rendered_prompt, "prompt_ids": prompt_ids}, ensure_ascii=False, indent=2, default=str),
             )
         decoded_prompt = (
             self.tokenizer_manager.tokenizer.decode(prompt_ids)
@@ -2290,8 +2330,30 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request,
     ) -> ChatCompletionResponse | ErrorResponse | ORJSONResponse:
-        """Handle non-streaming chat completion request"""
+        """Handle non-streaming chat completion request
+
+        NOTE 处理 non-stream 请求
+        参数说明：
+            self: 当前处理器实例，例如 OpenAIServingChat，由 Python 自动传入。
+            adapted_request/GenerateReqInput: 转换后的 SGLang 内部生成请求，包含提示词或 token IDs、
+                采样参数等，用于执行推理。
+        """
+
+        logger.info(
+            "[inf] _handle_non_streaming_request, adapted_request:\n%s\n"
+            "request:\n%s\nraw_request:\n%s",
+            json.dumps(vars(adapted_request), ensure_ascii=False, indent=2, default=str),
+            request.model_dump_json(indent=2),
+            json.dumps(
+                {"method": raw_request.method, "path": raw_request.url.path}
+                if raw_request is not None else None,
+                ensure_ascii=False, indent=2, default=str,
+            ),
+        )
+
         try:
+            # note 核心逻辑：
+            #   处理输入 → 分词 → 发给 Scheduler → 模型推理 → 收到输出 → yield 结果 → 赋值给 ret
             ret = await self.tokenizer_manager.generate_request(
                 adapted_request, raw_request
             ).__anext__()

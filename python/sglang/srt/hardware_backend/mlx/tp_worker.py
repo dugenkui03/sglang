@@ -69,6 +69,7 @@ class MlxLaunch:
 
 class MlxTpModelWorker(TpModelWorker):
     """A tensor parallel model worker that routes inference through MLX.
+    Apple 设备链路
 
     Inherits from TpModelWorker for scheduler integration, but replaces
     the standard ModelRunner with MlxModelRunnerStub (no PyTorch weights,

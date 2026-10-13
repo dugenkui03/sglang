@@ -1,0 +1,75 @@
+Pipeline: built-in Image Gen
+
+Initial revision prompt:
+Use case: style-transfer, scientific-educational.
+Input image 1 is the previous K-buffer diagram to substantially redraw. Preserve only its underlying subject and two token numeric examples. Replace its glossy infographic style and exploded slices with a precise geometry-textbook line drawing, and apply the corrections below.
+
+Create a wide landscape Chinese educational diagram on opaque white paper. Geometry textbook / technical pen illustration: fine straight black outlines, dotted hidden edges, parallel oblique projection, restrained pale orange and pale teal ONLY for two tokens. No gradients, shadows, rounded UI cards, banners, glossy cubes, big overall title, or decorative graphics. Ample white space, readable understated Chinese typesetting. All arrays are solid connected rectangular prisms: adjacent cells and adjacent slot slices TOUCH with shared edges, never exploded apart.
+
+Exact example:
+- The Python k_buffer holds 3 cache layers, index 0 at the TOP, index 1 in the MIDDLE, index 2 at the BOTTOM. All numbering increases downward.
+- Each layer is one intact 3D tensor, shape = [6, 2, 3], indexed [KV slot, K head, head dimension]. Slots are 0..5. The chosen layer is k_buffer[1].
+- The allocator has already chosen TWO ADJACENT free slots: indices = [3, 4]. Explain allocation in ONE plain text line only; do not draw a separate row of allocation boxes.
+- Current input k.shape = [2, 2, 3].
+- Token A is orange: k[0] = [[1,2,3],[4,5,6]].
+- Token B is teal: k[1] = [[7,8,9],[10,11,12]].
+- If drawing a token as a small 3D prism, accurately label its length-1 slice k[0:1] or k[1:2], shape [1,2,3]. Their visible 2D end faces are each exactly TWO HEAD ROWS by THREE DIMENSION COLUMNS. Never draw 4 columns or 3 head rows. Each of the six cells contains exactly one number.
+
+Composition, left to right:
+LEFT (~22% width): Small structural view labelled "k_buffer：按缓存层组织". Draw a SINGLE compact stacked building of 3 touching intact floors, not 3 exploded floating slabs. Label the top floor "k_buffer[0]", the middle floor "k_buffer[1]", the bottom floor "k_buffer[2]". This is a logical layer overview; lightly emphasize the middle floor's boundary and a leader "选中缓存层 1". The floors remain whole. A floor corresponds to one [6,2,3] array, not one slot. If gridding floors, respect 3 across head_dim, 2 high head rows per floor, 6 in depth slot slices. Keep this overview small and clean.
+CENTER (~30%): Section label "写入前：两个 token 的 K". Show two distinct small intact rectangular prisms, orange A above teal B, separated from each other. Same orientation as the final cache. Front end face is 3 equal columns horizontally for head_dim and 2 equal rows vertically for heads. Their depth is ONE slot. Draw the six numbers on each front face exactly:
+A: first row 1 | 2 | 3; second row 4 | 5 | 6.
+B: first row 7 | 8 | 9; second row 10 | 11 | 12.
+Labels: "token A · k[0:1]"; "token B · k[1:2]"; small shared note "每块 shape = [1, 2, 3]".
+A thin right-pointing arrow to the final cache, label "按编号写入". This is GPU-memory-to-GPU-memory writing into preallocated storage, not concatenating into a resized tensor.
+RIGHT (~48%): Section label "写入后：k_buffer[1]". Draw ONE LARGE INTACT rectangular prism with grid shape [6,2,3]. The front end face is exactly 3 columns wide and 2 head rows high. The slot axis is the oblique DEPTH axis going back/up/right: SIX contiguous one-unit depth slices, indexed 0,1,2,3,4,5 in order front to back. Mark these six slot numbers along the depth edge with fine ticks; make numbers 3 orange, 4 teal. Slots 3 and 4 must share a boundary, adjacent. Color the ENTIRE slot-3 slab pale orange and ENTIRE slot-4 slab pale teal (both head rows and all three dimensions per slab); leave other slot regions white. Use wireframe/dashed hidden grid to make this intact 3D array clear, but do NOT separate any slices or cells. Do NOT try to print numeric data on hidden interior faces, the color correspondence to inputs is enough.
+Use exactly three dimension brackets on this main prism:
+front HORIZONTAL width across exactly 3 columns: "head_dim = 3";
+front VERTICAL height across exactly 2 rows: "K 头数 = 2";
+OBLIQUE DEPTH length across exactly 6 slices: "槽位数 = 6".
+The x,y,z geometry MUST match these labels. Do not place the head_dim bracket on the slot axis. Ensure the full final shape remains [6,2,3].
+
+Plain text above the illustration, modest:
+"本例分配相邻槽位：indices = [3, 4]；写入第 1 个缓存层。"
+Plain text below final array, two color matched assignments:
+orange "k_buffer[1][3] ← k[0]"
+teal "k_buffer[1][4] ← k[1]"
+Bottom short footnotes, no boxes:
+"每个槽位容纳一个 token 的完整 K 数据：[2 个 head, 每头 3 个元素]。"
+"楼层是逻辑分层示意；实际是列表中的三维 Tensor，数据位于 GPU 显存。"
+
+Quality constraints: precise countable grids and correct axis geometry over decoration. The two whole small token blocks before writing and their two contiguous colored regions within the whole larger tensor afterward are the visual focus. This illustrates writing existing data into fixed allocated storage; the target does not grow. No attention math, no CPU block, no V cache, no additional objects or large explanatory paragraphs.
+
+Geometry correction prompt:
+Edit the supplied geometry-textbook K cache diagram. Keep the plain white background, thin black textbook line-art style, Chinese explanatory text, left-to-right before/after composition, token A orange/token B teal, indices=[3,4], and the left cache-layer order TOP 0 / MIDDLE 1 / BOTTOM 2.
+
+CRITICAL CORRECTION: ALL PRISMS NEED CORRECT GRID COUNTS. Change their orientation to the following much simpler geometry. Delete the erroneous previous grids completely; do not retain or overlay them.
+
+For the large RIGHT-HAND cache prism k_buffer[1], shape [6,2,3]:
+- HORIZONTAL left-right = head_dim, exactly 3 equal columns.
+- OBLIQUE DEPTH back/up/right = K heads, exactly 2 head rows.
+- VERTICAL top-down = KV slots, exactly 6 equal horizontal levels.
+This is one solid upright rectangular prism, not exploded. Its FRONT face has EXACTLY 3 columns by 6 rows: precisely TWO interior vertical lines and FIVE interior horizontal lines. Its RIGHT side face has EXACTLY 2 depth columns by 6 vertical rows: ONE interior depth divider and FIVE horizontal dividers. Its TOP face has EXACTLY 3 columns across by 2 rows in depth: TWO dividers across the width and ONE divider across depth. Draw no other internal grid lines. Hidden OUTER edges may be dashed, visible grid lines fine solid black.
+Label the six slot rows on the left at their centers, in order downward: "0", "1", "2", "3", "4", "5". Color the entire FOURTH row (slot 3) orange and the entire FIFTH row (slot 4) teal, spanning all 3 front columns and both side-depth columns. The two colored horizontal bands touch. The last bottom row slot 5 stays white, as do slots 0,1,2. No numerical data printed inside cache cells.
+Only these three dimension labels:
+horizontal width bracket BELOW the front: "head_dim = 3";
+diagonal depth bracket ABOVE the right side: "K 头数 = 2";
+vertical height bracket to the right: "槽位数 = 6".
+Add small "shape = [6, 2, 3]" under "写入后：k_buffer[1]".
+DO NOT put colors on vertical columns. Slots are HORIZONTAL LEVELS, NOT columns, NOT depth slices.
+
+For the two CENTER input token blocks:
+Each is one THIN HORIZONTAL slab (height = one slot), shape [1,2,3], in EXACTLY the same orientation as the cache:
+its TOP parallelogram face has 3 equal columns left-to-right and 2 rows front-to-back (exactly 6 cells); height has no subdivision.
+On orange A's top face, put numbers 1 2 3 in the FRONT row and 4 5 6 in the BACK row.
+On teal B's top face, put 7 8 9 in the FRONT row and 10 11 12 in the BACK row.
+Do not put a 2-row matrix on the vertical FRONT face of these slabs; its height is only ONE slot. Numbers belong to the TOP surface. Keep labels token A · k[0:1], token B · k[1:2], and 每块 shape=[1,2,3]. The two small slabs are independent before writing; the final cache is whole after writing. The black arrow "按编号写入" connects before to after.
+
+For the LEFT layer overview, simplify to three intact touching ungridded schematic cuboids, distinguished by black horizontal floor boundaries, labels k_buffer[0] top, k_buffer[1] middle, k_buffer[2] bottom. Do not draw incorrect fine internal grids in this small overview. Mark selected middle floor with subtle outline only, not an additional token color. Label "选中缓存层 1". This left stack illustrates logical layer organization, not cell counts.
+
+Retain plain top sentence "本例分配相邻槽位：indices = [3, 4]；写入第 1 个缓存层。"
+Retain two assignments below final cache:
+orange "k_buffer[1][3] ← k[0]"
+teal "k_buffer[1][4] ← k[1]"
+Retain the two bottom explanatory sentences about one token's [2 heads,3 dimensions] per slot and GPU显存.
+Ensure no overlaps, legible clear Chinese, no decoration or shadows. Geometric accuracy is the highest priority: front of final prism MUST have 6 rows and 3 columns; TOP MUST have 2 rows and 3 columns.

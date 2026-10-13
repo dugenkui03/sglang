@@ -1,0 +1,29 @@
+{
+  "pdf": "/home/tiger/workspace/sglang/user_guide_zh/SGLang已读核心方法_打印版.pdf",
+  "pages": 224,
+  "selected_methods": 156,
+  "printed_method_blocks": 153,
+  "embedded_methods": 3,
+  "direct": 144,
+  "inferred": 12,
+  "method_files": 23,
+  "class_notes": 24,
+  "code_rows": 11775,
+  "comment_corrections": 67,
+  "display_escapes": 2,
+  "overflow": [],
+  "pdf_bytes": 1049963,
+  "pdf_bookmarks": 233,
+  "pdf_nonblank_source_rows_checked": 10951,
+  "pdf_missing_rows": [],
+  "pdf_page_bounds": "passed",
+  "grayscale": true,
+  "visual_sample_pages": [
+    1,
+    53,
+    100,
+    194,
+    224
+  ],
+  "independent_selection_review": "passed"
+}

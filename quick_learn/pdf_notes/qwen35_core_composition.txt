@@ -1,0 +1,106 @@
+组合/引用(Composition / Reference)：分支写“成员名：对象类型”；“同一对象”表示共享引用。
+## 9. ModelRunner 与模型的组合
+TpModelWorker ─ _model_runner → ModelRunner（通过 model_runner 属性访问）
+ModelRunner
+├─ model：Qwen3_5ForConditionalGeneration
+│   ├─ model：Qwen3_5ForCausalLM                 ← 两层 model 是不同对象
+│   │   ├─ embed_tokens：VocabParallelEmbedding
+│   │   │   ├─ weight：词表权重参数 [vocab_size, hidden_size]
+│   │   │   └─ quant_method：UnquantizedEmbeddingMethod（未量化）
+│   │   ├─ layers：nn.ModuleList
+│   │   │   └─ [i]：Qwen3_5AttentionDecoderLayer 或 Qwen3_5LinearDecoderLayer
+│   │   └─ norm：GemmaRMSNorm                   ← 所有层之后的最终归一化
+│   ├─ lm_head：ParallelLMHead                 ← 本例为独立的词表输出权重
+│   └─ logits_processor：LogitsProcessor
+├─ eager_runner：EagerRunner
+│   └─ model_runner：指回上方同一个 ModelRunner
+├─ sampler：Sampler
+├─ attn_backend：HybridLinearAttnBackend
+├─ req_to_token_pool：HybridReqToTokenPool
+└─ token_to_kv_pool：HybridLinearKVPool
+Qwen3_5ForConditionalGeneration 继承父类方法；其 model 成员是组合，不是父类。
+这里沿用纯文本生成链路，列出该链路使用的模型成员。
+
+## 10. 全注意力层的组合
+Qwen3_5AttentionDecoderLayer
+├─ qkv_proj：QKVParallelLinear                ← Q/K/V 与可选 gate 投影
+├─ q_norm、k_norm：GemmaRMSNorm                ← 每个头的 Q/K 归一化
+├─ rotary_emb：RotaryEmbedding / MRotaryEmbedding（get_rope 按配置选择）
+├─ attn：RadixAttention                       ← 调用当前后端完成注意力
+├─ o_proj：RowParallelLinear                  ← 投影回 hidden_size
+├─ input_layernorm、post_attention_layernorm：GemmaRMSNorm
+├─ attn_boundary、ffn_boundary：StageBoundary  ← 阶段输入与残差处理
+└─ mlp：Qwen2MoeMLP                           ← 见下方公共 FFN
+融合分支会直接使用 q_norm/k_norm 权重，把归一化与 RoPE 等计算合并。
+
+## 11. 线性注意力层的组合
+Qwen3_5LinearDecoderLayer
+├─ linear_attn：Qwen3_5GatedDeltaNet
+│   ├─ in_proj_qkvz、in_proj_ba：MergedColumnParallelLinear
+│   ├─ conv1d：ColumnParallelLinear           ← 提供短卷积权重
+│   ├─ A_log、dt_bias：门控参数
+│   ├─ attn：RadixLinearAttention             ← 引用卷积权重与门控参数
+│   ├─ norm：RMSNormGated                     ← 输出归一化与 z 门控
+│   └─ out_proj：RowParallelLinear
+├─ input_layernorm、post_attention_layernorm：GemmaRMSNorm
+├─ attn_boundary、ffn_boundary：StageBoundary
+└─ mlp：Qwen2MoeMLP
+
+## 12. 两类 Decoder 层共用的 FFN 与线性计算策略
+Qwen2MoeMLP
+├─ gate_up_proj：MergedColumnParallelLinear
+├─ act_fn：SiluAndMul
+└─ down_proj：RowParallelLinear
+上述各个线性层对象 ─ quant_method → UnquantizedLinearMethod（未量化）
+                             └─ apply(layer, x, bias)：使用传入层的 weight
+===PAGE===
+## 13. 注意力入口、后端与内核的引用关系
+ModelRunner
+└─ attn_backend：HybridLinearAttnBackend [A]
+    ├─ full_attn_backend：FlashAttentionBackend
+    │   ├─ req_to_token_pool：同一 HybridReqToTokenPool [R]
+    │   └─ token_to_kv_pool：同一 HybridLinearKVPool [K]
+    └─ linear_attn_backend：GDNAttnBackend
+        ├─ req_to_token_pool：同一 HybridReqToTokenPool [R]
+        ├─ token_to_kv_pool：同一 HybridLinearKVPool [K]
+        └─ kernel_dispatcher：GDNKernelDispatcher
+            ├─ extend_kernel：TritonGDNKernel [T]（本例 Prefill）
+            └─ decode_kernel：同一 TritonGDNKernel [T]（本例 Decode）
+ModelRunner._forward_raw() 创建并发布 ForwardContext
+└─ attn_backend：引用上方同一后端 [A]
+RadixAttention / RadixLinearAttention
+└─ get_attn_backend() → 读取 ForwardContext.attn_backend [A]，再调用 forward
+Radix 层通过上下文取得后端；它们没有把后端作为自身子模块保存。
+
+## 14. 两种缓存池与共享 MambaPool
+ModelRunner
+├─ req_to_token_pool：HybridReqToTokenPool [R]
+│   ├─ req_to_token：GPU Tensor；[请求槽位, token 位置] → KV index
+│   ├─ req_index_to_mamba_index_mapping：请求槽位 → 线性状态槽位
+│   └─ mamba_pool：MambaPool [M]             ← 在这里创建
+└─ token_to_kv_pool：HybridLinearKVPool [K]
+    ├─ full_kv_pool：MHATokenToKVPool
+    │   ├─ k_buffer：各全注意力层的 K，存放在 GPU 显存(GPU memory)
+    │   └─ v_buffer：各全注意力层的 V，存放在 GPU 显存(GPU memory)
+    └─ mamba_pool：引用同一个 MambaPool [M]   ← 创建缓存池时从 [R] 传入
+MambaPool [M]
+└─ mamba_cache：状态数据
+    ├─ conv：短卷积状态，存放在 GPU 显存(GPU memory)
+    └─ temporal：递推状态，存放在 GPU 显存(GPU memory)
+全注意力层：KV index → 读取历史 K/V；线性注意力层：状态槽位 → 读写汇总状态。
+
+## 15. 每轮批次、阶段边界与结果的关系
+ForwardBatch
+├─ input_ids、positions：本轮 token ID 与位置
+├─ req_pool_indices、seq_lens：本轮请求槽位与序列长度
+├─ out_cache_loc：本轮 token 的 KV 写入位置（后端用 KVWriteLoc 封装）
+└─ residual_stream：ResidualStream
+    ├─ residual：已经写入的残差向量
+    └─ pending：等待下一阶段合并的输出
+Decoder 层的 StageBoundary ─ prepare()/finish() → 读写本轮 residual_stream
+ffn_boundary.exit(forward_batch) → FfnExit，供 FFN 计算与 finish() 使用。
+residual_batch.start()/final_norm() 是模块函数，不是另一个模型类。
+ModelRunnerOutput
+└─ logits_output：LogitsProcessorOutput
+    └─ next_token_logits：词表分数 [请求数, vocab_size]
+ModelRunner.sample() 把这些分数交给 sampler：Sampler，得到 next_token_ids。

@@ -1,0 +1,190 @@
+{
+  "version": 2,
+  "title": "Qwen3.5 核心类 UML 关系",
+  "diagrams": [
+    {
+      "id": "inherit_1_1",
+      "title": "1.1 模型外层的继承",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass Module[\"nn.Module\"]\nclass Qwen3VLForConditionalGeneration[\"Qwen3VLForConditionalGeneration\"]\nclass Qwen3_5ForConditionalGeneration[\"Qwen3_5ForConditionalGeneration\"]\nModule <|-- Qwen3VLForConditionalGeneration\nQwen3VLForConditionalGeneration <|-- Qwen3_5ForConditionalGeneration\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_1_2",
+      "title": "1.2 文本模型与 Decoder 层的继承",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Module[\"nn.Module\"]\nclass Qwen3_5ForCausalLM[\"Qwen3_5ForCausalLM\"]\nclass Qwen3_5AttentionDecoderLayer[\"Qwen3_5AttentionDecoderLayer\"]\nclass Qwen3_5LinearDecoderLayer[\"Qwen3_5LinearDecoderLayer\"]\nclass Qwen3_5GatedDeltaNet[\"Qwen3_5GatedDeltaNet\"]\nclass Qwen2MoeMLP[\"Qwen2MoeMLP\"]\nclass ModuleList[\"ModuleList\"]\nModule <|-- Qwen3_5ForCausalLM\nModule <|-- Qwen3_5AttentionDecoderLayer\nModule <|-- Qwen3_5LinearDecoderLayer\nModule <|-- Qwen3_5GatedDeltaNet\nModule <|-- Qwen2MoeMLP\nModule <|-- ModuleList\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_1_3",
+      "title": "1.3 注意力入口与输出模块的继承",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Module[\"nn.Module\"]\nclass RadixAttention[\"RadixAttention\"]\nclass RadixLinearAttention[\"RadixLinearAttention\"]\nclass LogitsProcessor[\"LogitsProcessor\"]\nclass Sampler[\"Sampler\"]\nModule <|-- RadixAttention\nModule <|-- RadixLinearAttention\nModule <|-- LogitsProcessor\nModule <|-- Sampler\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_2",
+      "title": "2. 线性投影与词表权重",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass Module[\"nn.Module\"]\nclass LinearBase[\"LinearBase\"]\nclass ColumnParallelLinear[\"ColumnParallelLinear\"]\nclass QKVParallelLinear[\"QKVParallelLinear\"]\nclass MergedColumnParallelLinear[\"MergedColumnParallelLinear\"]\nclass RowParallelLinear[\"RowParallelLinear\"]\nclass VocabParallelEmbedding[\"VocabParallelEmbedding\"]\nclass ParallelLMHead[\"ParallelLMHead\"]\nModule <|-- LinearBase\nLinearBase <|-- ColumnParallelLinear\nColumnParallelLinear <|-- QKVParallelLinear\nColumnParallelLinear <|-- MergedColumnParallelLinear\nLinearBase <|-- RowParallelLinear\nModule <|-- VocabParallelEmbedding\nVocabParallelEmbedding <|-- ParallelLMHead\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_3",
+      "title": "3. 普通与量化计算的方法接口",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass ABC[\"abc.ABC\"]\nclass QuantizeMethodBase[\"QuantizeMethodBase\"]\nclass UnquantizedEmbeddingMethod[\"UnquantizedEmbeddingMethod\"]\nclass LinearMethodBase[\"LinearMethodBase\"]\nclass UnquantizedLinearMethod[\"UnquantizedLinearMethod\"]\nABC <|-- QuantizeMethodBase\nQuantizeMethodBase <|-- UnquantizedEmbeddingMethod\nQuantizeMethodBase <|-- LinearMethodBase\nLinearMethodBase <|-- UnquantizedLinearMethod\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_4",
+      "title": "4. 归一化、激活与位置编码",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass Module[\"nn.Module\"]\nclass ABC[\"abc.ABC\"]\nclass BaseFusedOp[\"BaseFusedOp\"]\nclass GemmaRMSNorm[\"GemmaRMSNorm\"]\nclass SiluAndMul[\"SiluAndMul\"]\nclass RotaryEmbedding[\"RotaryEmbedding\"]\nclass MRotaryEmbedding[\"MRotaryEmbedding\"]\nclass RMSNormGated[\"RMSNorm (RMSNormGated)\"]\nModule <|-- BaseFusedOp\nABC <|-- BaseFusedOp\nBaseFusedOp <|-- GemmaRMSNorm\nBaseFusedOp <|-- SiluAndMul\nBaseFusedOp <|-- RotaryEmbedding\nRotaryEmbedding <|-- MRotaryEmbedding\nModule <|-- RMSNormGated\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_5",
+      "title": "5. 推理执行器",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass object[\"object\"]\nclass ModelRunner[\"ModelRunner\"]\nclass ABC[\"abc.ABC\"]\nclass BaseRunner[\"BaseRunner\"]\nclass EagerRunner[\"EagerRunner\"]\nclass BaseTpWorker[\"BaseTpWorker\"]\nclass TpModelWorker[\"TpModelWorker\"]\nobject <|-- ModelRunner\nABC <|-- BaseRunner\nBaseRunner <|-- EagerRunner\nABC <|-- BaseTpWorker\nBaseTpWorker <|-- TpModelWorker\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_6",
+      "title": "6. 注意力后端与 GDN 内核",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass ABC[\"abc.ABC\"]\nclass AttentionBackend[\"AttentionBackend\"]\nclass FlashAttentionBackend[\"FlashAttentionBackend\"]\nclass HybridLinearAttnBackend[\"HybridLinearAttnBackend\"]\nclass MambaAttnBackendBase[\"MambaAttnBackendBase\"]\nclass GDNAttnBackend[\"GDNAttnBackend\"]\nclass LinearAttnKernelBase[\"LinearAttnKernelBase\"]\nclass TritonGDNKernel[\"TritonGDNKernel\"]\nclass object[\"object\"]\nclass GDNKernelDispatcher[\"GDNKernelDispatcher\"]\nABC <|-- AttentionBackend\nAttentionBackend <|-- FlashAttentionBackend\nAttentionBackend <|-- HybridLinearAttnBackend\nAttentionBackend <|-- MambaAttnBackendBase\nMambaAttnBackendBase <|-- GDNAttnBackend\nABC <|-- LinearAttnKernelBase\nLinearAttnKernelBase <|-- TritonGDNKernel\nobject <|-- GDNKernelDispatcher\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_7",
+      "title": "7. 请求映射、KV 缓存与线性注意力状态",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass ABC[\"abc.ABC\"]\nclass KVCache[\"KVCache\"]\nclass MHATokenToKVPool[\"MHATokenToKVPool\"]\nclass HybridLinearKVPool[\"HybridLinearKVPool\"]\nclass object[\"object\"]\nclass ReqToTokenPool[\"ReqToTokenPool\"]\nclass HybridReqToTokenPool[\"HybridReqToTokenPool\"]\nclass MambaPool[\"MambaPool\"]\nABC <|-- KVCache\nKVCache <|-- MHATokenToKVPool\nKVCache <|-- HybridLinearKVPool\nobject <|-- ReqToTokenPool\nReqToTokenPool <|-- HybridReqToTokenPool\nobject <|-- MambaPool\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "inherit_8",
+      "title": "8. 本轮批次、残差与结果对象",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass object[\"object\"]\nclass ForwardContext[\"ForwardContext\"]\nclass ForwardBatchDeepSeekMHAMixin[\"ForwardBatchDeepSeekMHAMixin\"]\nclass ForwardBatch[\"ForwardBatch\"]\nclass StageBoundary[\"StageBoundary\"]\nclass FfnExit[\"FfnExit\"]\nclass ResidualStream[\"ResidualStream\"]\nclass KVWriteLoc[\"KVWriteLoc\"]\nclass ModelRunnerOutput[\"ModelRunnerOutput\"]\nclass LogitsProcessorOutput[\"LogitsProcessorOutput\"]\nobject <|-- ForwardContext\nobject <|-- ForwardBatchDeepSeekMHAMixin\nForwardBatchDeepSeekMHAMixin <|-- ForwardBatch\nobject <|-- StageBoundary\nobject <|-- FfnExit\nobject <|-- ResidualStream\nobject <|-- KVWriteLoc\nobject <|-- ModelRunnerOutput\nobject <|-- LogitsProcessorOutput\n",
+      "description": null,
+      "accessibility": "继承"
+    },
+    {
+      "id": "worker",
+      "title": "9.1 模型工作进程与 ModelRunner",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass TpModelWorker[\"TpModelWorker\"]\nclass ModelRunner[\"ModelRunner\"]\nTpModelWorker *-- ModelRunner : _model_runner\n",
+      "description": "TpModelWorker 通过 model_runner 属性访问 _model_runner。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "runner",
+      "title": "9.2 ModelRunner 持有的对象",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass ModelRunner[\"ModelRunner\"]\nclass EagerRunner[\"EagerRunner\"]\nclass Sampler[\"Sampler\"]\nclass Qwen3_5ForConditionalGeneration[\"Qwen3_5ForConditionalGeneration\"]\nclass HybridLinearAttnBackend[\"HybridLinearAttnBackend\"]\nclass HybridReqToTokenPool[\"HybridReqToTokenPool\"]\nclass HybridLinearKVPool[\"HybridLinearKVPool\"]\nModelRunner *-- EagerRunner : eager_runner\nModelRunner *-- Sampler : sampler\nModelRunner *-- Qwen3_5ForConditionalGeneration : model\nModelRunner o-- HybridLinearAttnBackend : attn_backend\nModelRunner o-- HybridReqToTokenPool : req_to_token_pool\nModelRunner o-- HybridLinearKVPool : token_to_kv_pool\n",
+      "description": "EagerRunner.model_runner 引回同一个 ModelRunner。空心菱形表示它持有的共享对象。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "model",
+      "title": "10. Qwen3.5 模型内部的组合",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass Qwen3_5ForConditionalGeneration[\"Qwen3_5ForConditionalGeneration\"]\nclass Qwen3_5ForCausalLM[\"Qwen3_5ForCausalLM\"]\nclass ParallelLMHead[\"ParallelLMHead\"]\nclass LogitsProcessor[\"LogitsProcessor\"]\nclass VocabParallelEmbedding[\"VocabParallelEmbedding\"]\nclass ModuleList[\"ModuleList\"]\nclass GemmaRMSNorm[\"GemmaRMSNorm\"]\nQwen3_5ForConditionalGeneration *-- Qwen3_5ForCausalLM : model\nQwen3_5ForConditionalGeneration *-- ParallelLMHead : lm_head\nQwen3_5ForConditionalGeneration *-- LogitsProcessor : logits_processor\nQwen3_5ForCausalLM *-- VocabParallelEmbedding : embed_tokens\nQwen3_5ForCausalLM *-- ModuleList : layers\nQwen3_5ForCausalLM *-- GemmaRMSNorm : norm\n",
+      "description": "ModuleList 按层配置保存全注意力层或线性注意力层；这里列出纯文本生成使用的成员。lm_head 使用独立的词表输出权重。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "attention",
+      "title": "11. 全注意力层的组合",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Qwen3_5AttentionDecoderLayer[\"Qwen3_5AttentionDecoderLayer\"]\nclass QKVParallelLinear[\"QKVParallelLinear\"]\nclass GemmaRMSNorm[\"GemmaRMSNorm\"]\nclass RotaryEmbedding[\"RotaryEmbedding\"]\nclass RadixAttention[\"RadixAttention\"]\nclass RowParallelLinear[\"RowParallelLinear\"]\nclass StageBoundary[\"StageBoundary\"]\nclass Qwen2MoeMLP[\"Qwen2MoeMLP\"]\nQwen3_5AttentionDecoderLayer *-- QKVParallelLinear : qkv_proj\nQwen3_5AttentionDecoderLayer *-- GemmaRMSNorm : 归一化模块\nQwen3_5AttentionDecoderLayer o-- RotaryEmbedding : rotary_emb\nQwen3_5AttentionDecoderLayer *-- RadixAttention : attn\nQwen3_5AttentionDecoderLayer *-- RowParallelLinear : o_proj\nQwen3_5AttentionDecoderLayer *-- StageBoundary : 阶段边界\nQwen3_5AttentionDecoderLayer *-- Qwen2MoeMLP : mlp\n",
+      "description": "归一化成员：q_norm、k_norm、input_layernorm、post_attention_layernorm。阶段边界：attn_boundary、ffn_boundary。rotary_emb 由 get_rope 按配置选择，也可以是 MRotaryEmbedding。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "linear_layer",
+      "title": "12. 线性注意力层的组合",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Qwen3_5LinearDecoderLayer[\"Qwen3_5LinearDecoderLayer\"]\nclass Qwen3_5GatedDeltaNet[\"Qwen3_5GatedDeltaNet\"]\nclass GemmaRMSNorm[\"GemmaRMSNorm\"]\nclass StageBoundary[\"StageBoundary\"]\nclass Qwen2MoeMLP[\"Qwen2MoeMLP\"]\nQwen3_5LinearDecoderLayer *-- Qwen3_5GatedDeltaNet : linear_attn\nQwen3_5LinearDecoderLayer *-- GemmaRMSNorm : 归一化模块\nQwen3_5LinearDecoderLayer *-- StageBoundary : 阶段边界\nQwen3_5LinearDecoderLayer *-- Qwen2MoeMLP : mlp\n",
+      "description": "归一化成员：input_layernorm、post_attention_layernorm。阶段边界：attn_boundary、ffn_boundary。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "gdn",
+      "title": "13. Gated DeltaNet 内部的组合",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Qwen3_5GatedDeltaNet[\"Qwen3_5GatedDeltaNet\"]\nclass MergedColumnParallelLinear[\"MergedColumnParallelLinear\"]\nclass ColumnParallelLinear[\"ColumnParallelLinear\"]\nclass RadixLinearAttention[\"RadixLinearAttention\"]\nclass RMSNormGated[\"RMSNorm (RMSNormGated)\"]\nclass RowParallelLinear[\"RowParallelLinear\"]\nQwen3_5GatedDeltaNet *-- MergedColumnParallelLinear : 输入投影\nQwen3_5GatedDeltaNet *-- ColumnParallelLinear : conv1d\nQwen3_5GatedDeltaNet *-- RadixLinearAttention : attn\nQwen3_5GatedDeltaNet *-- RMSNormGated : norm\nQwen3_5GatedDeltaNet *-- RowParallelLinear : out_proj\n",
+      "description": "输入投影成员：in_proj_qkvz、in_proj_ba。conv1d 提供短卷积权重；RadixLinearAttention 引用该权重及 A_log、dt_bias 门控参数。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "mlp",
+      "title": "14. FFN 与普通线性计算策略",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass Qwen2MoeMLP[\"Qwen2MoeMLP\"]\nclass MergedColumnParallelLinear[\"MergedColumnParallelLinear\"]\nclass SiluAndMul[\"SiluAndMul\"]\nclass RowParallelLinear[\"RowParallelLinear\"]\nclass LinearBase[\"LinearBase\"]\nclass UnquantizedLinearMethod[\"UnquantizedLinearMethod\"]\nclass VocabParallelEmbedding[\"VocabParallelEmbedding\"]\nclass UnquantizedEmbeddingMethod[\"UnquantizedEmbeddingMethod\"]\nQwen2MoeMLP *-- MergedColumnParallelLinear : gate_up_proj\nQwen2MoeMLP *-- SiluAndMul : act_fn\nQwen2MoeMLP *-- RowParallelLinear : down_proj\nLinearBase *-- UnquantizedLinearMethod : quant_method\nVocabParallelEmbedding *-- UnquantizedEmbeddingMethod : quant_method\n",
+      "description": "未量化配置下，线性层通过 quant_method.apply(layer, x, bias) 使用层上的 weight；Embedding 通过 embedding() 查权重表。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "backend",
+      "title": "15. 混合注意力后端与内核对象",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass HybridLinearAttnBackend[\"HybridLinearAttnBackend\"]\nclass FlashAttentionBackend[\"FlashAttentionBackend\"]\nclass GDNAttnBackend[\"GDNAttnBackend\"]\nclass GDNKernelDispatcher[\"GDNKernelDispatcher\"]\nclass TritonGDNKernel[\"TritonGDNKernel\"]\nHybridLinearAttnBackend o-- FlashAttentionBackend : full_attn_backend\nHybridLinearAttnBackend o-- GDNAttnBackend : linear_attn_backend\nGDNAttnBackend *-- GDNKernelDispatcher : kernel_dispatcher\nGDNKernelDispatcher *-- TritonGDNKernel : extend_kernel / decode_kernel\n",
+      "description": "本例的 Prefill 和 Decode 都使用 Triton，两个成员引用同一个 TritonGDNKernel。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "context",
+      "title": "16. 当前注意力后端的引用",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass ForwardContext[\"ForwardContext\"]\nclass HybridLinearAttnBackend[\"HybridLinearAttnBackend\"]\nclass RadixAttention[\"RadixAttention\"]\nclass RadixLinearAttention[\"RadixLinearAttention\"]\nclass ModelRunner[\"ModelRunner\"]\nForwardContext --> HybridLinearAttnBackend : attn_backend\nRadixAttention ..> ForwardContext : get_attn_backend()\nRadixLinearAttention ..> ForwardContext : get_attn_backend()\nModelRunner ..> ForwardContext : 创建并发布\n",
+      "description": "ModelRunner._forward_raw() 为本轮设置 ForwardContext。Radix 层读取上下文中的后端，再调用其 forward；后端是共享对象。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "pool",
+      "title": "17.1 缓存池与共享状态池",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass ModelRunner[\"ModelRunner\"]\nclass HybridReqToTokenPool[\"HybridReqToTokenPool\"]\nclass HybridLinearKVPool[\"HybridLinearKVPool\"]\nclass MambaPool[\"MambaPool\"]\nclass MHATokenToKVPool[\"MHATokenToKVPool\"]\nModelRunner o-- HybridReqToTokenPool : req_to_token_pool\nModelRunner o-- HybridLinearKVPool : token_to_kv_pool\nHybridReqToTokenPool *-- MambaPool : mamba_pool\nHybridLinearKVPool o-- MambaPool : mamba_pool\nHybridLinearKVPool *-- MHATokenToKVPool : full_kv_pool\n",
+      "description": "两个混合缓存池引用同一 MambaPool。MHATokenToKVPool.k_buffer/v_buffer 保存全注意力 K/V；MambaPool.mamba_cache.conv/temporal 保存卷积和递推状态，均位于 GPU 显存(GPU memory)。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "pool_refs",
+      "title": "17.2 注意力后端共享缓存池",
+      "kind": "raw",
+      "source": "classDiagram\ndirection LR\nclass FlashAttentionBackend[\"FlashAttentionBackend\"]\nclass HybridReqToTokenPool[\"HybridReqToTokenPool\"]\nclass HybridLinearKVPool[\"HybridLinearKVPool\"]\nclass GDNAttnBackend[\"GDNAttnBackend\"]\nFlashAttentionBackend --> HybridReqToTokenPool : 共享引用\nFlashAttentionBackend --> HybridLinearKVPool : 共享引用\nGDNAttnBackend --> HybridReqToTokenPool : 共享引用\nGDNAttnBackend --> HybridLinearKVPool : 共享引用\n",
+      "description": "对应成员是 req_to_token_pool 和 token_to_kv_pool；两个后端引用 ModelRunner 持有的同一组缓存池。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "batch",
+      "title": "18.1 批次与残差流",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass ForwardBatch[\"ForwardBatch\"]\nclass ResidualStream[\"ResidualStream\"]\nclass StageBoundary[\"StageBoundary\"]\nclass FfnExit[\"FfnExit\"]\nForwardBatch *-- ResidualStream : residual_stream\nStageBoundary ..> ResidualStream : prepare / finish\nStageBoundary ..> FfnExit : exit() 创建\nFfnExit --> ResidualStream : _stream\n",
+      "description": "ForwardBatch 保存 input_ids、positions、req_pool_indices、seq_lens、out_cache_loc。ResidualStream 保存 residual 和 pending。",
+      "accessibility": "组合与引用"
+    },
+    {
+      "id": "output",
+      "title": "18.2 结果对象与采样器",
+      "kind": "raw",
+      "source": "classDiagram\ndirection TB\nclass ModelRunnerOutput[\"ModelRunnerOutput\"]\nclass LogitsProcessorOutput[\"LogitsProcessorOutput\"]\nclass ModelRunner[\"ModelRunner\"]\nclass Sampler[\"Sampler\"]\nModelRunnerOutput *-- LogitsProcessorOutput : logits_output\nModelRunner ..> Sampler : sample() 调用\nSampler ..> LogitsProcessorOutput : 读取 logits\n",
+      "description": "LogitsProcessorOutput.next_token_logits 是词表分数；Sampler 从分数或概率中选择下一个 token。",
+      "accessibility": "组合与引用"
+    }
+  ]
+}

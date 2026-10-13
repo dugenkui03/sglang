@@ -72,6 +72,7 @@ class Qwen3_5Config(PretrainedConfig):
 
     >>> # Accessing the model configuration
     >>> configuration = model.config
+    NOTE
     ```"""
 
     model_type = "qwen3_5"

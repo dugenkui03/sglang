@@ -1,7 +1,12 @@
 import argparse
+import json
+import logging
 
 from sglang.cli.utils import get_git_commit_hash
+from sglang.srt.utils.common import DebugLogFormatter
 from sglang.version import __version__
+
+logger = logging.getLogger(__name__)
 
 
 def version(args, extra_argv):
@@ -18,6 +23,33 @@ COOKBOOK_EPILOG = (
 
 
 def main():
+    r"""
+    NOTE 类似于这样的服务启动命令入口是这里
+        sglang serve \
+            --trust-remote-code \                   // 是否可执行模型仓库中的代码
+            --model-path Qwen/Qwen3.8-27B-FP8 \     // 模型
+            --kv-cache-dtype fp8_e4m3 \             // 保存 KV 用的数据类型
+            --mem-fraction-static 0.85 \            // 模型加载和 KV Cache 占用的最大显存比例
+            --attention-backend flashinfer \
+            --chunked-prefill-size 32768 \          // 组批prefill的时候最多新计算的 token：到达阈值后会把请求分块，会产生 Scheduler.chunked_req
+            --max-prefill-tokens 32768 \            // Prefill 输入预算；无分块且批次为空时，首请求可超限整条入批
+            --reasoning-parser qwen3 \              // 推理结果解析器
+            --tool-call-parser qwen3_coder \        // tool-call 结果解析器
+            --mamba-full-memory-ratio 4.59 \
+            --host 0.0.0.0 \                        // 请求地址
+            --port 30000 \
+            --mamba-radix-cache-strategy extra_buffer \
+            --mamba-ssm-dtype float32
+  """
+    # 入口阶段尚未配置服务日志，先启用 INFO 级别日志。
+    log_handler = logging.StreamHandler()
+    log_handler.setFormatter(DebugLogFormatter())
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[log_handler],
+    )
+    logger.info("hello dugenkui")
+
     parser = argparse.ArgumentParser(
         epilog=COOKBOOK_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -25,11 +57,14 @@ def main():
 
     # complex sub commands
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # tip 启动服务
     subparsers.add_parser(
         "serve",
         help="Launch an SGLang server.",
         add_help=False,
     )
+    # tip 执行推理
     subparsers.add_parser(
         "generate",
         help="Run inference on a multimodal model.",
@@ -44,12 +79,16 @@ def main():
     version_parser.set_defaults(func=version)
 
     args, extra_argv = parser.parse_known_args()
+    logger.info("args（已解析参数）:\n%s", json.dumps(vars(args), ensure_ascii=False, indent=2, default=str))
+    logger.info("extra_argv（剩余参数）:\n%s", json.dumps(extra_argv, ensure_ascii=False, indent=2, default=str))
 
     if args.subcommand == "serve":
+        # NOTE 如果是服务启动命令， serve 逻辑分支
         from sglang.cli.serve import serve
 
         serve(args, extra_argv)
     elif args.subcommand == "generate":
+        # NOTE 推理分支
         from sglang.cli.generate import generate
 
         generate(args, extra_argv)

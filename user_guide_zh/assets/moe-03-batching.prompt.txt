@@ -1,0 +1,34 @@
+Generation mode: built-in imagegen
+Final image: moe-03-batching.png
+
+Use case: scientific-educational
+Asset type: a standalone Chinese educational infographic in a Markdown beginner guide about mixture of experts.
+Style: polished textbook illustration, white background, sharp flat shapes, consistent thin connectors, blue for hidden states and attention, violet for router, orange for expert MLP, green for selected paths, gray for unused experts. Wide landscape composition around 3:2, no tiny text. Large legible Simplified Chinese sans-serif labels with English technical terms only where provided. Use diagrams and concise labels, not walls of text. No invented specialist subject labels, no decorative characters, no logo or watermark.
+
+Title exactly: “逐词元选择，也可以批量计算”
+Upper two-thirds: a very clear before/after grouping diagram with token identity retained by colors. Left titled “按词元看” contains EXACT three cards:
+“A → E1、E3”
+“B → E1、E2”
+“C → E2、E3”.
+Middle titled “按专家分组” contains EXACT expert batches:
+“E1：[A，B]”
+“E2：[B，C]”
+“E3：[A，C]”
+“E4：空”.
+Only show connectors that are needed, avoid crossing clutter. Right titled “还原顺序，按权重合并” contains three output cards:
+“A：合并 E1、E3”
+“B：合并 E1、E2”
+“C：合并 E2、E3”.
+Caption “每位专家对分配到的词元做批量矩阵运算；E4 本批不执行。”
+Lower third: independently boxed cost comparison titled “计算量要和谁比？”
+EXACT three-column table:
+“方案 | MLP 参数套数 | 每词元 MLP 计算份数”
+“普通 MLP | 1 | 1”
+“8 专家选 2 | 8 | 2”
+“8 专家全算 | 8 | 8”.
+Scope label “假设每位专家与普通 MLP 大小相同，仅比较 MLP 部分”.
+Footer takeaway exactly “大容量，少量激活；仍需承担权重存储、路由与通信成本。”
+Do not claim MoE is always faster or that the entire model has an 8/2 acceleration. Tokens A/B/C are abstract hidden vectors, not separate requests.
+
+Final corrective edit (built-in imagegen):
+undefined

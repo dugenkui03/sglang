@@ -1,0 +1,46 @@
+Use case: scientific-educational
+Asset type: Chinese educational diagram for SGLang learning notes, one finished landscape raster image.
+Primary request: Explain the structures of ordinary MLP, gated MLP and mixture of experts (MoE), with precise arrows showing data flow. Stay entirely within these three structures.
+Style: clean geometry-textbook line drawing, white background, thin dark outlines, restrained color on active paths, crisp generous Chinese typography. No photorealism, no 3D objects, no decoration. Make it legible at full width and printable. Landscape around 2400 x 1500, three spacious side-by-side columns. Use a clear title and three balanced numbered panels. Prioritize correct connections over decorative design.
+
+Exact main title: "看懂 FFN：普通 MLP、门控 MLP 与 MoE"
+Exact subtitle: "前两种展示单个网络的结构；MoE 展示多个专家的组织方式"
+
+LEFT PANEL title "① 普通 MLP", subtitle "一条计算路径".
+Draw a vertical connected path, every arrow clearly pointing down:
+"输入 x" (small label "hidden_size")
+→ "up_proj 线性投影" (small label "扩大维度")
+→ "激活函数 GELU" (small label "引入非线性")
+→ "down_proj 线性投影" (small label "回到 hidden_size")
+→ "输出 y".
+At bottom a single compact formula: "y = down(GELU(up(x)))".
+Small explanatory sentence: "所有 token 使用同一套网络权重".
+
+CENTER PANEL title "② 门控 MLP", subtitle "两路计算，再逐元素相乘".
+A single "输入 x" at top splits into two clear solid-arrow paths.
+Left path: "gate_proj" → "SiLU 激活" → merge node.
+Right path: "up_proj" → merge node, with NO activation on the up path.
+The two paths feed the same circular merge node marked "⊙", explicitly captioned "逐元素相乘".
+Only after this merge draw a downward arrow to "down_proj", then downward to "输出 y".
+Use distinguishable colors and contrast levels for the gate path and up path. Ensure NO direct path from x to output skipping the multiply or down projection.
+Formula below: "y = down(SiLU(gate(x)) ⊙ up(x))".
+Two short implementation notes below: "gate_up_proj 可一次投影得到 gate、up" and "当前代码：Qwen2MoeMLP".
+This is SiLU gating, do NOT label it sigmoid or imply its coefficients must be between zero and one.
+
+RIGHT PANEL title "③ 混合专家 MoE", subtitle "选择专家，再加权求和".
+Show "输入 x" at top, followed by "路由器 Router" and a short label "示例：选中专家 0、2".
+Below, three small expert boxes side by side: "专家 0 / MLP", "专家 1 / MLP", "专家 2 / MLP".
+Experts 0 and 2 have solid colored paths and contrast; expert 1 is grey with the unambiguous label "未选中", a faint dashed nonactive routing indication, and NO output arrow into the result.
+Mark active routes "同一输入 x" so it is clear each selected expert receives the original token vector, not the router score vector.
+Active expert outputs y0 and y2 connect downward to ONE weighted-sum merge node marked "Σ", label "按路由权重加权求和".
+Label the expert 0 output arrow "0.7 × y0" and expert 2 output arrow "0.3 × y2".
+From the merge node, draw ONE downward arrow to "输出 y", small label "hidden_size".
+Bottom formula: "y = 0.7 × E0(x) + 0.3 × E2(x)".
+Short implementation label: "当前代码：Qwen2MoeSparseMoeBlock".
+The numeric weights are illustrative, do not imply a fixed real configuration.
+
+Footer, two concise readable notes:
+"示意一个 token；不同 token 可选择不同专家。"
+"MoE 的专家内部通常仍是 MLP，也可以采用门控 MLP。"
+
+Constraints: Chinese text exact and readable; avoid crossed arrows; no clipping; plenty of whitespace. Every operation has only the intended data inputs. Distinguish the center's elementwise multiply ⊙ from the right's weighted sum Σ. Do not present MoE as mutually exclusive with gated MLP. No attention, KV cache, residual, normalization, logits, sampling or GPU/CPU material; do not expand the topic. Do not add logos or watermarks.

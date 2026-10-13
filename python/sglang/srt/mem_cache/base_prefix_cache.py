@@ -55,10 +55,10 @@ class CacheRequestOutcome(Enum):
 
 @runtime_checkable
 class PrefixCacheTrait(Protocol):
-    req_to_token_pool: ReqToTokenPool
-    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator
-    page_size: int
-    disable: bool
+    req_to_token_pool: ReqToTokenPool #
+    token_to_kv_pool_allocator: BaseTokenToKVPoolAllocator # KV Index 管理器
+    page_size: int # 缓存页占用 kv 编号数量
+    disable: bool # 是否禁用缓存
 
 
 @dataclasses.dataclass
@@ -178,6 +178,8 @@ class IncLockRefResult:
     ``None`` means root, while an absent entry means no receipt.
     ``skipped_lock_components`` records the components the acquire left
     untaken, so the release leaves them untouched.
+
+    NOTE delta 记录锁定操作引起的可淘汰 token 数变化；其余字段记录本次锁定。
     """
 
     delta: Optional[int] = None
@@ -382,7 +384,9 @@ def _dfs_weight_order(
 
 
 class BasePrefixCache(ABC, PrefixCacheTrait):
-    """Cache can be indexed by either rid or key."""
+    """Cache can be indexed by either rid or key.
+        NOTE RadixCache 的父类
+    """
 
     metrics_collector: Optional[RadixCacheMetricsCollector] = (
         None  # metrics collector for the cache

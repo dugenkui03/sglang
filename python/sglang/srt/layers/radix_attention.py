@@ -14,7 +14,7 @@
 """Radix attention."""
 
 from __future__ import annotations
-
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import Enum
@@ -34,7 +34,7 @@ from sglang.srt.model_executor.runner_backend_utils.tc_piecewise_cuda_graph impo
 )
 from sglang.srt.utils.common import is_hip
 from sglang.srt.utils.custom_op import register_custom_op
-
+logger = logging.getLogger(__name__)
 _is_hip = is_hip()
 
 # When set, RadixAttention.forward runs the attention backend eagerly instead of
@@ -98,6 +98,7 @@ class AttentionType(Enum):
 class RadixAttention(nn.Module):
     """
     The attention layer implementation.
+    NOTE: HuggingFace 原生注意力的 KV 存储方式，和 SGLang 的 KV 池对不上。自定义这个类方便 forward 的时候使用自定义的 KV Pool.
     """
 
     def __init__(
@@ -120,6 +121,7 @@ class RadixAttention(nn.Module):
         use_prefill_attention_wrapper: bool = True,
     ):
         super().__init__()
+        # NOTE 本卡的 Q / KV 头数，模型构造时已按 TP 切分好
         self.tp_q_head_num = num_heads
         self.tp_k_head_num = num_kv_heads
         self.tp_v_head_num = num_kv_heads
@@ -127,6 +129,7 @@ class RadixAttention(nn.Module):
         self.qk_head_dim = head_dim
         self.v_head_dim = v_head_dim if v_head_dim != -1 else head_dim
         self.scaling = scaling
+        # NOTE 本层序号：注意力后端据此读写 k_buffer[layer_id] / v_buffer[layer_id]
         self.layer_id = layer_id
         self.logit_cap = logit_cap
         self.sliding_window_size = sliding_window_size or -1
@@ -166,6 +169,10 @@ class RadixAttention(nn.Module):
         key_value_num_tokens: Optional[int] = None,
         **kwargs,
     ):
+        """
+            note 进行包括注意力计算和缓存读写以及 V 权重加合
+                简单链路只有 qkv 和 forward_batch 这几个参数
+        """
         if k is not None:
             # For cross-layer sharing, kv can be None
             assert v is not None
@@ -173,9 +180,12 @@ class RadixAttention(nn.Module):
                 k = k.view(-1, self.tp_k_head_num, self.qk_head_dim)
                 v = v.view(-1, self.tp_v_head_num, self.v_head_dim)
             else:
+                # NOTE 按照 head 数量，对 k 向量进行分组
                 k = k.view(-1, self.tp_k_head_num, self.v_head_dim)
+                logger.info(f"RadixAttention 整理后的 k.shape{k.shape}, k_head_num:{self.tp_k_head_num}")
 
         context = get_tc_piecewise_forward_context()
+        # NOTE prefill 走分段 CUDA Graph（torch.compile）时，把注意力包成自定义算子调用，内部仍交给注意力后端
         if (
             self.use_prefill_attention_wrapper
             and forward_batch.forward_mode.is_extend()
@@ -290,6 +300,7 @@ class RadixAttention(nn.Module):
                     key_value_num_tokens=key_value_num_tokens,
                     **kwargs,
                 )
+            # NOTE TritonAttnBackend，Triton 是一种编写 GPU 内核(Kernel)的语言和编译器，提供基于 Python 的编程方式
             return get_attn_backend().forward(
                 q,
                 k,

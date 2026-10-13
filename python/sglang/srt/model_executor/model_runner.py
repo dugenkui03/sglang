@@ -304,7 +304,10 @@ def resolve_draft_attention_backend(
 
 
 class ModelRunner:
-    """ModelRunner runs the forward passes of the models."""
+    """ModelRunner runs the forward passes of the models.
+    NOTE 执行 forward
+    详见 ../../../../user_guide_zh/核心组件五：TpModelWorker与ModelRunner.md
+    """
 
     @property
     def sampling_observer(self) -> Optional[SamplingObserver]:
@@ -336,6 +339,8 @@ class ModelRunner:
         draft_model_idx: Optional[int] = None,
         draft_attention_backend: Optional[str] = None,
     ):
+        """加载模型，读取并行上下文并设置 KV 参数。"""
+
         # Parse args
         self.mem_fraction_static = mem_fraction_static
         # Set on target by `_resolve_memory_pool_config`; passed in for draft
@@ -437,6 +442,7 @@ class ModelRunner:
 
         # Get available memory before model loading.
         # Stored for later use by alloc_memory_pool().
+        # NOTE 通信组已由外层初始化；这里测量加载前可用 GPU 显存并保存 PP 组。
         self.init_torch_distributed()
 
         # Init forward stream for overlap schedule
@@ -473,6 +479,29 @@ class ModelRunner:
         self.startup_weight_load = None
 
         # Load model weights and configure
+        # NOTE 下载和加载模型，研究下如下链路
+        #
+        # ModelRunner.__init__()
+        #   → ModelRunner.initialize()
+        #   → ModelRunner.load_model()
+        #   → load_model_with_memory_saver()
+        #   → DefaultModelLoader.load_model()
+        #       │
+        #       ├─ ① _initialize_model()：创建模型和参数
+        #       │    → Qwen3_5ForConditionalGeneration.__init__()
+        #       │    → Qwen3VLForConditionalGeneration.__init__()
+        #       │    → Qwen3_5ForCausalLM.__init__()
+        #       │    → VocabParallelEmbedding.__init__()
+        #       │    → UnquantizedEmbeddingMethod.create_weights()
+        #       │        ├─ 创建 weight，并注册到 embedding 层
+        #       │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+        #       │
+        #       └─ ② load_weights_and_postprocess()：加载实际权重
+        #            → Qwen3_5ForConditionalGeneration.load_weights()
+        #            → 根据参数名找到之前创建的 weight
+        #            → 取出 weight.weight_loader 并执行
+        #            → VocabParallelEmbedding.weight_loader()
+        #            → 把文件中的权重数据拷贝进 weight
         self.initialize()
         self.check_quantized_moe_compatibility()
 
@@ -661,6 +690,7 @@ class ModelRunner:
             )
 
     def initialize(self):
+        """加载权重并做模型相关设置：采样器、load_model、本卡负责哪几层；KV 池、注意力后端、CUDA Graph 之后单独初始化"""
         self.init_memory_saver_adapter()
         self.maybe_init_remote_instance_transfer_engine()
         self.maybe_init_expert_location_metadata()
@@ -669,7 +699,9 @@ class ModelRunner:
         self.expert_location_updater = ExpertLocationUpdater()
         self.maybe_init_elastic_ep()
         self.init_token_oracle()
+        # 创建采样器，根据入参的温度值、topK等对结果进行采样
         self.sampler = create_sampler()
+        # NOTE 加载模型，包括下载
         self.load_model()
         prepare_moe_topk(model=self.model, model_config=self.model_config)
 
@@ -681,6 +713,8 @@ class ModelRunner:
             disable_routed_experts_capture_for_draft(self.model)
         self.maybe_init_expert_backup_client()
         self.remote_instance_weight_transporter.maybe_register_and_publish_weight_info()
+        # 确定这张卡负责模型的哪几层，结果存在 self.layer_info。开了流水线并行时，每张卡只负责一部分层
+        # 这是 长上下文流水线并发 实现的支持链路之一：https://lmsysorg.mintlify.app/docs/advanced_features/pipeline_parallelism
         self.layer_info: ModelLayerInfo = resolve_layer_indices(
             model=self.model,
             model_config=self.model_config,
@@ -910,19 +944,26 @@ class ModelRunner:
         return self.max_decode_logits_rows()
 
     def alloc_memory_pool(self, memory_pool_config: Optional[MemoryPoolConfig] = None):
-        """Allocate KV cache memory pools only (no backends or cuda graphs)."""
+        """Allocate KV cache memory pools only (no backends or cuda graphs).
+
+        NOTE 初始化 KV Cache 相关的显存池
+        """
         if memory_pool_config is not None:
             self.memory_pool_config = memory_pool_config
 
         self.init_kv_cache_configurator()
+        # NOTE 重要，初始化 KV Cache 相关的显存池
         result = self.kv_cache_configurator.configure(
             pre_model_load_memory=self.pre_model_load_memory
         )
+        # NOTE 运行时参数赋值
         self.max_total_num_tokens = result.max_total_num_tokens
+        # NOTE 用户即使配置了 --max-running-requests，实际能接受的并发处理可能更小
         self.max_running_requests = result.max_running_requests
-        self.req_to_token_pool = result.req_to_token_pool
-        self.token_to_kv_pool = result.token_to_kv_pool
-        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator
+        # NOTE 显存池相关参数赋值
+        self.req_to_token_pool = result.req_to_token_pool  # slot -> KV index
+        self.token_to_kv_pool = result.token_to_kv_pool  # KV index -> KV 向量
+        self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator  #
         self.memory_pool_config = result.memory_pool_config
         if self.is_hybrid_swa:
             self.full_max_total_num_tokens = result.full_max_total_num_tokens
@@ -1202,8 +1243,33 @@ class ModelRunner:
         self.pp_group = get_parallel().pp_group
 
     def load_model(self):
+        """加载模型
+        ModelRunner.__init__()
+        → ModelRunner.initialize()
+        → ModelRunner.load_model()  // 【当前方法】
+        → load_model_with_memory_saver()
+        → DefaultModelLoader.load_model()
+            │
+            ├─ ① _initialize_model()：创建模型和参数
+            │    → Qwen3_5ForConditionalGeneration.__init__()
+            │    → Qwen3VLForConditionalGeneration.__init__()
+            │    → Qwen3_5ForCausalLM.__init__()
+            │    → VocabParallelEmbedding.__init__()
+            │    → UnquantizedEmbeddingMethod.create_weights()
+            │        ├─ 创建 weight，并注册到 embedding 层
+            │        └─ 把 embedding 层的 weight_loader 保存到 weight 上
+            │
+            └─ ② load_weights_and_postprocess()：加载实际权重
+                → Qwen3_5ForConditionalGeneration.load_weights()
+                → 根据参数名找到之前创建的 weight
+                → 取出 weight.weight_loader 并执行
+                → VocabParallelEmbedding.weight_loader()
+                → 把文件中的权重数据拷贝进 weight
+        """
         tic_total = time.perf_counter()
-        before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
+        before_avail_memory = get_available_gpu_memory(
+            self.device, self.gpu_id
+        )  # 返回闲置的显存大小
         logger.info(
             f"Load weight begin. avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
         )
@@ -1242,8 +1308,9 @@ class ModelRunner:
         )
 
         with self._load_format_scope(draft_load_format):
+            # NOTE 下载和加载模型
             loaded = load_model_with_memory_saver(
-                model_config=self.model_config,
+                model_config=self.model_config,  # 模型配置
                 load_config=self.load_config,
                 device=self.device,
                 gpu_id=self.gpu_id,
@@ -1289,8 +1356,12 @@ class ModelRunner:
 
         self.dtype = self.model_config.dtype
 
-        after_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
-        self.weight_load_mem_usage = before_avail_memory - after_avail_memory
+        after_avail_memory = get_available_gpu_memory(
+            self.device, self.gpu_id
+        )  # 当前闲置的显存大小
+        self.weight_load_mem_usage = (
+            before_avail_memory - after_avail_memory
+        )  # 加载模型用了多大显存
         self.weight_load_time = time.perf_counter() - tic_total
         # Get quantization config from ModelConfig
         # This handles both config.json (standard) and hf_quant_config.json (ModelOpt)
@@ -1692,9 +1763,11 @@ class ModelRunner:
     def _extend_forward_kwargs(
         self, forward_batch: ForwardBatch, pp_proxy_tensors
     ) -> dict:
-        """Build the extend/prefill model.forward kwargs (pp_proxy_tensors +
-        input_embeds / replace_embeds overrides + get_embedding), shared by the
-        prefill cuda-graph path and the EagerRunner's eager extend path."""
+        """
+        Build the extend/prefill model.forward kwargs
+        (pp_proxy_tensors + input_embeds / replace_embeds overrides + get_embedding),
+        shared by the prefill cuda-graph path and the EagerRunner's eager extend path.
+        """
         kwargs = self._pp_kwargs(pp_proxy_tensors)
         if forward_batch.input_embeds is not None:
             kwargs["input_embeds"] = forward_batch.input_embeds.bfloat16()
@@ -1737,12 +1810,42 @@ class ModelRunner:
 
     def forward(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # 输入
         skip_attn_backend_init: Optional[bool] = None,  # deprecated
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
+        """NOTE 使用已加载的权重执行 forward。
+
+        普通 eager 执行链路（未走 CUDA Graph；prefill/decode 均调用模型 forward）：
+
+        ModelRunner.forward()
+            ↓
+        ModelRunner._forward_raw()
+            ↓
+        EagerRunner.execute()
+            ├─ prefill → _execute_extend()
+            └─ decode  → _execute_decode()
+                            ↓
+                model_runner.model.forward(...)
+
+        Qwen 3.5 dense 原生模型的调用关系：
+
+        ModelRunner.model
+            = Qwen3_5ForConditionalGeneration 对象
+                ↓ forward() 继承自父类
+        Qwen3VLForConditionalGeneration.forward()
+                ↓ 直接或经输入处理辅助函数调用内部文本模型
+        Qwen3_5ForCausalLM.forward()
+                ↓
+        token embedding → 逐层计算 → 最终归一化
+                ↓ 返回外层
+        logits_processor + lm_head → 得到 logits
+
+        加载时机：服务启动初始化 ModelRunner 时，load_model() 根据模型配置选择
+        Qwen3_5ForConditionalGeneration、创建实例并加载权重，然后保存到 self.model 供各轮 forward() 复用。
+        """
         # Deprecated kwarg: pre-planners mark the batch themselves now.
         forward_batch.apply_deprecated_skip_attn_backend_init(skip_attn_backend_init)
 
@@ -1778,6 +1881,7 @@ class ModelRunner:
                 forward_batch,
             ) as recorder_outputs,
         ):
+            # NOTE 【核心】模型前向计算；采样由 sample() 单独执行
             output = self._forward_raw(
                 forward_batch,
                 pp_proxy_tensors,
@@ -1883,21 +1987,26 @@ class ModelRunner:
 
     def _forward_raw(
         self,
-        forward_batch: ForwardBatch,
+        forward_batch: ForwardBatch,  # 推理任务
         pp_proxy_tensors: Optional[PPProxyTensors],
         reinit_attn_backend: bool = False,
         split_forward_count: int = 1,
     ) -> ModelRunnerOutput:
+        """
+        NOTE 执行模型推理的地方
+        """
         if has_forward_context():
             ctx_mgr = contextlib.nullcontext()
         else:
             ctx_mgr = forward_context(ForwardContext(attn_backend=self.attn_backend))
         with ctx_mgr:
+            # tip
             mode_check = (
                 forward_batch.forward_mode.is_cpu_graph
                 if self.device == "cpu"
                 else forward_batch.forward_mode.is_cuda_graph
             )
+            # TODO 也是核心，判断能否进行 CUDA Graph 执行优化
             can_run_graph = bool(
                 mode_check()
                 and self.decode_cuda_graph_runner
@@ -1914,6 +2023,7 @@ class ModelRunner:
 
             # Replay cuda graph if applicable
             if can_run_graph:
+                # TODO 看下 CUDA Graph 链路
                 ret = self.decode_cuda_graph_runner.execute(
                     forward_batch,
                     pp_proxy_tensors=pp_proxy_tensors,
@@ -1970,6 +2080,7 @@ class ModelRunner:
                 can_run_graph = True
             else:
                 # Eager: decode / extend / idle dispatched inside the runner.
+                # NOTE 普通即时执行（Eager）前向链路
                 ret = self.eager_runner.execute(
                     forward_batch, pp_proxy_tensors=pp_proxy_tensors
                 )
@@ -2012,7 +2123,7 @@ class ModelRunner:
 
     def sample(
         self,
-        logits_output: LogitsProcessorOutput,
+        logits_output: LogitsProcessorOutput, # tip 每个请求对应的分数
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
         """Sample and compute logprobs and update logits_output.
@@ -2023,12 +2134,34 @@ class ModelRunner:
 
         Returns:
             A list of next_token_ids
+
+        ModelRunner.sample(logits_output, forward_batch)
+            │
+            ├─ ① ModelRunner._preprocess_logits()
+            │    → 按配置应用惩罚、词表偏置、语法约束
+            │
+            ├─ ② self.sampler(...)
+            │    → Sampler.forward()
+            │         │
+            │         ├─ 取出 logits_output.next_token_logits
+            │         │
+            │         ├─ 贪心采样：torch.argmax(logits, -1)
+            │         │    → 选择最高分 token
+            │         │
+            │         └─ 常规随机采样
+            │              → logits / temperature → softmax
+            │              → Sampler._sample_from_probs()
+            │                   → 按 top_k/top_p/min_p 配置筛选并采样
+            │
+            └─ ③ 返回 next_token_ids
+                → 每个请求的下一 token ID
         """
         # LogitsProcessorOutput is normally invocation-scoped, but CUDA graph
         # runners may reuse backing objects. Never leak an auxiliary result from
         # a previous replay into a request with no observer state.
         logits_output.auxiliary_device_output = None
         observer = self.sampling_observer
+        logits_before = logits_output.next_token_logits.reshape(-1)[:10].tolist()
         # Preserve two-argument overrides when observation is inactive.
         if observer is not None and observer.is_active(forward_batch.sampling_info):
             observer_state = self._preprocess_logits(
@@ -2040,6 +2173,10 @@ class ModelRunner:
             observer_state = self._preprocess_logits(
                 logits_output, forward_batch.sampling_info
             )
+
+        logits_after = logits_output.next_token_logits.reshape(-1)[:10].tolist()
+        logger.info("logits 预处理前后（展平后的前10个元素）\nbefore=[%s]\nafter =[%s]",
+            ", ".join(f"{value:10.4f}" for value in logits_before), ", ".join(f"{value:10.4f}" for value in logits_after))
 
         # Sample the next tokens
         next_token_ids = self.sampler(

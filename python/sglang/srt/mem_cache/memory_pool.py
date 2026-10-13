@@ -161,10 +161,23 @@ def _set_kv_buffer_impl(
     alt_stream: Optional[torch.cuda.Stream] = None,
     v_row_dim: Optional[int] = None,  # head_num * v_head_dim; defaults to row_dim
 ) -> None:
+    """ 写入 kv 到缓存
+
+       这是一个例子，来参考写入逻辑
+
+        写入数据形状：([18, 512]), v.shape=torch.Size([18, 512]), k_cache.shape=torch.Size([4097, 512]),
+        写入空间形状信息：v_cache.shape=torch.Size([4097, 512]), indices.shape=torch.Size([18]),
+            + 写入位置编号indices=[426, 427, 428, 429, 430, 431, 432, 433, 434, 435, 436, 437, 438, 439, 440, 441, 442, 443]
+        【逻辑】分配编号其实是在第一个维度分配编号，第二个维度和第三个维度 写入的空间和 k/v 是一样的，都是 k/v_head_num 和 k/v_dim
+    """
+    logger.info("_set_kv_buffer_impl：写入 K/V 当前层缓存\n 被缓存的数据 k.shape=%s, v.shape=%s, 位置信息： k_cache.shape=%s, v_cache.shape=%s, indices.shape=%s, indices=%s",
+        k.shape, v.shape, k_cache.shape, v_cache.shape, indices.shape, indices.tolist())
+
     v_row_dim = row_dim if v_row_dim is None else v_row_dim
     row_bytes = row_dim * store_dtype.itemsize
     v_row_bytes = v_row_dim * store_dtype.itemsize
     if (_is_cuda or _is_hip) and can_use_store_cache(row_bytes, v_row_bytes):
+        # NOTE gpu 链路
         return store_cache(
             k.view(-1, row_dim),
             v.view(-1, v_row_dim),
@@ -365,7 +378,20 @@ def _resolve_fused_scale(
 
 
 class ReqToTokenPool:
-    """A memory pool that maps a request to its token locations."""
+    """A memory pool that maps a request to its token locations.
+
+    NOTE 映射请求到他的 KV Index，这里保存的只是 KV 编号/index，数据保存在 req_to_token 中
+     示例：size=3（最多 3 个请求同时跑，_alloc_size=4 行）、max_context_len=6 的 req_to_token
+
+     每行是一个槽位，每列是一个 token 位置：
+         槽位 0：[ 0,  0,  0,  0,  0,  0]  预留行，不分配给请求；CUDA Graph 补齐的假请求读写这里
+         槽位 1：[ 7,  8,  9,  0,  0,  0]  请求 A「你好啊」，刚做完 prefill、还没生成回答，长度 3，后 3 列还没用
+         槽位 2：[ 7,  8,  9, 31, 32, 33]  请求 B「你好啊，在吗」，前 3 个复用 A 已缓存的「你好啊」的 KV 编号
+         槽位 3：[ 0,  0,  0,  0,  0,  0]  空闲槽位（在 free_slots 中），内容无意义
+
+     - free_slots = [3]：槽位 1、2 已被占用，槽位 0 永远不在里面
+     - 每行的有效长度由请求的 seq_len 决定，后面的列不读；KV 编号 0 也是保留的，不会分配给 token
+    """
 
     enable_mamba_extra_buffer_lazy: bool = False
     # Extra pre-allocation headroom (reserved for in-transfer decode requests).
@@ -378,11 +404,15 @@ class ReqToTokenPool:
 
     def __init__(
         self,
-        size: int,
-        max_context_len: int,
+        size: int,  # 最大并行请求数量
+        max_context_len: int,  # 每个请求预留的 token 数量
         device: str,
         enable_memory_saver: bool,
     ):
+        """
+        NOTE req_to_token 形状为 [size + 1, max_context_len]，保存请求槽位到 KV 编号的映射。
+             _alloc_size = size + 1，包含供 CUDA Graph 补齐请求使用的第 0 行。
+        """
         memory_saver_adapter = TorchMemorySaverAdapter.create(
             enable=enable_memory_saver
         )
@@ -390,14 +420,22 @@ class ReqToTokenPool:
         self.size = size
         # +1 padding row at index 0: cuda-graph padded batches default
         # req_pool_indices to 0, so dummy reads/writes land here harmlessly.
+        # NOTE 最大请求数加一行 CUDA Graph 补齐槽位。
         self._alloc_size = size + 1
         self.max_context_len = max_context_len
         self.device = device
         with memory_saver_adapter.region(GPU_MEMORY_TYPE_KV_CACHE):
+            # NOTE req_to_token 保存了 req slot 到 KV Index的映射
             self.req_to_token = torch.zeros(
-                (self._alloc_size, max_context_len), dtype=torch.int32, device=device
+                # NOTE 形状为 [_alloc_size, max_context_len]，即 [size + 1, max_context_len]。
+                (self._alloc_size, max_context_len),
+                dtype=torch.int32,
+                device=device,
             )
+
+        # NOTE 可分配请求槽位为 1 到 size，不含第 0 行。
         self.free_slots = list(range(1, self._alloc_size))
+
         self.req_generation = torch.zeros(self._alloc_size, dtype=torch.int64)
         self._aux_cache: Any = None
 
@@ -408,6 +446,9 @@ class ReqToTokenPool:
         return len(self.free_slots)
 
     def alloc(self, reqs: list[Req]) -> Optional[List[int]]:
+        """
+            NOTE req.kv.holds_kv 为真时复用请求槽位，否则分配新槽位。
+        """
         # Indices of reqs that already have a req_pool_idx and will reuse
         # their existing slot (e.g. chunked prefill continuing across chunks).
         reusing = [i for i, r in enumerate(reqs) if r.kv.holds_kv]
@@ -415,11 +456,13 @@ class ReqToTokenPool:
             "a reused row must carry allocated KV"
         )
 
+        # NOTE
         select_index = self.alloc_rows(len(reqs) - len(reusing))
         if select_index is None:
             return None
         offset = 0
         for r in reqs:
+            # NOTE 请求尚未持有 KV 时，将新槽位写入 r.kv.req_pool_idx。
             if not r.kv.holds_kv:
                 r.kv.req_pool_idx = select_index[offset]
                 offset += 1
@@ -435,6 +478,7 @@ class ReqToTokenPool:
             return []
         # Pop from the tail: O(need_size), unlike a prefix pop which is
         # O(len(free_slots)).
+        # NOTE 从 free_slots 中分配 need_size 个 req slot
         select_index = self.free_slots[-need_size:]
         del self.free_slots[-need_size:]
         self.req_generation[select_index] += 1
@@ -968,14 +1012,14 @@ class MambaPool:
                     else 0.0
                 )
                 logger.info(
-                    f"Mamba Cache is allocated. "
-                    f"max_mamba_cache_size: {size}, "
-                    f"conv_state size: {get_tensor_size_bytes(conv_state) / GB:.2f}GB, "
-                    f"ssm_state size: {get_tensor_size_bytes(temporal_state) / GB:.2f}GB "
-                    f"intermediate_ssm_state_cache size: {intermediate_ssm_gb:.2f}GB "
+                    f"Mamba Cache is allocated.\n"
+                    f"        max_mamba_cache_size: {size}\n"
+                    f"        conv_state size: {get_tensor_size_bytes(conv_state) / GB:.2f} GB\n"
+                    f"        ssm_state size: {get_tensor_size_bytes(temporal_state) / GB:.2f} GB\n"
+                    f"        intermediate_ssm_state_cache size: {intermediate_ssm_gb:.2f} GB\n"
                     # Report the deduplicated PHYSICAL conv-window buffers (the view
                     # over-reports its logical, un-deduplicated size).
-                    f"intermediate_conv_window_cache size: {get_tensor_size_bytes(self._intermediate_conv_window_phys) / GB:.2f}GB "
+                    f"        intermediate_conv_window_cache size: {get_tensor_size_bytes(self._intermediate_conv_window_phys) / GB:.2f} GB"
                 )
             else:
                 self.mamba_cache = self.State(
@@ -989,10 +1033,10 @@ class MambaPool:
                     replayssm_beta=replayssm_beta,
                 )
                 logger.info(
-                    f"Mamba Cache is allocated. "
-                    f"max_mamba_cache_size: {size}, "
-                    f"conv_state size: {get_tensor_size_bytes(conv_state) / GB:.2f}GB, "
-                    f"ssm_state size: {get_tensor_size_bytes(temporal_state) / GB:.2f}GB "
+                    f"Mamba Cache is allocated.\n"
+                    f"        max_mamba_cache_size: {size}\n"
+                    f"        conv_state size: {get_tensor_size_bytes(conv_state) / GB:.2f} GB\n"
+                    f"        ssm_state size: {get_tensor_size_bytes(temporal_state) / GB:.2f} GB"
                 )
             if _replayssm_on:
                 logger.info(
@@ -2063,16 +2107,20 @@ class KVCache(abc.ABC):
             k_size_GB = k_size / GB
             v_size_GB = v_size / GB
             logger.info(
-                f"{cache_name} {'VA upper bound' if self.post_capture_active else 'is allocated'}. dtype: {self.dtype}, "
-                f"#tokens: {num_tokens}, K size: {k_size_GB:.2f} GB, "
-                f"V size: {v_size_GB:.2f} GB"
+                f"{cache_name} {'VA upper bound' if self.post_capture_active else 'is allocated'}.\n"
+                f"        dtype: {self.dtype}\n"
+                f"        #tokens: {num_tokens}\n"
+                f"        K size: {k_size_GB:.2f} GB\n"
+                f"        V size: {v_size_GB:.2f} GB"
             )
             self.mem_usage = k_size_GB + v_size_GB
         else:
             kv_size_GB = kv_size_bytes / GB
             logger.info(
-                f"{cache_name} {'VA upper bound' if self.post_capture_active else 'is allocated'}. dtype: {self.dtype}, "
-                f"#tokens: {num_tokens}, KV size: {kv_size_GB:.2f} GB"
+                f"{cache_name} {'VA upper bound' if self.post_capture_active else 'is allocated'}.\n"
+                f"        dtype: {self.dtype}\n"
+                f"        #tokens: {num_tokens}\n"
+                f"        KV size: {kv_size_GB:.2f} GB"
             )
             self.mem_usage = kv_size_GB
 
@@ -2160,6 +2208,8 @@ class KVCache(abc.ABC):
 
 
 class MHATokenToKVPool(KVCache):
+    """多头注意力(Multi-Head Attention, MHA) 的 K/V 缓存池。"""
+
     hicache_write_back_staging: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
 
     def __init__(
@@ -2169,7 +2219,7 @@ class MHATokenToKVPool(KVCache):
         dtype: torch.dtype,
         head_num: int,
         head_dim: int,
-        layer_num: int,
+        layer_num: int,  # NOTE
         device: str,
         enable_memory_saver: bool,
         v_head_dim: Optional[int] = None,
@@ -2185,6 +2235,21 @@ class MHATokenToKVPool(KVCache):
         post_capture_active: bool = False,
         allocation_label: Optional[str] = None,
     ):
+        """
+        size: 总共的 kv index 数量
+        page_size: 分配 kv 编号的时候的最小单位
+        head_num: k/v 向量的 head num
+        head_dim: k 每个 head 的维度
+        v_head_dim：v 每个 head 的维度
+        dtype：向量每个元素占用的字节数量，比如 bf16 占 2 字节，fp8 占 1 字节
+        layer_num：本缓存池负责的层数（可仅包含本卡的全注意力层）
+
+        综上，一个 kv index 占用的容量：
+            (head_num × head_dim + head_num ×v_head_dim) × 字节数 × layer_num
+        """
+        # NOTE
+        #   一个 kv index 对应的各层 kv 向量就缓存在这两个变量
+        #   k_buffer[layer_num_x][index] 保存某个编号index、layer_num_x层的 k_buffer 的向量
         self.k_buffer = None
         self.v_buffer = None
         if post_capture_active:
@@ -2732,6 +2797,9 @@ class MHATokenToKVPool(KVCache):
         current_platform.synchronize()
 
     def _get_key_buffer(self, layer_id: int):
+        """
+            获取与 layer_id 对应的一整层的 k cache，上有可通过 kv index 获取对应值
+        """
         # for internal use of referencing
         local_layer_id = layer_id - self.start_layer
         if (
@@ -2745,9 +2813,14 @@ class MHATokenToKVPool(KVCache):
             )
         if self.store_dtype != self.dtype:
             return self.k_buffer[local_layer_id].view(self.dtype)
-        return self.k_buffer[local_layer_id]
+        k_layer_cache = self.k_buffer[local_layer_id]
+        logger.info("get_key_buffer: 获取与 layer_id=%s 对应的一整层的 k cache，形状为%s", layer_id, k_layer_cache.shape)
+        return k_layer_cache
 
     def get_key_buffer(self, layer_id: int):
+        """
+            NOTE 读取 K 向量；启用分层缓存时先等待本层数据传入。
+        """
         # note: get_key_buffer is hooked with synchronization for layer-wise KV cache loading
         # it is supposed to be used only by attention backend not for information purpose
         # same applies to get_value_buffer and get_kv_buffer
@@ -2769,7 +2842,9 @@ class MHATokenToKVPool(KVCache):
             )
         if self.store_dtype != self.dtype:
             return self.v_buffer[local_layer_id].view(self.dtype)
-        return self.v_buffer[local_layer_id]
+        v_layer_cache = self.v_buffer[local_layer_id]
+        logger.info("get_value_buffer: 获取与 layer_id=%s 对应的一整层的 v cache，形状为%s", layer_id, v_layer_cache.shape)
+        return v_layer_cache
 
     def get_value_buffer(self, layer_id: int):
         if self.layer_transfer_counter is not None:
@@ -2784,28 +2859,39 @@ class MHATokenToKVPool(KVCache):
         return self.v_head_dim
 
     def get_kv_buffer(self, layer_id: int):
+        """
+            layer_id 经过 start_layer 偏移，定位本池中对应层的 K/V 缓存。
+        """
         return self.get_key_buffer(layer_id), self.get_value_buffer(layer_id)
 
     def set_kv_buffer(
         self,
         layer: RadixAttention,
-        loc_info,
-        cache_k: torch.Tensor,
-        cache_v: torch.Tensor,
-        k_scale: Optional[float] = None,
-        v_scale: Optional[float] = None,
-        layer_id_override: Optional[int] = None,
-        dcp_kv_mask: Optional[torch.Tensor] = None,
+        loc_info,  # [N] 整数 Tensor，或包装它的 KVWriteLoc；每项是一个写入槽位
+        cache_k: torch.Tensor,  # note 本轮待写入的 K，这里已经变成了 [token_num, head_num, head_dim] 格式
+        cache_v: torch.Tensor,  #
+        k_scale: Optional[float] = None,  # K 缩放系数，也可传入单元素 Tensor
+        v_scale: Optional[float] = None,  # V 缩放系数，也可传入单元素 Tensor
+        layer_id_override: Optional[int] = None,  # 外层映射后的缓存层编号
+        dcp_kv_mask: Optional[torch.Tensor] = None,  # [N] bool；True 表示本卡写该 token
     ):
+        """
+            NOTE 将本轮 K/V 写入本卡当前层的缓存
+        """
+        # NOTE 获取【kv index】，kv index 对应这个 token 在所有层的 kv 值保存位置
         loc, _, _ = unwrap_write_loc(loc_info)
         self._check_physical_write_loc(loc_info, "set_kv_buffer (MHA)")
         # Catch stale slot ids here instead of as illegal-addr / silent KV
         # corruption in the store_kvcache write (gated on SGLANG_ENABLE_ASYNC_ASSERT).
         maybe_detect_oob(loc, 0, self.size + self.page_size, "set_kv_buffer (MHA)")
+        # NOTE 获取 transformer layer，每层 transformer layer 都有 kv数据，都保存在缓存中
         layer_id = (
             layer_id_override if layer_id_override is not None else layer.layer_id
         )
         global_layer_id = layer.layer_id if layer is not None else layer_id
+
+        logger.info("开始写入 KV 到 KV Pool\nlayer_id(transformer layer 编号)=%s, cache_layer_idx(缓存池层编号)=%s, loc_info.type=%s, loc.shape=%s, loc前8个位置=%s,【要缓存的 kv 信息】cache_k.shape=%s, cache_v.shape=%s, k_scale=%s, v_scale=%s",
+            global_layer_id, layer_id - self.start_layer, type(loc_info).__name__, loc.shape, loc[:8].tolist(), cache_k.shape, cache_v.shape, k_scale, v_scale) # tip debug 服务刚启动，这里分配的编号都是递增的，kv index 就是一个一维的 tensor 索引
 
         if self.is_quantized_kv_cache:
             if dcp_kv_mask is not None:
@@ -2821,14 +2907,17 @@ class MHATokenToKVPool(KVCache):
             )
             return
 
+        # NOTE 输入与缓存 dtype 不同时，先按可选 scale 缩放，再转换成缓存的数据类型
+        #   如果类型相同 scale 也就没用了，所以不做处理
         if cache_k.dtype != self.dtype:
             if k_scale is not None:
-                cache_k.div_(k_scale)
+                cache_k.div_(k_scale) # 逐个元素相除
             if v_scale is not None:
                 cache_v.div_(v_scale)
             cache_k = cache_k.to(self.dtype)
             cache_v = cache_v.to(self.dtype)
 
+        # TODO 算子/operator 按底层存储 dtype 重新解释同一批字节（例如 FP8 -> uint8），这里不再做数值转换
         if self.store_dtype != self.dtype:
             cache_k = cache_k.view(self.store_dtype)
             cache_v = cache_v.view(self.store_dtype)
@@ -2867,6 +2956,8 @@ class MHATokenToKVPool(KVCache):
             v_buf[pages, :, offs, :] = cache_v
             return
 
+        # NOTE 重要，常规写入入口
+        #   layer_id - self.start_layer 是 kv cache pool 的层编号
         self._store_kv_layer(layer_id - self.start_layer, loc, cache_k, cache_v)
 
     def _store_kv_layer(
@@ -2876,6 +2967,8 @@ class MHATokenToKVPool(KVCache):
         cache_k: torch.Tensor,
         cache_v: torch.Tensor,
     ):
+        """ 写入kv 到 缓存，调用  _set_kv_buffer_impl
+        """
         # Per-layer physical write into K/V buffer ``layer_idx``. Override for
         # layouts that change buffer identity (e.g. PageMajorMHATokenToKVPool's
         # 4-D strided views). ``loc`` and the cache tensors are already dtype-cast
@@ -2902,12 +2995,14 @@ class MHATokenToKVPool(KVCache):
             )
             return
 
+        # NOTE 普通布局的写入语义：k_buffer[layer_idx][loc[i]] = cache_k[i]，V 同理。
+        # 下方实现根据设备选择写入内核或 Tensor 索引赋值。
         _set_kv_buffer_impl(
-            cache_k,
-            cache_v,
-            self.k_buffer[layer_idx],
-            self.v_buffer[layer_idx],
-            loc,
+            cache_k, # 形状是 [token_num, k_head_num, k_dim]
+            cache_v, # 形状是 [token_num, v_head_num, v_dim]
+            self.k_buffer[layer_idx], # NOTE 形状是 [能cache的最多token数量, k_head_num, k_dim]
+            self.v_buffer[layer_idx], # NOTE 形状是 [能cache的最多token数量, v_head_num, v_dim]
+            loc,                      # loc 对应的位置编号，其实就是给本次缓存的 token_num 个 [k/v_head_num, k/v_dim] 分配在第一个维度的编号
             row_dim=self.row_dim,
             store_dtype=self.store_dtype,
             device_module=self.device_module,
@@ -4094,7 +4189,53 @@ class MHATokenToKVPoolMXFP8(MHATokenToKVPool):
 
 
 class HybridLinearKVPool(KVCache):
-    """KV cache with separate pools for full and linear attention layers."""
+    """KV cache with separate pools for full and linear attention layers.
+
+    Scheduler.__init__()
+    → Scheduler.init_model_worker()
+        │
+        ├─ ① init_tp_model_worker()：创建 ModelRunner、加载模型和权重
+        │
+        ├─ ② init_memory_pools()：创建缓存池
+        │    → Scheduler.init_target_memory_pool()
+        │    → TpModelWorker.alloc_memory_pool()
+        │    → ModelRunner.alloc_memory_pool()
+        │    → KVCacheConfigurator.configure()
+        │    → KVCacheConfigurator._init_pools()
+        │    → _build_token_to_kv_pool()
+        │    → _build_hybrid_linear_kv_pool()
+        │    → HybridLinearKVPool(...)  ← 在这里创建对象
+        │
+        ├─ ③ init_all_attention_backends()：创建注意力后端
+        └─ ④ init_all_cuda_graphs()
+
+    NOTE 以下以 Qwen3.5 普通 MHA 缓存布局为例；其他模型也可能使用 MLA/DSA 或共享池。
+    HybridLinearKVPool
+    └─ full_kv_pool：MHATokenToKVPool 对象
+        ├─ k_buffer：存放 K 的 GPU Tensor
+        └─ v_buffer：存放 V 的 GPU Tensor
+
+    继承关系：
+        object：Python 所有类的基础类
+        │
+        ├─ abc.ABC：抽象基类（Abstract Base Class），支持约束子类必须实现的接口
+        │   └─ KVCache：定义缓存读写接口，并提供容量、数据类型等公共管理逻辑
+        │       ├─ MHATokenToKVPool：分配并读写全注意力层各 token 的 K/V 缓存
+        │       └─ HybridLinearKVPool：统一管理全注意力与线性注意力两类缓存，并转换层编号
+        │
+        └─ MambaPool：保存线性注意力需要的卷积状态和递推状态
+
+    组合关系：
+        HybridLinearKVPool 对象
+        │
+        ├─ full_kv_pool：MHATokenToKVPool 对象
+        │   ├─ k_buffer：各全注意力层的 K 张量（Tensor）
+        │   └─ v_buffer：各全注意力层的 V 张量（Tensor）
+        │
+        └─ mamba_pool：MambaPool 对象，由外部创建后传入
+            ├─ 卷积状态（Convolution State）：保留短卷积所需的近期输入
+            └─ 递推状态（Recurrent State）：随 token 更新，汇总历史信息
+    """
 
     cpu_copy_carries_mamba = True
 
@@ -4146,6 +4287,7 @@ class HybridLinearKVPool(KVCache):
         self._mamba_translate = lambda ids: ids
         self.use_mla = use_mla
         self.use_dsa = use_dsa
+        # NOTE Qwen3.5 的普通路径使用 MHA 池；共享池可由外部传入。
         if full_kv_pool is not None:
             # Shared-KV-pool path: the caller built a UnifiedMHATokenToKVPool
             # aliasing the shared byte buffer.
@@ -4323,6 +4465,25 @@ class HybridLinearKVPool(KVCache):
         return self.full_kv_pool.maybe_get_custom_mem_pool()
 
     def _transfer_full_attention_id(self, layer_id: int):
+        """NOTE 这个方法是将 attention layer id 转换成 full_kv_pool 编号
+        Qwen3.5 在 full attention layer 和 linear attention 保存的数据不一样
+
+        HybridLinearKVPool
+        ├─ full_kv_pool：全注意力层
+        │    └─ K/V 缓存：按 token 保存历史 K、V
+        │
+        └─ mamba_pool：线性注意力层
+             ├─ 卷积状态：保留短卷积需要的近期输入
+             └─ 递推状态：随 token 更新，汇总历史信息
+
+        模型层编号     层类型        full_kv_pool 中的编号
+        0、1、2       线性注意力     不存入这个池
+        3            全注意力       0
+        4、5、6       线性注意力     不存入这个池
+        7            全注意力       1
+
+        对应映射为 {3: 0, 7: 1}；本方法只查映射，不搬运缓存数据。
+        """
         if layer_id not in self.full_attention_layer_id_mapping:
             raise ValueError(
                 f"{layer_id=} not in full attention layers: {self.full_attention_layer_id_mapping.keys()}"
@@ -4336,6 +4497,10 @@ class HybridLinearKVPool(KVCache):
         self.full_kv_pool.register_layer_transfer_counter(None)
 
     def _wait_for_layer(self, layer_id: int):
+        """
+           分层缓存(HiCache)场景：等待当前层缓存传入 GPU 显存(GPU memory)。
+            CPU 内存(CPU memory) → GPU 显存；外部存储数据先进入 CPU 内存。
+        """
         if self.layer_transfer_counter is not None:
             self.layer_transfer_counter.wait_until(layer_id - self.start_layer)
 
@@ -4354,8 +4519,11 @@ class HybridLinearKVPool(KVCache):
         return self.full_kv_pool.get_value_buffer(layer_id)
 
     def get_kv_buffer(self, layer_id: int):
-        self._wait_for_layer(layer_id)
-        layer_id = self._transfer_full_attention_id(layer_id)
+        """ NOTE 读取 KV Cache
+        """
+        self._wait_for_layer(layer_id) # 如果用了 hi cache 则这里等待 kv 数据放到 kv cache
+        layer_id = self._transfer_full_attention_id(layer_id) # 计算要获取 kv cache 中第几层缓存，k_buffer[layer_num][kv_index] 中的 layer_num、是缓存的 layer_num
+        # MHATokenToKVPool
         return self.full_kv_pool.get_kv_buffer(layer_id)
 
     def get_raw_kv_buffer(
@@ -4412,9 +4580,29 @@ class HybridLinearKVPool(KVCache):
         v_scale: float = 1.0,
         dcp_kv_mask: Optional[torch.Tensor] = None,
     ):
+        """NOTE 缓存写入调用链（FlashAttention、普通 NHD 布局、CUDA JIT 分支）。
+
+        FlashAttentionBackend.forward_decode() / forward_extend()
+        → HybridLinearKVPool.set_kv_buffer()  ← 当前方法
+            │
+            ├─ ① unwrap_write_loc()：取出写入位置
+            ├─ ② _transfer_full_attention_id()：映射缓存层编号
+            └─ ③ self.full_kv_pool.set_kv_buffer()：转交全注意力缓存池
+                 → MHATokenToKVPool.set_kv_buffer()
+                 → MHATokenToKVPool._store_kv_layer()
+                 → _set_kv_buffer_impl()
+                 → store_cache()
+                     │
+                     ├─ _jit_kvcache_module()：取得编译后的模块
+                     └─ module.store_cache()：Python → C++ 绑定
+                          → StoreKVCacheKernel<...>::run()：C++ 入口，kvcache.cuh
+                          → LaunchKernel(...).enable_pdl(...)(kernel, params)
+                          → store_kvcache()：GPU 写入内核，kvcache.cuh
+        """
         # Write-location info lives in the metadata (`KVWriteLoc`). `full_loc` is the
         # unified pool's pre-translated PHYSICAL loc (None for a static pool, where
         # `loc` is already physical) — either way the pool writes a PHYSICAL loc.
+        # NOTE 解析写入编号并映射层编号；KVWriteLoc 保留物理槽位标记。
         loc, _, full_loc = unwrap_write_loc(loc_info)
         layer_id = self._transfer_full_attention_id(layer.layer_id)
         write_loc = KVWriteLoc(

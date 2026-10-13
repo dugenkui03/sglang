@@ -265,6 +265,7 @@ def checkpoint_kv_cache(req: Req, tree_cache: BasePrefixCache) -> None:
 def evict_from_tree_cache(
     tree_cache: BasePrefixCache | None, num_tokens: int
 ) -> bool | None:
+    """NOTE 委托分配器回收可淘汰前缀，尝试满足 num_tokens 个 KV 编号的需求。"""
     if tree_cache is not None and tree_cache.supports_prefix_sharing():
         return tree_cache.token_to_kv_pool_allocator.evict_to_free_tokens(
             tree_cache, num_tokens

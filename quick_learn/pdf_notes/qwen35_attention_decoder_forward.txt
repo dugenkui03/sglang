@@ -1,0 +1,44 @@
+Qwen3_5AttentionDecoderLayer.forward()
+    │
+    ├─ ① self.attn_boundary.prepare(...)
+    │    → StageBoundary.prepare()
+    │    → 按需完成上一阶段的求和、残差合并
+    │    → 使用 input_layernorm 归一化，准备注意力输入
+    │
+    ├─ ② self.self_attention(...)
+    │    │
+    │    ├─ _prepare_qkv_gate(...)
+    │    │    → forward_prepare_cuda_fused(...)  ← 当前 CUDA 路径
+    │    │    → self.qkv_proj(...)：投影得到 Q、K、V 和 Gate
+    │    │    → qkv.split(...)：拆分投影结果
+    │    │    → fused_qk_gemma_rmsnorm_rope_gate(...)
+    │    │         → 融合执行 Q/K 归一化、旋转位置编码(RoPE)、Gate 拆分
+    │    │
+    │    ├─ self.attn(q, k, v, forward_batch)
+    │    │    → RadixAttention.forward()
+    │    │    → 注意力后端：写入本轮 K/V，读取所需历史 K/V
+    │    │    → 注意力计算：Q @ K.T → 缩放与掩码 → softmax → V 加权和
+    │    │
+    │    ├─ fused_sigmoid_mul(attn_output, gate, ...)
+    │    │    → 输出门控：attn_output × sigmoid(gate)
+    │    │
+    │    └─ self.o_proj(attn_output)
+    │         → RowParallelLinear.forward()：投影回 hidden_size
+    │
+    ├─ ③ self.attn_boundary.finish(...)
+    │    → 交接注意力结果，登记待完成的残差/求和工作
+    │
+    ├─ ④ self.ffn_boundary.prepare(...)
+    │    → 按需完成残差合并、跨卡通信
+    │    → 使用 post_attention_layernorm 归一化，准备 MLP 输入
+    │
+    ├─ ⑤ self.ffn_boundary.exit(...)：确定本阶段的收尾策略
+    │    → self.mlp(hidden_states)
+    │    → Qwen2MoeMLP.forward()  ← 这里实际是普通 MLP
+    │         → self.gate_up_proj(...)：计算 gate、up 两路投影
+    │         → self.act_fn(...)：SiLU(gate) × up
+    │         → self.down_proj(...)：投影回 hidden_size
+    │
+    └─ ⑥ ffn_exit.finish(hidden_states)
+         → 按方案完成或交接求和、残差工作
+         → 返回本层结果，交给下一层

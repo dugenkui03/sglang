@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from sglang.srt.environ import envs
@@ -83,6 +84,7 @@ if TYPE_CHECKING:
 # This can prevent the server from being too conservative.
 # Note that this only clips the estimation in the scheduler but does not change the stop
 # condition. The request can still generate tokens until it hits the unclipped max_new_tokens.
+# 推理是估算 KV Cache 的上限，避免用于入参 max_token 太大、按照这个估算 kv cache 预算上限导致占用太多
 CLIP_MAX_NEW_TOKENS = int(
     os.environ.get("SGLANG_CLIP_MAX_NEW_TOKENS_ESTIMATION", "4096")
 )
@@ -167,16 +169,20 @@ def estimate_prefill_extend_tile_metrics(
 
 
 class CacheAwarePolicy(Enum):
-    """Scheduling policies that are aware of the tree cache."""
+    """Scheduling policies that are aware of the tree cache.
+    考虑到 tree cache 的 schedule policy。 aware of：考虑到
+    """
 
-    LPM = "lpm"  # longest prefix match
+    LPM = "lpm"  # longest prefix match，最长前缀缓存
     DFS_WEIGHT = "dfs-weight"  # depth-first search weighting
     HRRN = "hrrn"  # highest response ratio next, token-based aging
     SHORTEST_PREFILL_FIRST = "shortest-prefill-first"
 
 
 class CacheAgnosticPolicy(Enum):
-    """Scheduling policies that are not aware of the tree cache."""
+    """Scheduling policies that are not aware of the tree cache.
+    tip: 不考虑 tree 的 schedule policy
+    """
 
     FCFS = "fcfs"  # first come first serve
     LOF = "lof"  # longest output first
@@ -213,15 +219,20 @@ class SchedulePolicy:
         running_batch: Optional[ScheduleBatch] = None,
         processed_tokens: int = 0,
     ) -> None:
+        """NOTE 按照调度策略给 waiting_queue 排序"""
+        # tip 按照什么顺序从 waiting queue 获取数据
         policy = self._determine_active_policy(waiting_queue)
 
         # Cache-agnostic policies sort without matching; match anyway so the load
         # snapshot sees num_matched_prefix_tokens. Decode never prefills.
         if (
-            not isinstance(policy, CacheAwarePolicy)
+            not isinstance(
+                policy, CacheAwarePolicy
+            )  # 不是考虑 tree cache  的调度策略 // 对应 prefix cache
             and self.tree_cache.supports_fast_match_prefix()
             and get_disagg().disaggregation_mode != "decode"
         ):
+            # NOTE 计算waiting queue中每个请求匹配到的前缀长度并且更新到 req.num_matched_prefix_tokens
             for r in waiting_queue:
                 match_kv_cache(r, self.tree_cache)
 
@@ -306,6 +317,7 @@ class SchedulePolicy:
             and len(waiting_queue) > WAITING_QUEUE_PREFIX_MATCH_MAX
         ):
             # Turn off the expensive prefix matching and sorting when the #queue is large.
+            # FCFS: first come first serve
             return CacheAgnosticPolicy.FCFS
         return self.policy
 
@@ -578,6 +590,10 @@ class _PrefillAdmission:
 
 
 class PrefillAdder:
+    """
+    预算资源管家，判断某个请求能否放到本轮批请求
+    """
+
     def __init__(
         self,
         page_size: int,
@@ -587,7 +603,7 @@ class PrefillAdder:
         new_token_ratio: float,
         rem_input_tokens: int,
         rem_chunk_tokens: Optional[int],
-        num_mixed_decode_tokens: int = 0,
+        num_mixed_decode_tokens: int = 0,  # NOTE 默认是0
         priority_scheduling_preemption_threshold: int = 0,
         max_prefill_bs: int = 0,
         max_running_requests: Optional[int] = None,
@@ -597,13 +613,19 @@ class PrefillAdder:
         waiting_queue_len: int = 0,
         prefill_tile_block_m: int = 64,
     ):
+        # NOTE page size 个 KV编号组成了一个 page（一个kv编号对应一个 token 的KV值）
+        #     page 是分配 KV 编号的最小单位
         self.page_size = page_size
         self.prefill_tile_block_m = prefill_tile_block_m
         self.tree_cache = tree_cache
+        # tip 通过 token_to_kv_pool_allocator.available_size() 获取空闲的kv编号
         self.token_to_kv_pool_allocator = token_to_kv_pool_allocator
         self.running_batch = running_batch
         self.new_token_ratio = new_token_ratio
         self.rem_input_tokens = rem_input_tokens - num_mixed_decode_tokens
+
+        # NOTE 这是本次组批 prefill 的 token上限
+        #   超过 rem_chunk_tokens 则Req 就会被切分，并将留下来的待处理数据保存到 Scheduler.chunked_req 中
         self.rem_chunk_tokens = rem_chunk_tokens
         self.chunked_req_limit: Optional[int] = None
         self.dllm_config = dllm_config
@@ -626,6 +648,7 @@ class PrefillAdder:
         )
 
         self.req_states = None
+        # tip 本批次能参与计算的 Req 列表
         self.can_run_list = []
         self.preempt_list = []
         self.new_chunked_req = None
@@ -759,7 +782,7 @@ class PrefillAdder:
             * self.new_token_ratio
         )
 
-    @property
+    @property  # property 表示 通过 .rem_total_tokens 访问该方法自动调用该方法
     def rem_total_tokens(self):
         return self.memory_budget.remaining_total
 
@@ -836,14 +859,16 @@ class PrefillAdder:
     def _update_prefill_budget(
         self,
         prefix_len: int,
-        extend_input_len: int,
-        max_new_tokens: int,
+        extend_input_len: int,  # 参考 input_tokens, # 本轮没有命中 kv cache、要新算的 token 数
+        max_new_tokens: int,  # max tokens
         retracted_stain: bool,
         mamba_gap_reserve: int = 0,
         is_chunked_continuation: bool = False,
         compute_charge: Optional[int] = None,
     ):
         """Charge one admitted request against the prefill budgets.
+
+        把一个已选入本批的请求计入 PrefillAdder 的各项预算。
 
         `compute_charge` is what the compute budgets (`rem_chunk_tokens`,
         `rem_input_tokens`, `rem_dllm_tokens`) are billed, counted in
@@ -879,6 +904,7 @@ class PrefillAdder:
         if self.dllm_config is not None:
             self.rem_dllm_tokens -= compute_charge
         elif self.rem_chunk_tokens is not None:
+            # NOTE 分块预填充(chunked prefill)额度按本次 compute_charge 扣减。
             self.rem_chunk_tokens -= compute_charge
 
         # reprocessed_log_* is a subset of log_*; metrics_reporter subtracts it
@@ -1072,6 +1098,7 @@ class PrefillAdder:
         )
 
     def add_chunked_req(self, req: Req):
+        # tip dLLM：扩散式大语言模型(Diffusion Large Language Model)。
         if self.dllm_config is not None:
             _rem_tokens = self._get_dllm_remain_tokens(req)
         else:
@@ -1121,6 +1148,7 @@ class PrefillAdder:
         if not reserved:
             raise RuntimeError("chunked request exceeds the sharded assembly scratch")
         req.extend_end = req.prefix_len + new_len
+        # NOTE 将 chunked_req 添加到 batch 后，也要更新 PrefillAdder 预算。
         self.can_run_list.append(req)
         self._update_prefill_budget(
             0,
@@ -1139,7 +1167,7 @@ class PrefillAdder:
         # Return if chunked prefill not finished
         return req if truncated else None
 
-    @contextmanager
+    @contextmanager  # yield 之前执行进入逻辑，退出 with 时执行 finally 解锁。
     def _lock_node(self, last_node: TreeNode, *, lock_host: bool = False):
         host_lock_params = (
             self.tree_cache.inc_host_lock_ref(last_node).to_dec_params()
@@ -1147,10 +1175,12 @@ class PrefillAdder:
             else None
         )
         try:
+            # NOTE 临时锁住命中的前缀，避免调度期间被淘汰。
             lock = self.tree_cache.lock(last_node)
             try:
                 yield None
             finally:
+                # NOTE 释放这次临时加锁返回的锁句柄。
                 self.tree_cache.unlock(lock)
         finally:
             if host_lock_params is not None:
@@ -1298,10 +1328,24 @@ class PrefillAdder:
     def add_one_req(
         self, req: Req, has_chunked_req: bool, truncation_align_size: Optional[int]
     ):
+        """req 是当前从等待队列(waiting queue)中尝试选入本批的请求。"""
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] add_one_req start:\n%s",
+            json.dumps({"rid": req.rid, "prefix_len": req.prefix_len, "has_chunked_req": has_chunked_req}, ensure_ascii=False, indent=2),
+        )
         if (x := self.prefill_max_requests) is not None and len(self.can_run_list) >= x:
+            logger.info(
+                "[inf] [Scheduler] [prefill-adder] 请求数达到上限, rid=%s, "
+                "selected_count=%d, prefill_max_requests=%d, result=OTHER",
+                req.rid, len(self.can_run_list), x,
+            )
             return AddReqResult.OTHER
 
         if req.sampling_params.ignore_eos and getattr(self.tree_cache, "disable", True):
+            logger.info(
+                "[inf] [Scheduler] [prefill-adder] 转入 add_one_req_ignore_eos, rid=%s",
+                req.rid,
+            )
             return self.add_one_req_ignore_eos(req)
 
         # Reserve page_size for page-alignment overhead: the paged allocator may
@@ -1311,7 +1355,10 @@ class PrefillAdder:
             max(req.sampling_params.max_new_tokens - len(req.output_ids), 0),
             CLIP_MAX_NEW_TOKENS,
         )
+        # NOTE 待算输入长度 = 全部 token 数 - GPU 显存(GPU memory)已缓存前缀长度。
+        # 例如序列共 9 个 token、已缓存 4 个，则剩余 5 个需要考虑；CPU 内存(CPU memory)命中随后处理。
         cand_extend_input_len = len(req.full_untruncated_fill_ids) - req.prefix_len
+        # 再加预计生成长度 max_new 和每请求的 KV 预留开销。
         total_tokens = cand_extend_input_len + max_new + self.per_req_token_overhead
         # Shared Mamba pool: fold the new mamba state's shared-gap cost into
         # `total_tokens` so both `rem_total_tokens` gates reflect the joint budget.
@@ -1319,9 +1366,14 @@ class PrefillAdder:
         # this returns 0, so the debit sites below reuse the value.
         mamba_gap_reserve = self._mamba_gap_budget_for_req(req)
         total_tokens += mamba_gap_reserve
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] 预算检查前:\n%s",
+            json.dumps({"rid": req.rid, "cand_extend_input_len": cand_extend_input_len, "max_new": max_new, "total_tokens": total_tokens, "rem_input_tokens": self.rem_input_tokens, "rem_chunk_tokens": self.rem_chunk_tokens}, ensure_ascii=False, indent=2),
+        )
 
         # The temporary pin excludes this prefix from the evictable budget.
         # Selection itself neither allocates slots nor materializes host hits.
+        # NOTE 临时锁定后，可淘汰预算会减少；在锁内重新检查是否能接纳该请求。
         with self._lock_node(req.last_node):
             admission = self._select_prefill_admission(
                 req,
@@ -1332,6 +1384,10 @@ class PrefillAdder:
                 has_chunked_req=has_chunked_req,
             )
             if isinstance(admission, AddReqResult):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] 未通过准入检查, rid=%s, result=%s",
+                    req.rid, admission.name,
+                )
                 return admission
 
             # A rejected candidate must not report prefillable or queue H2D.
@@ -1344,9 +1400,19 @@ class PrefillAdder:
                     waiting_queue_len=self.waiting_queue_len,
                 )
             ):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] prefill_delayer 延后预填充, "
+                    "rid=%s, result=OTHER",
+                    req.rid,
+                )
                 return AddReqResult.OTHER
 
             if req.needs_host_load_back():
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] 尝试从 CPU 内存加载缓存到 GPU 显存, "
+                    "rid=%s, host_hit_length=%d",
+                    req.rid, req.host_hit_length,
+                )
                 load_max_new = min(max_new, admission.max_new_tokens)
                 # Reclaim can write back device victims and evict host leaves.
                 # Pin the selected host/aux match until load-back owns its locks.
@@ -1444,11 +1510,21 @@ class PrefillAdder:
             if not self._kv_shard_reserve_scratch(
                 prefix_len=admission.prefix_len, extend_len=admission.extend_len
             ):
+                logger.info(
+                    "[inf] [Scheduler] [prefill-adder] KV 分片临时空间预留失败, "
+                    "rid=%s, result=OTHER",
+                    req.rid,
+                )
                 return AddReqResult.OTHER
 
             self._commit_prefill_admission(req, admission, mamba_gap_reserve)
 
+        logger.info(
+            "[inf] [Scheduler] [prefill-adder] 已加入本批并扣减预算:\n%s",
+            json.dumps({"rid": req.rid, "is_chunked": admission.is_chunked, "prefix_len": req.prefix_len, "extend_len": admission.extend_len, "selected_count": len(self.can_run_list), "rem_input_tokens": self.rem_input_tokens, "rem_chunk_tokens": self.rem_chunk_tokens}, ensure_ascii=False, indent=2),
+        )
         # This verdict controls the next candidate, not the committed request.
+        # NOTE 返回扣减预算后的状态，决定能否继续挑选下一个请求。
         return self.budget_state()
 
     def _select_prefill_admission(
@@ -1464,6 +1540,7 @@ class PrefillAdder:
         """Select a prefill shape without allocating or publishing cached KV."""
         prefix_len = req.prefix_len + host_hit_length
         extend_len = len(req.full_untruncated_fill_ids) - prefix_len
+        # NOTE 从总长度扣除 GPU 显存与 CPU 内存中的命中前缀，再按页计算 KV 预算。
         input_tokens = self.ceil_paged_tokens(extend_len)
         # Whether the request fits whole. Against the raw length under
         # exact-chunk-fill, so a request whose ceiled length would spill is
@@ -1487,6 +1564,7 @@ class PrefillAdder:
             return AddReqResult.OTHER
 
         is_chunked = False
+        # tip 这里只限制预算估算的生成长度，不限制请求实际生成长度。
         max_new_tokens = min(req.sampling_params.max_new_tokens, CLIP_MAX_NEW_TOKENS)
         tile_tokens = input_tokens
         if self.dllm_config is not None:
@@ -1497,6 +1575,7 @@ class PrefillAdder:
             if extend_len <= 0:
                 return AddReqResult.OTHER
             max_new_tokens = 0
+        # NOTE 超出分块额度时切出本轮长度，余下 token 留给后续轮次。
         elif chunk_tokens_limit is not None and chunk_fit_tokens > chunk_tokens_limit:
             if (
                 has_chunked_req
@@ -1538,11 +1617,14 @@ class PrefillAdder:
         self, req: Req, admission: _PrefillAdmission, mamba_gap_reserve: int
     ) -> None:
         assert req.prefix_len == admission.prefix_len
+        # NOTE 本轮计算区间为 [prefix_len, extend_end)。
         req.extend_end = admission.prefix_len + admission.extend_len
+        # 相比 with 中的临时锁，这里保存请求持有的前缀锁。
         req.lock = self.tree_cache.lock(req.last_node)
         self.can_run_list.append(req)
         if admission.is_chunked:
             self.new_chunked_req = req
+        # NOTE 扣减本批预算；真正分配 KV 槽位在 prepare_for_extend 中执行。
         self._update_prefill_budget(
             admission.prefix_len,
             admission.extend_len,

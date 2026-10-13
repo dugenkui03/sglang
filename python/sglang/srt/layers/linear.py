@@ -234,6 +234,14 @@ class LinearBase(torch.nn.Module):
         skip_bias_add: If true, skip adding bias but instead return it.
         params_dtype: Data type for the parameters.
         quant_config: Quantization configure.
+
+    linear layer 的基类，定义 对向量进行投影变换维度 的操作，比如如下：
+        输入 X：[num_tokens, input_size]
+        权重 W：[output_size, input_size]
+
+        Y = X @ W.T + bias
+
+        输出 Y：[num_tokens, output_size]
     """
 
     # Set by quant methods that attach a per-layer scheme, eagerly in
@@ -265,6 +273,7 @@ class LinearBase(torch.nn.Module):
             params_dtype = torch.get_default_dtype()
         self.params_dtype = params_dtype
         self.quant_config = quant_config
+        # NOTE 如果 quant_config 是 None 则使用 UnquantizedLinearMethod
         if quant_config is None:
             from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
 
@@ -471,6 +480,8 @@ class ColumnParallelLinear(LinearBase):
             input_size, output_size, skip_bias_add, params_dtype, quant_config, prefix
         )
 
+        # Preserve the model path so shared forward logs identify the caller's module.
+        self.prefix = prefix
         self.with_bias = bias
         self.gather_output = gather_output
         self.use_presharded_weights = use_presharded_weights
@@ -620,6 +631,17 @@ class ColumnParallelLinear(LinearBase):
 
         # Matrix multiply.
         assert self.quant_method is not None
+        # NOTE 虽然名称是量化方法，但是可能是非量化版本
+        #
+        # 【输入输出说明】
+        # input_                 @ weight.T
+        # [num_tokens, hidden_size] × [hidden_size, output_size_per_partition]
+        #                        ↓
+        #              [num_tokens, output_size_per_partition]
+        #
+        # 不考虑 padding 时，num_tokens 表示本轮实际参与计算的 token 总数：
+        # - Prefill：各请求本轮计算的 token 数之和，不包含直接复用缓存的部分。
+        # - 普通 Decode：通常每个请求计算一个 token，因此等于本轮请求数
         output_parallel = self.quant_method.apply(self, input_, bias)
         if self.gather_output:
             # All-gather across the partitions.
@@ -1107,7 +1129,7 @@ class QKVParallelLinear(ColumnParallelLinear):
         bias: bool = True,
         skip_bias_add: bool = False,
         params_dtype: Optional[torch.dtype] = None,
-        quant_config: Optional[QuantizationConfig] = None,
+        quant_config: Optional[QuantizationConfig] = None,  # 非量化配置为 None
         prefix: str = "",
         *,
         load_presharded_attn: bool = False,
@@ -1594,6 +1616,7 @@ class RowParallelLinear(LinearBase):
         self.tp_group = _resolve_linear_group(parallel_group)
         self.parallel_group = parallel_group
         quant_config = None if _disable_hip_linear_quant else quant_config
+        # tip 创建 self.quant_method
         super().__init__(
             input_size, output_size, skip_bias_add, params_dtype, quant_config, prefix
         )
@@ -1606,6 +1629,7 @@ class RowParallelLinear(LinearBase):
         # Divide the weight matrix along the last dimension.
         _, tp_size = get_group_rank_size(self.tp_group)
         self.input_size_per_partition = divide(input_size, tp_size)
+        # NOTE LinearBase.__init__() 已根据量化配置创建 self.quant_method。
         assert self.quant_method is not None
         self.use_presharded_weights = use_presharded_weights
         # Flag set by CpDecodeAttnTpContext to enable all_reduce during decode.

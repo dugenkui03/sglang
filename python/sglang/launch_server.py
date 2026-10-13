@@ -1,6 +1,8 @@
 """Launch the inference server."""
 
 import asyncio
+import json
+import logging
 import os
 import sys
 import warnings
@@ -13,9 +15,16 @@ from sglang.srt.utils.common import suppress_noisy_warnings
 
 suppress_noisy_warnings()
 
+logger = logging.getLogger(__name__)
+
 
 def run_server(server_args):
-    """Run the server based on the gRPC flags and server_args.encoder_only."""
+    """
+    NOTE 服务启动入口，链路之一： cli.main() -> cli.serve() -> cli._run_llm() -> 这里
+    调用示例：python3 -m sglang.launch_server --model-path qwen/qwen2.5-0.5b-instruct --port 30000
+
+    Run the server based on the gRPC flags and server_args.encoder_only.
+    """
     # smg-grpc-servicer reads the raw `server_args.tokenizer_path`, which
     # resolution defaults into the stash but never writes back. Seed it here,
     # before resolve_once() seals the record.
@@ -26,11 +35,20 @@ def run_server(server_args):
 
     # The flags dispatched on below are decided by resolution (`--grpc-mode`
     # folds into `smg_grpc_mode`), and `prepare_server_args` returns raw input.
-    server_args.resolve_once()
+    server_args.resolve_once()  #
     cfg = resolving_view(server_args)
+    # cfg 是解析后配置的只读视图；导出配置字段，而不是视图的内部属性。
+    logger.info(
+        "dugenkui   cfg（解析后的配置）:\n%s",
+        json.dumps(
+            server_args.resolved_dict(), ensure_ascii=False, indent=2, default=str
+        ),
+    )
 
     if cfg.encoder_only:
         # For encoder disaggregation
+        # NOTE 是 EPD(Encode-Prefill-Decode) 分离链路启动一个单独的 encode 服务的链路
+        #       对应启动参数 --encoder-only
         if cfg.smg_grpc_mode or cfg.grpc_mode:
             from sglang.srt.disaggregation.encoder.grpc_server import (
                 serve_grpc_encoder,
@@ -42,7 +60,7 @@ def run_server(server_args):
 
             launch_server(server_args)
     elif cfg.smg_grpc_mode:
-        # Legacy SMG gRPC server (--smg-grpc-mode, or the deprecated --grpc-mode
+        # Legacy SMG(SGLang Model Gateway) gRPC server (--smg-grpc-mode, or the deprecated --grpc-mode
         # which __post_init__ folds into smg_grpc_mode). The native Rust gRPC
         # server is a separate path, enabled by --grpc-port, that starts
         # alongside the default HTTP server below.
@@ -61,9 +79,10 @@ def run_server(server_args):
 
         launch_server(server_args)
     else:
-        # Default mode: HTTP mode.
         from sglang.srt.entrypoints.http_server import launch_server
 
+        # NOTE Default，重点
+        #   --disaggregation-mode prefill/decode PD 分离对应的逻辑在后续链路实现
         launch_server(server_args)
 
 

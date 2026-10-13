@@ -1,0 +1,25 @@
+Create ONE clean Chinese educational diagram, landscape 16:9 (think of the canvas as 1600 x 900). Finished raster image, crisp legible text. Style only (not content) like the reference SGLang infographic: fully opaque warm ivory background #F4F2E8, light sage cards #E6ECDD, pale blue-green table header #E1EEEA, muted ochre row highlight #F3E3B8 with ochre stroke #B7791F, charcoal-green text #394B43, thin green-gray grid lines, flat editorial style, rounded corners. No watermark, no logo, no extra text.
+
+TITLE, centered at y = 70, exact: "FutureMap：按槽位存上一轮的结果"
+
+RIGHT: a two-column TABLE, x from 820 to 1520. Rows (each 100 px tall), exact text, strictly this order:
+- y 140–200: title bar spanning both columns: "FutureMap（GPU 显存）"
+- y 200–270: header row: "key：格子" | "value：token，seq_len"
+- y 270–370: "格子 0" | "保留，不分配"   (grey text)
+- y 370–470: "格子 1" | "「阴」，seq_len = 5"   (ochre highlight)
+- y 470–570: "格子 2" | "「是」，seq_len = 7"   (ochre highlight)
+- y 570–670: "格子 3" | "空闲，等新请求"
+Nothing below the table.
+
+LEFT: a sage rounded panel, x from 80 to 560, y from 300 to 640, header text at its top: "第 N+1 轮：同一个 decode 批次".
+Inside it, two cards:
+- Card A, vertically centered at y = 420 (same height as the 格子 1 row): two lines "请求 A：「今天天气」" and "槽位 = 1".
+- Card B, vertically centered at y = 520 (same height as the 格子 2 row): two lines "请求 B：「地球是圆的吗」" and "槽位 = 2".
+
+ARROWS: exactly two, perfectly horizontal, both pointing RIGHT, arrowheads on the table side:
+- at y = 420, from Card A's right edge to the left edge of the "格子 1" row; small label above the arrow: "槽位 1"
+- at y = 520, from Card B's right edge to the left edge of the "格子 2" row; small label above the arrow: "槽位 2"
+
+Only the texts above. Every Chinese character must be correct.
+
+POST-PROCESSING (manual, PIL): the generated arrow "槽位 1" pointed at the 格子 0 row; it was erased and redrawn as an elbow arrow ending at the left edge of the 格子 1 row. Nothing else was changed.

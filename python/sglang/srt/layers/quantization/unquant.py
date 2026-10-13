@@ -447,7 +447,9 @@ class UnquantizedEmbeddingMethod(QuantizeMethodBase):
             requires_grad=False,
         )
         set_weight_attrs(weight, {"input_dim": 1, "output_dim": 0})
+        # NOTE 在 VocabParallelEmbedding 上注册预分配的 weight 参数。
         layer.register_parameter("weight", weight)
+        # NOTE 给 weight 参数附加 weight_loader 等属性，加载器之后据此拷贝实际权重。
         set_weight_attrs(weight, extra_weight_attrs)
 
     def apply(
@@ -459,7 +461,11 @@ class UnquantizedEmbeddingMethod(QuantizeMethodBase):
         return F.linear(x, layer.weight, bias)
 
     def embedding(self, layer: torch.nn.Module, input_: torch.Tensor) -> torch.Tensor:
-        return F.embedding(input_, layer.weight)
+        # NOTE F 是 torch.nn.functional 模块；embedding 按 token ID 查权重表。
+        return F.embedding(
+            input_,  # tip input (LongTensor): Tensor containing indices into the embedding matrix // token 就是 embedding 词表的下标索引
+            layer.weight,  # tip weight (Tensor): The embedding matrix with number of rows equal to the maximum possible index + 1, // 类似 [vocab_size, hidden_size] 向量，input_ 会来查表获取对应token的embedding
+        )
 
 
 class UnquantizedLinearMethod(LinearMethodBase):
@@ -467,7 +473,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
 
     def create_weights(
         self,
-        layer: torch.nn.Module,
+        layer: torch.nn.Module,  # tip 使用此方法的线性层
         input_size_per_partition: int,
         output_partition_sizes: List[int],
         input_size: int,
@@ -476,7 +482,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
         **extra_weight_attrs,
     ):
         weight = Parameter(
-            torch.empty(
+            torch.empty(  # tag 1
                 sum(output_partition_sizes),
                 input_size_per_partition,
                 dtype=params_dtype,
@@ -484,6 +490,7 @@ class UnquantizedLinearMethod(LinearMethodBase):
             requires_grad=False,
         )
         set_weight_attrs(weight, {"input_dim": 1, "output_dim": 0})
+        # NOTE 这里只是给 weight 变量创建空间，见 tag 1
         layer.register_parameter("weight", weight)
         set_weight_attrs(weight, extra_weight_attrs)
 
@@ -497,6 +504,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
         x: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        """
+            NOTE layer 是线性层（例如 qkv_proj），x 是输入 hidden_states，bias 是可选偏置
+        """
         if use_intel_amx_backend(layer):
             x_shapes = x.shape
             if len(x_shapes) == 3:
@@ -533,6 +543,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
                 return bf16_gemm_dispatch(x, layer.weight, bias)
             return _bf16_gemm_dispatch_impl(x, layer.weight, bias)
 
+        # NOTE  F -> torch.nn.functional
+        #   通用核心：F.linear 即 x @ layer.weight.T + bias；bias=None 时不加偏置
+        #
         return F.linear(x, layer.weight, bias)
 
     def apply_with_addend(

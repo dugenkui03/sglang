@@ -44,6 +44,7 @@ def _jit_kvcache_module(k_row_bytes: int, v_row_bytes: int, num_threads: int) ->
         "kvcache",
         *args,
         cuda_files=["elementwise/kvcache.cuh"],
+        # NOTE   Python 调用名       对应的 C++ 函数
         cuda_wrappers=[("store_cache", f"StoreKVCacheKernel<{args}>::run")],
     )
 
@@ -81,6 +82,7 @@ def store_cache(
     reserved_skip_index: int = 0,
 ) -> None:
     """Store key and value tensors into KV cache at specified indices.
+    NOTE 将 K/V 写入到 KV Cache
 
     Args:
         k (torch.Tensor): Key tensor of shape (batch_size, H * D).
@@ -106,9 +108,11 @@ def store_cache(
     # One warp per split. The knob stays the split count it has always been:
     # renaming it changes the registered op schema, and a warm inductor cache
     # does not notice that -- it replays generated code carrying the old name.
+    # NOTE module 是编译后的模块；按当前 split 数配置 GPU 线程数。
     module = _jit_kvcache_module(row_bytes, v_row_bytes, num_split * _WARP_THREADS)
     if size_limit <= 0:
         size_limit = k_cache.shape[0]
+    # NOTE 调用模块中的写入函数，启动 GPU 内核，将 K/V 写到指定缓存槽位
     module.store_cache(
         k,
         v,
@@ -118,3 +122,5 @@ def store_cache(
         size_limit,
         reserved_skip_index,
     )
+    logger.info("算子层-写入 KV 到 KV Cache Pool成功：\n k.shape=%s, v.shape=%s, 位置信息： k_cache.shape=%s, v_cache.shape=%s, indices.shape=%s, indices=%s",
+        k.shape, v.shape, k_cache.shape, v_cache.shape, indices.shape, indices.tolist())

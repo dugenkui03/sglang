@@ -1,0 +1,66 @@
+Use case: infographic-diagram
+Asset type: a publication-ready Chinese educational infographic for a SGLang learning guide.
+Primary request: 用一张图说明 SMG、DP、DPA、EP、TP 的基本原理与生效位置。先展示服务入口和完整模型副本，再放大副本内的层与矩阵。面向刚开始学习推理基础设施的工程师。
+Format: landscape 4:3, preferably 2048 x 1536 or higher at exactly 4:3. White background, crisp dark navy Chinese sans-serif typography, readable English subtitles, flat technical diagrams, restrained cyan/blue/teal/purple/orange coding, clear arrowheads, generous padding. Do not use a tall poster or a photographic mockup. The visual content itself fills the canvas.
+
+Title (verbatim): "SGLang 并行策略：原理与生效位置"
+Subtitle (verbatim): "从请求入口 → 模型副本 → 层内组件 → 矩阵计算"
+
+Composition:
+Header takes about 10% height. An upper service-level band takes 23%, a middle model-layer location band 19%, a lower band of three equally sized mechanism cards 40%, footer 8%. Read left-to-right within bands. All five mechanisms have clear bilingual names. Use connecting arrows for data movement and a dotted zoom connector from model replica 1 to the model-layer band.
+
+UPPER BAND: service entry and replicas.
+Left heading: "① SMG 模型网关"; small subtitle "SGLang Model Gateway".
+Draw request cards "请求 A" and "请求 B" entering one gateway box "按缓存、负载、健康状态选实例".
+The gateway branches to two visually separate large replica boxes in the right half.
+Right heading: "② DP 数据并行"; small subtitle "Data Parallelism".
+The upper box is "完整模型副本 1 · 处理 A"; the lower box "完整模型副本 2 · 处理 B". Each contains a small model/layers icon, not a matrix half. These are two complete replicas and the different requests run concurrently.
+Below the replicas: "不同副本并行处理不同请求"
+Small note: "每个副本可由一张或多张 GPU 承载"
+SMG controls request routing; DP concerns complete copies of model weights. Make the two roles visually distinct.
+
+MIDDLE BAND: where the strategies act.
+Heading: "放大一个模型副本：定位层内组件"
+Draw the simplified left-to-right chain: "输入表示" → "注意力 Attention" → "前馈 FFN / 混合专家 MoE" → "后续层".
+Put a teal badge "DPA：注意力按请求分工" over the Attention component.
+Put a purple badge "EP：MoE 按专家分工" over the MoE portion only.
+Under Attention and FFN/MoE draw an orange bracket spanning both labelled "TP：可拆分组件内部的矩阵运算".
+This is a location map: DPA and EP are mechanisms applied to different components, TP is applicable inside them. Do not draw DPA → EP → TP as three sequential execution stages.
+Small note: "模型包含多层；图中省略归一化、残差等细节"
+
+LOWER BAND: three mechanism cards.
+Left card, teal:
+"③ DPA 注意力数据并行"
+"Data Parallelism Attention"
+Two horizontal independent rows:
+"请求 A" → "注意力组 0" with a local cylinder "A 的 KV Cache".
+"请求 B" → "注意力组 1" with a local cylinder "B 的 KV Cache".
+A row's cache is clearly attached to that row's attention group. Never draw A's cache replicated across both groups. These are device groups, not necessarily single GPUs.
+Caption: "按请求分配注意力计算与缓存"
+Small footnote: "组内可再使用 TP"
+Do not illustrate splitting one request's historical sequence or heads as the definition of DPA.
+
+Middle card, purple:
+"④ EP 专家并行"
+"Expert Parallelism"
+Draw "Token" → a small "门控选择" box, branching to "GPU 0：专家 1、2" and "GPU 1：专家 3、4".
+Highlight expert 2 and expert 3 as selected for this illustrative token. Both selected experts send results to a "合并结果" node. Use distinct complete expert blocks, not sliced matrices.
+Caption: "分发 Token → 专家计算 → 合并结果"
+Small footer: "不同 GPU 持有不同专家"
+
+Right card, orange:
+"⑤ TP 张量并行"
+"Tensor Parallelism"
+Draw a small matrix labelled "同一权重矩阵 W" clearly split vertically into column partitions W₀ and W₁.
+Then draw one "同一批输入 X" branching to two GPU boxes: "GPU 0：XW₀" and "GPU 1：XW₁".
+Connect these partial outputs to a bottom "拼接结果" node.
+Formula (verbatim): "Y = concat(XW₀, XW₁)"
+Caption: "列切分示例：两卡各算一部分"
+Clearly show both GPUs work on the same input and disjoint columns of a single matrix; never imply independent full replicas.
+
+FOOTER:
+One compact mnemonic strip, with separators:
+"SMG 选实例 | DP 分请求 | DPA 分注意力请求 | EP 分专家 | TP 分矩阵"
+Small line: "按模型与硬件组合使用；跨 GPU 协作需要通信。"
+
+Constraints: Faithful engineering explanation, no extra performance multipliers or universal speedup claims. Preserve exact acronym spelling and all supplied labels. Clear hierarchy and ample room for labels; avoid overlapping text, tiny unreadable paragraphs, decorative robots, 3D server racks, heavy shadows, oversized unused margins, or watermarks. Solid lines indicate data flow; the dotted zoom arrow only indicates a change of observation scale.

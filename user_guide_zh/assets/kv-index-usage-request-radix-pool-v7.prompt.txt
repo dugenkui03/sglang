@@ -1,0 +1,65 @@
+Mode: built-in ImageGen, reference-image edits.
+
+Main edit:
+Use case: precise-object-edit, minimal correction to a Chinese technical infographic.
+
+IMAGE 1 is the PRIMARY base image. Its RadixCache card MUST BE PRESERVED: the entire tree, red lock icons, lock_ref labels, two red explanatory sentences, dimensions and design.
+IMAGE 2 is ONLY a supporting reference for Request without lock descriptions and the simple two-column KV pool table. Do NOT copy Image 2's large red explanatory panel into the middle card.
+
+The final requested design:
+- RadixCache remains exactly as in IMAGE 1.
+- Request contains NO lock description.
+- TokenToKVPool contains NO lock description.
+- ReqToTokenPool has JUST ONE brief red sentence about locking, under its original mapping table and legend.
+
+Apply these precise edits to IMAGE 1:
+1. PRESERVE the complete RadixCache component from Image 1, including:
+   root→A→B branching into C and X;
+   A slot 7, B slot 8, C slot 9, X slot 20;
+   red closed-lock icons and red "lock_ref = 1" on A/B/C;
+   gray open-lock icon and "lock_ref = 0" on X;
+   both red sentences:
+   "引用 A B C：对应路径 lock_ref +1"
+   "锁保存在 RadixCache，保护它引用的 KV 槽位".
+   Do not simplify, remove, move or rewrite anything INSIDE this RadixCache card.
+
+2. Request card: retain Request, R2, A B C D E chips, req_pool_idx = 2; DELETE its red bottom sentence "引用的缓存节点会加锁".
+   Its arrow to RadixCache can use the teal label "匹配 token 前缀".
+   Retain its dark arrow to ReqToTokenPool: "选择请求行 2".
+
+3. ReqToTokenPool: retain heading, caption, mapping table and colored legend from Image 1.
+   The highlighted row MUST remain [7,8,9,31,32] at row 2 with columns0,1,2,3,4.
+   Add only this ONE short RED sentence below the legend, INSIDE this middle card:
+   "引用缓存前缀 → 对应 RadixCache 节点加锁"
+   Do NOT add a separate red box, subsection heading, lock_ref list, multi-line explanation, disclaimer, or any additional paragraph.
+   If needed, increase this card's height just enough for this single line while keeping comfortable whitespace.
+   This describes the request-reference behavior, not a claim that the mapping tensor itself implements locking.
+
+4. KV pool: retain the shared outer component, the single allocator line above TokenToKVPool, and the actual data.
+   Match Image 2's TWO-COLUMN table, with no status column:
+   槽位 | 实际数据
+   7 | K_A / V_A
+   8 | K_B / V_B
+   9 | K_C / V_C
+   31 | K_D / V_D
+   32 | K_E / V_E
+   20 | K_X / V_X
+   40 | —
+   Keep cached rows teal, newly allocated rows amber, unused branch row20 gray.
+   Remove all red lock-related text, protection bracket, and "不可淘汰" from the KV card.
+   Remove the large dashed connector OUTSIDE RadixCache that formerly went to the KV table, and remove its label "锁保护对应槽位". This does not change anything inside RadixCache.
+
+5. Remove the red lock-release paragraph from the bottom-right footer. Keep only the short gray simplification note.
+   Preserve the bottom numeric example:
+   "请求 R2 的 token D → req_to_token[2, 3] = 31 → KV 槽位 31".
+
+Preserve the existing clean palette, white background, restrained typography, thin borders, overall landscape layout and clearly aligned data-flow arrows. Keep all remaining content and indices accurate. No CPU/GPU categories. Do not redesign beyond the narrowly requested edits.
+
+Final audit: RadixCache has its original detailed red lock annotations. Request and KV pool have none. ReqToTokenPool has one simple red sentence, NOT a red explanatory panel.
+
+Targeted correction:
+Make exactly ONE tiny text correction to the attached infographic. On the dark horizontal arrow FROM the left "请求 Request" card TO the middle "ReqToTokenPool" card, correct the label immediately ABOVE that arrow to the exact text:
+"选择请求行 2"
+The final digit must be the numeral 2, NOT 1. This must match req_pool_idx = 2 and the highlighted table row numbered 2.
+
+Preserve every other pixel-like visual detail as closely as possible: all other text, RadixCache tree and locks, table numbers and data, colors, layout, dimensions, arrows, one red sentence below ReqToTokenPool, absence of lock notes inside Request and KV pool. Do not move, redraw, add or remove anything else. Only fix this one arrow label.

@@ -213,7 +213,7 @@ def autotune_dummy_run_mode(*, run_lm_head: bool):
 @dataclasses.dataclass
 class LogitsProcessorOutput:
     ## Part 1: This part will be assigned in python/sglang/srt/layers/logits_processor.py::LogitsProcessor
-    # The logits of the next tokens.       shape: [#seq, vocab_size]
+    # The logits of the next tokens.       shape: [#seq, vocab_size] NOTE 每行保存一个请求对词表各 token 的分数
     # Can be None for certain prefill-only requests (e.g., multi-item scoring) that don't need next token generation
     next_token_logits: Optional[torch.Tensor]
     # Used by speculative decoding (EAGLE)
@@ -318,8 +318,8 @@ class LogitsMetadata:
     token_ids_logprobs: Optional[List[List[int]]] = None
 
     # logits and logprobs post processing
-    temperature: torch.Tensor = None
-    top_p: torch.Tensor = None
+    temperature: torch.Tensor = None # tip 温度
+    top_p: torch.Tensor = None # tip top_p 按概率从高到低保留，累计达到指定阈值
 
     # DP attention metadata. Not needed when DP attention is not used.
     # Number of tokens in the request.
@@ -510,13 +510,18 @@ class LogitsProcessor(nn.Module):
 
     def forward(
         self,
-        input_ids,
+        input_ids,      # token 编号
         hidden_states,
         lm_head: VocabParallelEmbedding,
         logits_metadata: Union[LogitsMetadata, ForwardBatch],
         aux_hidden_states: Optional[AuxHiddenStates] = None,
         hidden_states_before_norm: Optional[torch.Tensor] = None,
     ) -> LogitsProcessorOutput:
+        """
+            lm_head 投影，这里仅仅获取 logits 分数信息；采样在上层 ModelRunner.sample 中调用
+                hidden_states * lm_head.weight.T = [token_num, hidden_size] @ [hidden_size, vocab_size] = [token_num, vocab_size]
+            [token_num, vocab_size] 中第二个维度是每个元素的分数
+        """
         # Extract MIS / setwise indices before ForwardBatch → LogitsMetadata conversion
         multi_item_delimiter_indices = None
         token_indices_to_pool = None
@@ -567,6 +572,7 @@ class LogitsProcessor(nn.Module):
             return self._get_dllm_logits(hidden_states, lm_head, logits_metadata)
 
         # Get the last hidden states and last logits for the next token prediction
+        # TODO 选择预测位置：普通 Prefill 不返回输入 logprob 时取每个请求最后一个 token，Decode 使用本轮 token。
         (
             pruned_states,
             pruned_states_before_norm,
@@ -580,6 +586,7 @@ class LogitsProcessor(nn.Module):
             aux_hidden_states,
             logits_metadata,
         )
+        logger.info(f' todo _get_pruned_states 计算：输入 hidden_states.shape:{hidden_states.shape}, 输出 pruned_states.shape:{pruned_states.shape}')
 
         hidden_states_to_store = self._get_hidden_states_to_store(
             hidden_states,
@@ -594,6 +601,9 @@ class LogitsProcessor(nn.Module):
         del hidden_states
 
         if not logits_metadata.extend_return_logprob:
+            # NOTE
+            #   1. 获取 logitslogits = pruned_states @ lm_head.weight.T
+            #   2. pruned_states 是处理后的 hidden_states
             # Compute logits for both input and sampled tokens.
             logits = self._get_logits(pruned_states, lm_head, logits_metadata)
             sampled_logits = (
@@ -906,7 +916,10 @@ class LogitsProcessor(nn.Module):
             else LoRABatchLayout.DP_LOCAL
         )
         with get_forward().scoped(lora_batch_layout=lora_batch_layout):
+            # NOTE ① 词表投影：普通非量化路径计算 hidden_states @ lm_head.weight.T，得到 logits。
             logits = self._compute_lm_head(hidden_states, lm_head, embedding_bias)
+            logger.info("LM 投影完成：hidden_states @ lm_head.weight.T\nhidden_states.shape=%s, lm_head.weight.shape=%s, logits.shape=%s, logits前5个元素=%s",
+                hidden_states.shape, lm_head.weight.shape, logits.shape, logits.reshape(-1)[:5].tolist())
         _trace_e2e_logits("lm_head_returned", logits_shape=tuple(logits.shape))
         if envs.SGLANG_TRACE_LOGITS_E2E_SYNC.get():
             _trace_e2e_logits("post_lm_head_sync_enter")
@@ -1014,6 +1027,7 @@ class LogitsProcessor(nn.Module):
                     hidden_states.bfloat16(), lm_head.weight.T.bfloat16()
                 )
             else:
+                # NOTE ② 词表投影(非量化)：logits = hidden_states @ lm_head.weight.T；[N,H] @ [H,V] → [N,V]。
                 logits = torch.matmul(
                     hidden_states.to(lm_head.weight.dtype), lm_head.weight.T
                 )

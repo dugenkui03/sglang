@@ -58,7 +58,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass(kw_only=True, slots=True, frozen=True)
 class SchedulerRequestReceiver:
+    """ Scheduler 的组件，负责接收从 TokenizerManager 发送来的消息
+    """
+
+    # NOTE
+    #【主链路】接收 TokenizerManager 的消息
+    # - 对端：TokenizerManager；开 DP（Data Parallelism）时是 DataParallelController
+    # - socket 类型：PULL（只收）
+    # - 消息内容：推理请求 TokenizedGenerateReqInput，以及 abort、flush cache 等控制消息
+    # - 回复：推理结果发给 DetokenizerManager；控制消息的回复走 send_to_tokenizer
     recv_from_tokenizer: Union[zmq.Socket, ScriptedTokenizerRecvProxy, RustServer]
+    # 接收 Engine 的管理命令；DEALER（可收可发）
+    # - 消息内容：管理类 RPC（Remote Procedure Call），比如 collective_rpc
+    # - 回复：RpcReqOutput 从同一个 socket 发回 Engine
     recv_from_rpc: Optional[zmq.Socket]
     recv_skipper: Any
     input_blocker: Any
@@ -72,7 +84,7 @@ class SchedulerRequestReceiver:
     scheduler_stage_metrics: Optional[SchedulerStageMetricsRecorder] = None
 
     def recv_limit_reached(self, num_recv_reqs: int) -> bool:
-        if self.max_recv_per_poll < 0:
+        if self.max_recv_per_poll < 0: # 没有配置则直接返回false
             return False
         return num_recv_reqs >= self.max_recv_per_poll
 
@@ -81,6 +93,7 @@ class SchedulerRequestReceiver:
         self, local_reqs: Optional[List[AbortReq]] = None
     ) -> List[Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput, Any]]:
         """Receive results at tp_rank = 0 and broadcast it to all other TP ranks.
+        NOTE 由接收端 rank 拉取 TokenizerManager 的请求，再广播给其他并行 rank。
 
         local_reqs are aborts the caller decided on this rank; they ride the
         same broadcast as the pulled requests.
@@ -93,16 +106,23 @@ class SchedulerRequestReceiver:
             if not self.recv_skipper.handle(self.get_last_batch()):
                 return []
 
+        # NOTE 1）接收消息
+        # 接收 TokenizerManager 发送的请求参数：token、采样参数等
+        #   如果没有请求， recv_req 则为空
         recv_reqs = self._pull_raw_reqs()
+        if recv_reqs:
+            logger.info("[inf] [Scheduler] recv_requests, recv_reqs:\n%s", recv_reqs)
 
         if self.input_blocker is not None:
             recv_reqs = self.input_blocker.handle(recv_reqs)
 
+        # NOTE 广播完整请求，各 GPU 收到请求后按并行分工计算；local_reqs 同步本地中止请求。
         recv_reqs = self._broadcast_reqs_across_ranks(recv_reqs, local_reqs)
 
         if get_parallel().pp_rank == 0:
+            # 把请求里被打包成字节的字段还原成 Python 对象。
             self.unwrap_pickle_wrapper(recv_reqs)
-
+        # 多模态相关处理，视频、图片等
         recv_reqs = self._apply_mm_receiver(recv_reqs)
 
         self._finalize_shm_features(recv_reqs)
@@ -110,8 +130,10 @@ class SchedulerRequestReceiver:
         return recv_reqs
 
     def _pull_raw_reqs(self) -> Optional[List]:
+        """拉取 TokenizerManager 或上一流水线阶段发来的原始请求。"""
         if get_parallel().pp_rank == 0:
             if get_parallel().attn_tp_rank == 0 and get_parallel().attn_cp_rank == 0:
+                # 第一流水线阶段由注意力 TP/CP 的 rank 0 接收 TokenizerManager 消息。
                 recv_reqs = []
 
                 # Rust ringbuffer backend: drain the in-process ring fed by the
@@ -127,7 +149,9 @@ class SchedulerRequestReceiver:
                     try:
                         if self.recv_limit_reached(len(recv_reqs)):
                             break
+                        # NOTE 接收 TokenizerManager 的推理任务消息
                         recv_req = sock_recv(self.recv_from_tokenizer, zmq.NOBLOCK)
+                        logger.info("[inf] [Scheduler] _pull_raw_reqs, recv_req:\n%s", recv_req)
                     except zmq.ZMQError:
                         break
                     recv_reqs.append(recv_req)
@@ -136,6 +160,7 @@ class SchedulerRequestReceiver:
                     try:
                         if self.recv_limit_reached(len(recv_reqs)):
                             break
+                        # recv_from_rpc 接收 Engine 的管理命令
                         recv_rpc = sock_recv(self.recv_from_rpc, zmq.NOBLOCK)
                     except zmq.ZMQError:
                         break
@@ -144,6 +169,7 @@ class SchedulerRequestReceiver:
                 recv_reqs = None
         else:
             if get_parallel().attn_tp_rank == 0 and get_parallel().attn_cp_rank == 0:
+                # 非首个流水线并行(Pipeline Parallelism)阶段从上一阶段接收。
                 dp_offset = (
                     get_parallel().attn_dp_rank
                     * get_parallel().attn_cp_size
@@ -246,6 +272,7 @@ class SchedulerRequestReceiver:
 
     def _finalize_shm_features(self, recv_reqs: Optional[List]) -> None:
         """Materialize SHM features or mark the request failed on every rank."""
+        # 将多模态请求里的共享 CPU 内存(CPU shared memory)引用还原为可用特征。
         if not recv_reqs or not self.model_config.is_multimodal:
             return
 

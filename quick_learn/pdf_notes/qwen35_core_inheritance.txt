@@ -1,0 +1,91 @@
+继承(Inheritance)：上方是父类，下方分支是子类；省略重复的 object 根节点。
+## 1. 模型主体与注意力入口
+nn.Module：PyTorch 模块基类，管理子模块、参数和 forward 调用
+├─ Qwen3VLForConditionalGeneration：组织输入 Embedding、文本模型与 logits
+│   └─ Qwen3_5ForConditionalGeneration：选用 Qwen3.5 文本模型，复用父类 forward
+├─ Qwen3_5ForCausalLM：Embedding → 逐层计算 → 最终归一化
+├─ Qwen3_5AttentionDecoderLayer：全注意力层，包含注意力与前馈网络(FFN)
+├─ Qwen3_5LinearDecoderLayer：线性注意力层，包含 GDN 与 FFN
+├─ Qwen3_5GatedDeltaNet：组织投影、线性注意力、门控与输出投影
+├─ Qwen2MoeMLP：本链路的稠密 FFN，计算 gate/up → 激活 → down
+├─ RadixAttention：全注意力入口，调用当前注意力后端
+├─ RadixLinearAttention：线性注意力入口，传入 QKV 与门控参数
+├─ LogitsProcessor：选取 hidden_states，用 lm_head 权重计算词表分数
+├─ Sampler：从词表分数或概率中选择下一个 token
+└─ ModuleList：注册并保存各个 Decoder 层的容器
+
+## 2. 线性投影与词表权重
+nn.Module
+├─ LinearBase：保存输入/输出维度、dtype，并选择 quant_method
+│   ├─ ColumnParallelLinear：按输出维度切分权重，执行本卡线性计算
+│   │   ├─ QKVParallelLinear：处理 Q/K/V 头数、切片及对应权重加载
+│   │   └─ MergedColumnParallelLinear：合并多组投影，如 gate/up
+│   └─ RowParallelLinear：按输入维度切分权重，按配置归约局部结果
+└─ VocabParallelEmbedding：按 token ID 查词表权重，支持词表切分
+    └─ ParallelLMHead：复用词表分片与权重管理，提供输出词表权重
+QKVParallelLinear 未重写 forward，使用 ColumnParallelLinear.forward。
+TP=1 时以上并行线性层仍被使用，但没有跨卡切分和归约。
+
+## 3. 普通与量化计算的方法接口
+abc.ABC：抽象基类(Abstract Base Class)
+└─ QuantizeMethodBase：定义创建权重、应用权重及加载后处理接口
+    ├─ UnquantizedEmbeddingMethod：创建词表权重；embedding 调用 F.embedding
+    └─ LinearMethodBase：线性层计算方法的公共接口
+        └─ UnquantizedLinearMethod：普通线性计算，通用分支为 F.linear
+这些是计算策略对象；通过层的 quant_method 成员使用，不是线性层的父类。
+
+## 4. 归一化、激活与位置编码
+nn.Module + abc.ABC（两个直接父类，多重继承）
+└─ BaseFusedOp：按设备/后端选择算子实现
+    ├─ GemmaRMSNorm：均方根归一化(RMSNorm)，缩放项为 1 + weight
+    ├─ SiluAndMul：计算 SiLU(gate) × up
+    └─ RotaryEmbedding：旋转位置编码(RoPE)
+        └─ MRotaryEmbedding：支持多维位置编码(MRoPE)
+nn.Module
+└─ RMSNorm（导入别名 RMSNormGated）：归一化并按需应用 z 门控
+RMSNormGated 来自 fla/layernorm_gated.py，与 GemmaRMSNorm 是不同实现。
+===PAGE===
+## 5. 推理执行器
+object
+└─ ModelRunner：持有模型、执行器、注意力后端、缓存池与采样器
+abc.ABC
+├─ BaseRunner：统一执行器接口，并保存 model_runner 引用
+│   └─ EagerRunner：即时执行(Eager)，直接调用模型前向
+└─ BaseTpWorker：模型工作进程的公共接口
+    └─ TpModelWorker：持有 ModelRunner，组织前向执行与采样
+
+## 6. 注意力后端与 GDN 内核
+abc.ABC
+├─ AttentionBackend：定义元数据初始化及 Prefill / Decode 等接口
+│   ├─ FlashAttentionBackend：组织全注意力元数据、K/V 读写与注意力内核
+│   ├─ HybridLinearAttnBackend：按层类型分发到全注意力或线性注意力后端
+│   └─ MambaAttnBackendBase：线性注意力状态槽位及元数据的公共逻辑
+│       └─ GDNAttnBackend：Gated Delta Network 后端，组织卷积、门控和状态更新
+└─ LinearAttnKernelBase：线性注意力计算内核的公共接口
+    └─ TritonGDNKernel：GDN 的 Triton 内核实现
+object
+└─ GDNKernelDispatcher：按 Prefill / Decode 模式选择具体内核对象
+
+## 7. 请求映射、KV 缓存与线性注意力状态
+abc.ABC
+└─ KVCache：缓存容量、数据类型及读写接口
+    ├─ MHATokenToKVPool：在 GPU 显存中保存并读写全注意力层的 K/V
+    └─ HybridLinearKVPool：组合全注意力与线性状态池，并映射模型层号
+object
+├─ ReqToTokenPool：请求槽位(req slot) → token 的 KV 编号(KV index)
+│   └─ HybridReqToTokenPool：增加线性状态槽位映射，并持有 MambaPool
+└─ MambaPool：在 GPU 显存中保存短卷积状态和递推状态
+HybridLinearKVPool 与 MHATokenToKVPool 是同级子类，同时存在对象组合关系。
+
+## 8. 本轮批次、残差与结果对象
+object
+├─ ForwardContext：保存本次 forward 使用的注意力后端引用
+├─ ForwardBatchDeepSeekMHAMixin：ForwardBatch 的批次扩展基类
+│   └─ ForwardBatch：本轮 token、请求槽位、长度、写入位置及残差流
+├─ StageBoundary：注意力/FFN 的阶段边界，处理输入准备、残差和归一化
+├─ FfnExit：保存本轮 FFN 的退出处理，完成输出与残差流的衔接
+├─ ResidualStream：保存一次 forward 的残差及待处理输出
+├─ KVWriteLoc：封装本轮 KV 写入位置，按层解析具体位置
+├─ ModelRunnerOutput：封装模型前向结果及执行信息
+└─ LogitsProcessorOutput：保存 next_token_logits 和可选 logprob 等输出
+dataclass 是类装饰器；这些类是否使用 dataclass 不改变上述继承关系。

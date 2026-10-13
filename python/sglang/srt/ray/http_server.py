@@ -34,6 +34,8 @@ def launch_server(
     """Launch HTTP server with Ray-based scheduler actors.
 
     Mirrors http_server.launch_server() but uses RayEngine for scheduler launching.
+
+    tip: Ray：一个分布式计算框架，负责管理计算任务和运行它们的进程
     """
     from sglang.srt.entrypoints.http_server import (
         _execute_server_warmup,

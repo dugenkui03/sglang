@@ -260,7 +260,9 @@ def flashinfer_autotune_context(model_runner: ModelRunner, *, run_lm_head: bool)
         autotune_cache = cache_path
         if sync_group is not None:
             _drop_diverged_autotune_cache(cache_path, sync_group, _collect_metadata())
-        logger.info("Running FlashInfer autotune with cache: %s", autotune_cache)
+        logger.info(
+            "Running FlashInfer autotune\n        cache: %s", autotune_cache
+        )
     else:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         runs_dir = cache_path.parent / "runs"

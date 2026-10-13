@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "title": "学习总结视频制作流程",
+  "diagrams": [
+    {
+      "id": "summary_workflow",
+      "title": "从学过的源码到讲解视频",
+      "kind": "flowchart",
+      "data": {
+        "direction": "TB",
+        "nodes": [
+          {
+            "id": "input",
+            "label": "源码、中文注释、讨论记录"
+          },
+          {
+            "id": "core",
+            "label": "核对核心类、方法与处理逻辑"
+          },
+          {
+            "id": "lesson",
+            "label": "编写逐页要点、图示和详细讲稿"
+          },
+          {
+            "id": "slides",
+            "label": "渲染幻灯片"
+          },
+          {
+            "id": "spoken",
+            "label": "整理口语稿"
+          },
+          {
+            "id": "voice",
+            "label": "OmniVoice 生成男声配音"
+          },
+          {
+            "id": "timing",
+            "label": "按音频时长生成字幕与切页时间"
+          },
+          {
+            "id": "video",
+            "label": "合成带字幕的视频"
+          },
+          {
+            "id": "review",
+            "label": "检查并交付视频及源材料"
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "core"
+          },
+          {
+            "from": "core",
+            "to": "lesson"
+          },
+          {
+            "from": "lesson",
+            "to": "slides"
+          },
+          {
+            "from": "lesson",
+            "to": "spoken"
+          },
+          {
+            "from": "spoken",
+            "to": "voice"
+          },
+          {
+            "from": "voice",
+            "to": "timing"
+          },
+          {
+            "from": "slides",
+            "to": "video"
+          },
+          {
+            "from": "timing",
+            "to": "video"
+          },
+          {
+            "from": "video",
+            "to": "review"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1094,6 +1094,36 @@ class LayerNorm(BaseFusedOp):
 
 
 class GemmaRMSNorm(BaseFusedOp):
+    """Gemma 风格的 RMS 归一化，先控制向量尺度，再逐维缩放。
+
+    RMS = Root Mean Square（均方根）：逐个平方 -> 求平均 -> 开平方。
+        x = [3, 4]
+        RMS(x) = sqrt((3² + 4²) / 2) = sqrt(12.5) ≈ 3.536
+
+    GemmaRMSNorm 的核心公式：
+        y = x / sqrt(mean(x**2) + eps) * (1 + weight)
+    mean 只沿 x 的最后一维计算；除法和乘法均为逐元素运算。
+    同一个向量的所有元素共用一个分母，不同向量独立计算分母。
+
+    参数来源：
+        eps：预先设置的极小正数，默认 1e-6，不参与训练学习；
+            用于数值稳定，避免输入全零时除零，通常来自 config.rms_norm_eps。
+        weight：训练学到的逐维参数，推理时从模型权重文件加载。
+            对于 x.shape = [..., D]，weight.shape = [D]，与 x 最后一维长度相同；
+            前面的维度通过广播共享这组参数。Q/K 按头归一化时 D = head_dim。
+            构造时先初始化为 0，再加载实际权重；Gemma 的实际缩放系数是
+            1 + weight，因此某一维 weight=0 时，该维的缩放系数为 1。
+
+    计算示例：假设 x = [3, 4]，weight = [0.5, -0.5]，eps = 1e-6。
+        1. 计算分母：sqrt((3² + 4²) / 2 + eps) ≈ 3.536。
+        2. 每个元素除以分母：x_norm ≈ [0.849, 1.131]。
+        3. 计算逐维缩放系数：1 + weight = [1.5, 0.5]。
+        4. 逐元素相乘：y = x_norm * [1.5, 0.5] ≈ [1.273, 0.566]。
+    输出形状与输入相同；归一化控制整体尺度，weight 提供模型学到的逐维调整。
+
+    若传入 residual，则先合并残差，再对合并后的向量执行上述归一化。
+    """
+
     def __init__(
         self,
         hidden_size: int,
@@ -1118,7 +1148,7 @@ class GemmaRMSNorm(BaseFusedOp):
 
     def _forward_impl(
         self,
-        x: torch.Tensor,
+        x: torch.Tensor, # tip 要归一化的tensor
         residual: Optional[torch.Tensor] = None,
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -1126,14 +1156,32 @@ class GemmaRMSNorm(BaseFusedOp):
         if needs_reshape:
             original_shape = x.shape
             x = x.contiguous().reshape(-1, original_shape[-1])
+        if residual is not None and post_residual_addition is not None:
+            residual = residual + post_residual_addition
+        log_norm = logger.isEnabledFor(logging.INFO) and not (
+            x.is_cuda and torch.cuda.is_current_stream_capturing()
+        )
+        if log_norm:
+            # 残差分支会原地修改 x；先记录残差合并后、归一化前的输入。
+            norm_input = x.float()
+            if residual is not None:
+                norm_input = norm_input + residual.float()
+            input_mean = norm_input.mean().item()
+            input_first5 = norm_input.reshape(-1)[:5].tolist()
+            del norm_input
         if residual is not None:
-            if post_residual_addition is not None:
-                residual = residual + post_residual_addition
             gemma_fused_add_rmsnorm(
                 x, residual, self.weight.data, self.variance_epsilon
             )
-            return x, residual
-        out = gemma_rmsnorm(x, self.weight.data, self.variance_epsilon)
+            out = x
+        else:
+            out = gemma_rmsnorm(x, self.weight.data, self.variance_epsilon)
+        # if log_norm:
+            # NOTE 归一化 效果是使得每个元素的绝对值同时变大或者同时变小
+            # logger.info("GemmaRMSNorm 归一化前后\nshape=%s, residual=%s, mean=%.4f -> %.4f, input前5个元素=%s, out前5个元素=%s",
+            #     tuple(out.shape), residual is not None, input_mean, out.float().mean().item(), input_first5, out.reshape(-1)[:5].tolist())
+        if residual is not None:
+            return out, residual
         if needs_reshape:
             out = out.reshape(original_shape)
         return out

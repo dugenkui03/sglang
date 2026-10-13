@@ -1,0 +1,12 @@
+Use case: infographic-diagram
+Edit target: the supplied SGLang HTTP + TokenizerManager educational infographic.
+Make ONE targeted correction: replace all transparent/background regions with a solid, fully opaque, pale blue-gray paper background (#F2F6FC). The entire rectangular canvas must be opaque, including the title/header area, the outer margins, and every gap between panels. The output must NOT have transparent pixels, black voids, holes, sticker cutout edges, noisy black speckles, or damaged antialiased text. This is a full-page printed technical poster, not a transparent sticker.
+
+Keep the existing landscape ~16:9 composition, ALL four numbered panels, the core process boundaries, every diagram arrow and direction, all exact wording and code identifiers, icons, colors within panels, layout hierarchy, and the complete footer code strip. Preserve the excellent legibility of the existing panel contents. Do not redesign or omit any technical content. Re-render the header text cleanly in high-contrast dark navy on the new pale opaque background, removing edge artifacts.
+
+Header title exactly: "一、HTTP 服务 + TokenizerManager"
+Header subtitle exactly: "一次纯文本、非流式请求：接收 → 分词 → 提交 → 等待 → 返回"
+Badge exactly: "普通部署 · 单请求 · stream=false"
+Color key exactly: "蓝：输入处理    橙：提交请求    绿：结果返回"
+
+Everything other than the background and damaged header/edge rendering stays unchanged. Make the new canvas fully opaque. Wide landscape output, crisp Chinese text, no watermark.

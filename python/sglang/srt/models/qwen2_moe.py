@@ -169,6 +169,36 @@ def can_fuse_shared_expert(
 
 
 class Qwen2MoeMLP(nn.Module):
+    """
+
+                      输入 x
+                         │
+              ┌──────────▼──────────┐
+              │    gate_up_proj     │
+              │   一次合并线性投影   │
+              └──────────┬──────────┘
+                         │ 拆分结果
+                 ┌───────┴───────┐
+                 ▼               ▼
+               gate              up
+                 │               │
+            ┌────▼────┐          │
+            │  SiLU   │          │
+            └────┬────┘          │
+                 │               │
+                 └───────⊙───────┘
+                         │
+                    逐元素相乘
+                         │
+              ┌──────────▼──────────┐
+              │      down_proj      │
+              │ 投影回 hidden_size  │
+              └──────────┬──────────┘
+                         ▼
+                       输出 y
+    """
+
+
     def __init__(
         self,
         hidden_size: int,
@@ -182,8 +212,8 @@ class Qwen2MoeMLP(nn.Module):
     ) -> None:
         super().__init__()
         self.gate_up_proj = MergedColumnParallelLinear(
-            hidden_size,
-            [intermediate_size] * 2,
+            hidden_size, # # 输入维度：1024
+            [intermediate_size] * 2, # # 两路输出维度：[3584, 3584]
             bias=False,
             quant_config=quant_config,
             prefix=add_prefix("gate_up_proj", prefix),
@@ -198,6 +228,9 @@ class Qwen2MoeMLP(nn.Module):
             prefix=add_prefix("down_proj", prefix),
             parallel_group=parallel_group,
         )
+        if hasattr(self.gate_up_proj, "weight") and hasattr(self.down_proj, "weight"):
+            logger.info("Qwen2MoeMLP 投影权重矩阵形状\nprefix=%s, gate_up_proj.weight.shape=%s, down_proj.weight.shape=%s",
+                prefix, self.gate_up_proj.weight.shape, self.down_proj.weight.shape)
         if hidden_act != "silu":
             raise ValueError(
                 f"Unsupported activation: {hidden_act}. Only silu is supported for now."
@@ -241,14 +274,40 @@ class Qwen2MoeMLP(nn.Module):
 
     def forward(
         self,
-        x,
+        x, # NOTE 注意力层的输出
     ):
+        """
+            NOTE mlp 层的输入 x 的第一个维度是 number token，比如可能是 [1, hidden_size]
+            NOTE 前序列的token 的kv 不会在这里进行计算，他们仅仅用来获取最新token的加权 v
+            NOTE mlp层升维、降维、激活函数等都是针对融合了上下文的这一个token进行转换计算的
+            tip 可以在关注下：注意力计算之后很多地方就不再是跨token的计算了，类似于 norm 也是
+                Transformer 层中的计算
+                    │
+                    ├─ 注意力(Attention)：跨 token 计算
+                    │    → 当前 token 与其他可见 token 进行信息交互
+                    │
+                    ├─ 线性投影(Linear Projection)、MLP：逐 token 计算
+                    │    → 使用同一套权重，分别转换每个 token 的特征，这里不再需要计算之前的token序列
+                    │
+                    └─ RMS 归一化(RMSNorm)：逐 token 计算
+                        → 分别对每个 token 向量中的元素归一化
+                        → Q/K 归一化则进一步按每个 token 的每个 head
+        """
         gate_up, _ = self.gate_up_proj(x)
+        logger.info(f"mlp层 gate up 投影：输入 x.shape{x.shape}, gate_up.shape{gate_up.shape}")
         if self._enable_silu_fp4_quant_fusion and not isinstance(gate_up, tuple):
             x, _ = self.down_proj(self._silu_fp4_quant_fused(gate_up))
             return x
+
+        # SiluAndMul 将 SiLU 和将 SiLU 结果与 up 投影 逐元素相乘，这两个操作都执行了
+        #
+        #   gate, up = gate_up.chunk(2, dim=-1)  # 拆成两路
+        #   x = F.silu(gate) * up               # silu 并 逐元素相乘
         x = self.act_fn(gate_up)
+        logger.info(f"mlp层 激活函数计算，输入 gate_up.shape{gate_up.shape}, 结果 x.shape{x.shape}")
+
         x, _ = self.down_proj(x)
+        logger.info(f"mlp 层 down 后结果最终形状 x.shape{x.shape}")
         return x
 
 

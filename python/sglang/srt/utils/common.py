@@ -42,6 +42,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import traceback
@@ -52,6 +53,7 @@ from array import array
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import lru_cache, partial
 from importlib.metadata import PackageNotFoundError, version
@@ -458,6 +460,7 @@ def get_available_gpu_memory(
             # memory metric instead.
             free_gpu_memory = psutil.virtual_memory().available
         else:
+            # NOTE 返回可用 GPU 显存(GPU memory)大小，单位为字节。
             free_gpu_memory, _ = torch.cuda.mem_get_info(gpu_id)
 
     elif device == "xpu":
@@ -576,7 +579,7 @@ def get_available_gpu_memory(
             tensor, op=torch.distributed.ReduceOp.MIN, group=cpu_group
         )
         free_gpu_memory = tensor.item()
-
+    # 返回单位为 GiB（除以 2**30）。
     return free_gpu_memory / (1 << 30)
 
 
@@ -1583,8 +1586,8 @@ class LayerFn(Protocol):
 
 
 def make_layers(
-    num_hidden_layers: int,
-    layer_fn: LayerFn,
+    num_hidden_layers: int,  # tip transformer layer 的层数
+    layer_fn: LayerFn,  # tip 创建 transformer layer 的function
     pp_rank: Optional[int] = None,
     pp_size: Optional[int] = None,
     prefix: str = "",
@@ -1599,6 +1602,8 @@ def make_layers(
     a pipeline stage boundary the stack learns the neighbouring stage from the
     layer itself, built again on the meta device. ``final_read`` is the
     stack's terminal read when it is not a plain final norm (see layer_stack).
+
+    NOTE 使用 layer_fn 创建各层；nn.ModuleList 本身也继承 nn.Module。
     """
     # circular imports
     from sglang.srt.distributed import get_pp_indices
@@ -1608,6 +1613,7 @@ def make_layers(
 
     assert not pp_size or num_hidden_layers >= pp_size
     start_layer, end_layer = (
+        # NOTE 本阶段的层范围为 [start_layer, end_layer)；无 PP 时为 [0, num_hidden_layers)。
         get_pp_indices(
             num_hidden_layers,
             pp_rank,
@@ -1627,13 +1633,16 @@ def make_layers(
         next_layers=[neighbour(idx) for idx in range(end_layer, num_hidden_layers)],
         final_read=final_read,
     ):
+        # NOTE 本 PP 阶段负责的层由 layer_fn 创建，前后以 PPMissingLayer 占位。
         modules = torch.nn.ModuleList(
             [PPMissingLayer(return_tuple=return_tuple) for _ in range(start_layer)]
+            # NOTE wrap_modules 消耗生成器，逐个创建本阶段的模型层。
             + get_offloader().wrap_modules(
                 (
                     layer_fn(idx=idx, prefix=add_prefix(idx, prefix))
                     for idx in range(start_layer, end_layer)
                 ),
+                # NOTE ** 将字典展开为关键字参数。
                 **(offloader_kwargs or {}),
             )
             + [
@@ -2583,6 +2592,57 @@ def rank0_log(msg: str):
         logger.info(msg)
 
 
+class DebugLogFormatter(logging.Formatter):
+    """Format debug logs with UTC+8 time, qualified method names, and details."""
+
+    _LEVEL_COLORS = {
+        "INFO": "\033[36m",
+        "DEBUG": "\033[36m",
+        "WARNING": "\033[33m",
+        "ERROR": "\033[31m",
+        "CRITICAL": "\033[31m",
+    }
+    _LOCATION_COLOR = "\033[34m"
+    _METHOD_COLOR = "\033[35m"
+    _MESSAGE_COLOR = "\033[32m"
+    _RESET = "\033[0m"
+
+    def formatTime(self, record, datefmt=None):
+        return datetime.fromtimestamp(
+            record.created, timezone(timedelta(hours=8))
+        ).strftime("%H:%M:%S")
+
+    def format(self, record):
+        method_name = record.funcName
+        frame = inspect.currentframe()
+        try:
+            # Find the recorded caller, including when logging uses stacklevel.
+            while frame is not None:
+                code = frame.f_code
+                if (
+                    code.co_filename == record.pathname
+                    and code.co_name == record.funcName
+                ):
+                    method_name = getattr(code, "co_qualname", record.funcName)
+                    break
+                frame = frame.f_back
+        finally:
+            del frame
+        message = super().format(record)
+        first_line, separator, remaining = message.partition("\n")
+        level_color = self._LEVEL_COLORS.get(record.levelname, "")
+        level_reset = self._RESET if level_color else ""
+        output = (
+            f"[{self.formatTime(record)}] {level_color}{record.levelname}{level_reset}\n"
+            f"  {self._LOCATION_COLOR}{record.filename}:{record.lineno}{self._RESET}\n"
+            f"    方法：{self._METHOD_COLOR}{method_name}(){self._RESET}\n"
+            f"      内容：{self._MESSAGE_COLOR}{first_line}"
+        )
+        if separator:
+            output += "\n" + textwrap.indent(textwrap.dedent(remaining), "        ")
+        return output + self._RESET + "\n"
+
+
 def configure_logger(server_args, prefix: str = ""):
     if SGLANG_LOGGING_CONFIG_PATH := os.getenv("SGLANG_LOGGING_CONFIG_PATH"):
         if not os.path.exists(SGLANG_LOGGING_CONFIG_PATH):
@@ -2666,8 +2726,11 @@ def broadcast_pyobj(
     force_cpu_device: bool = True,
 ):
     """Broadcast inputs from src rank to all other ranks with torch.dist backend.
-    The `rank` here refer to the source rank on global process group (regardless
-    of dist_group argument).
+    The `rank` here refer to the source rank on global process group
+    (regardless of dist_group argument).
+
+    用 torch.distributed 后端，把输入从 src rank 广播给其他所有 rank。
+    这里的 `rank` 是全局进程组里的编号（不管 dist_group 传的是哪个组）。
     """
     device = torch.device(
         "cuda"
@@ -5126,7 +5189,9 @@ def raise_error_or_warn(obj, strict, counter_name, message, log_interval=1000):
 
 
 def get_or_create_event_loop():
-    """Gets the running event loop or creates a new one if it doesn't exist."""
+    """Gets the running event loop or creates a new one if it doesn't exist.
+    获取当前线程正在运行的事件循环；没有时捕获 RuntimeError，创建并设置新循环。
+    """
     try:
         return asyncio.get_running_loop()
     except RuntimeError:

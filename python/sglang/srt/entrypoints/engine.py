@@ -185,10 +185,23 @@ class SchedulerInitResult:
 def init_tokenizer_manager(
     server_args: ServerArgs,
     port_args: PortArgs,
-    TokenizerManagerClass: Optional[TokenizerManager] = None,
+    TokenizerManagerClass: Optional[TokenizerManager] = None, # 这个参数值是 类、但TokenizerManagerClass不是具体的类名称，而是可以指向一个类名
 ) -> Tuple[TokenizerManager, TemplateManager]:
+    """TokenizerManager 它负责
+        1. 将文本转换为令牌序列
+        2. 提交任务到 Scheduler
+        3. 接收 Scheduler 完成的任务
+    """
+
     # Launch tokenizer process
+    # a = a1 or a2：如果 a1 不为 none 则使用 a1 给 a赋值，否则使用 a2
     TokenizerManagerClass = TokenizerManagerClass or TokenizerManager
+    # TokenizerManagerClass 不是一个具体的类，而是可以指向某个类、比如这里默认其实初始化的是 TokenizerManager
+    # 这种参数定义和 a or b 是为了让用户可以穿入 自定义的子类
+    # NOTE
+    #   1）加载 tokenizer对象；
+    #   2）建立与 Scheduler、Detokenizer 通信的 zmq 管道： send_to_scheduler 提交任务，recv_from_detokenizer 接收结果；
+    #   3）创建请求状态表 rid_to_state，用来按请求 ID 对号入座、唤醒等待结果的请求
     tokenizer_manager = TokenizerManagerClass(server_args, port_args)
 
     # Initialize templates
@@ -236,9 +249,11 @@ def init_tokenizer_manager(
 
 class Engine(EngineScoreMixin, EngineBase):
     """
-    The entry point to the inference engine.
+    NOTE The entry point to the inference engine.
 
-    - The engine consists of three components:
+    组件阅读：[核心组件一：Engine](../../../../user_guide_zh/核心组件一：Engine.md)
+
+    - NOTE The engine consists of three components:
         1. TokenizerManager: Tokenizes the requests and sends them to the scheduler.
         2. Scheduler (subprocess): Receives requests from the Tokenizer Manager, schedules batches, forwards them, and sends the output tokens to the Detokenizer Manager.
         3. DetokenizerManager (subprocess): Detokenizes the output tokens and sends the result back to the Tokenizer Manager.
@@ -266,8 +281,8 @@ class Engine(EngineScoreMixin, EngineBase):
 
     def __init__(self, **kwargs):
         """
-        The arguments of this function is the same as `sglang/srt/server_args.py::ServerArgs`.
-        Please refer to `ServerArgs` for the documentation.
+            The arguments of this function is the same as `sglang/srt/server_args.py::ServerArgs`.
+            Please refer to `ServerArgs` for the documentation.
         """
 
         # Ensure plugins are loaded before ServerArgs construction,
@@ -310,7 +325,7 @@ class Engine(EngineScoreMixin, EngineBase):
         # Shutdown the subprocesses automatically when the program exits
         atexit.register(self.shutdown)
 
-        # Launch subprocesses
+        # Launch subprocesses NOTE 加载各种模型组件，启动服务
         (
             tokenizer_manager,
             template_manager,
@@ -355,11 +370,17 @@ class Engine(EngineScoreMixin, EngineBase):
             )
             self.tokenizer_manager._subprocess_watchdog = subprocess_watchdog
 
-        # Initialize ZMQ sockets
+        # Initialize ZMQ sockets，Engine ↔ Scheduler
         context = zmq.Context(2)
         if get_parallel().node_rank == 0:
             self.send_to_rpc = get_zmq_socket(
-                context, zmq.DEALER, self.port_args.rpc_ipc_name, True
+                context,  # ZeroMQ 上下文，所有 socket 都从它创建
+                zmq.DEALER,  # socket 类型：可连续收发消息，不必一问一答
+                # NOTE
+                # Engine 与 Scheduler 的 RPC 通信地址，按配置使用 IPC 或 TCP。
+                # Scheduler 在 scheduler_components/ipc_channels.py 中连接同一地址。
+                self.port_args.rpc_ipc_name,
+                True  # bind=True：Engine 这端监听，Scheduler 在 ipc_channels.py 里用 bind=False 连接过来
             )
         else:
             self.send_to_rpc = None
@@ -884,13 +905,15 @@ class Engine(EngineScoreMixin, EngineBase):
         *,
         placement_group=None,
     ) -> Tuple[SchedulerInitResult, Optional[List]]:
-        """Launch scheduler processes using multiprocessing.
+        """
+        Launch scheduler processes using multiprocessing.
         Override in subclasses for different backends (e.g. Ray).
 
         Returns:
             Tuple of (SchedulerInitResult, scheduler_procs).
             scheduler_procs is None for RayEngine (uses Ray actors instead).
         """
+        logger.info("开始启动scheduler")
         scheduler_procs = []
         use_dp_controller = (
             get_parallel().num_dp_ranks > 1 or get_exec().moe.ep_join_mode == "scale"
@@ -907,9 +930,12 @@ class Engine(EngineScoreMixin, EngineBase):
                 _calculate_rank_ranges(get_parallel().node_rank)
             )
 
-            for pp_rank in pp_rank_range:
-                for tp_rank in tp_rank_range:
+            for pp_rank in pp_rank_range: # NOTE pipeline parallelism 对权重进行纵向切分
+                for tp_rank in tp_rank_range: # NOTE tensor parallelism 对权重进行横向切分
                     reader, writer = mp.Pipe(duplex=False)
+                    # NOTE 每个 gpu_id 启动一个 Scheduler 子进程
+                    #   注意，(pp_rank=x, tp_rank=y) 确定唯一一张物理显卡
+                    # tip 根据 pp_rank 和 tp_rank 计算出当前索引对应的 gpu_id
                     gpu_id = (
                         get_device().base_gpu_id
                         + ((pp_rank % pp_size_per_node) * tp_size_per_node)
@@ -917,12 +943,13 @@ class Engine(EngineScoreMixin, EngineBase):
                     )
 
                     with maybe_reindex_device_id(gpu_id) as gpu_id:
+                        # NOTE 为当前 gpu_id 启动 scheduler 子进程
                         proc = mp.Process(
-                            target=run_scheduler_process_func,
+                            target=run_scheduler_process_func, # tip 子进程要执行的函数，默认是 run_scheduler_process
                             args=(
                                 server_args,
                                 port_args,
-                                gpu_id,
+                                gpu_id, # tip 子进程对应的 gpu_id 编号
                                 tp_rank,
                                 pp_rank,
                                 None,
@@ -933,7 +960,7 @@ class Engine(EngineScoreMixin, EngineBase):
                             memory_saver_adapter.configure_subprocess(),
                             numa_utils.configure_subprocess(server_args, gpu_id),
                         ):
-                            proc.start()
+                            proc.start() # tip 启动 scheduler 进程
 
                     scheduler_procs.append(proc)
                     scheduler_pipe_readers.append(reader)
@@ -990,7 +1017,7 @@ class Engine(EngineScoreMixin, EngineBase):
                 wait_for_ready=wait_for_ready,
                 block_until_scheduler_exits=block_until_scheduler_exits,
             ),
-            scheduler_procs,
+            scheduler_procs, # 所有 gpu_id 对应的子进程
         )
 
     @classmethod
@@ -1014,8 +1041,9 @@ class Engine(EngineScoreMixin, EngineBase):
         names: List[str] = []
 
         if get_serving().detokenizer_worker_num <= 1:
+            # NOTE 普通模式下创建 detokenizer 的地方
             proc = mp.Process(
-                target=run_detokenizer_process_func,
+                target=run_detokenizer_process_func,  # tip 默认是 run_detokenizer_process
                 args=(server_args, port_args),
             )
             proc.start()
@@ -1095,13 +1123,24 @@ class Engine(EngineScoreMixin, EngineBase):
         SchedulerInitResult,
         Optional[SubprocessWatchdog],
     ]:
-        """Launch the TokenizerManager in the main process, the Scheduler in a subprocess, and the DetokenizerManager in another subprocess.
+        """
+        启动引擎的后台组件，并等待调度器完成初始化后返回组件引用。
+        普通 Python HTTP 路径：Step 1 准备配置与端口；Step 2 启动组件；
+        Step 3 等待就绪、同步初始化信息并启动子进程监控。
+        模型由 Scheduler 子进程中的 ModelRunner 加载，本方法负责启动和等待。
+        方法阅读：[启动流程与时序图](./engine.py._launch_subprocesses.md)
+        交互时序图：[悬浮与点击说明](./engine.py._launch_subprocesses.html)
+
+        1. Launch the TokenizerManager in the main process,
+        2. the Scheduler in a subprocess,
+        3. and the DetokenizerManager in another subprocess.
 
         Returns:
             Tuple of (tokenizer_manager, template_manager, port_args, scheduler_init_result, subprocess_watchdog, weight_cache_daemon_procs).
         """
         startup_tic = time.perf_counter()
 
+        # note 准备配置与进程通信端口，供后续组件初始化使用。
         # Configure global environment
         configure_logger(server_args)
         server_args.resolve_once()
@@ -1110,7 +1149,7 @@ class Engine(EngineScoreMixin, EngineBase):
 
         # Defensive: ensure plugins loaded (may already be loaded by
         # Engine.__init__ or CLI entry).
-        load_plugins()
+        load_plugins() # 加载并执行所有通用插件(General Plugin)
 
         # Not read-only: the LoRA checks normalize adapter paths through late
         # resolution, which a published config refuses. Hence before publish --
@@ -1120,7 +1159,8 @@ class Engine(EngineScoreMixin, EngineBase):
 
         # Needs a tokenizer and a chat template, so it cannot live in the
         # pipeline; after the plugins, which may register the parser detected.
-        parsers = resolving_view(server_args)
+        parsers = resolving_view(server_args) # 配置数据的实时只读视图
+        # 模型配套的 推理解析器 和 tool call 解析器
         if parsers.reasoning_parser == "auto" or parsers.tool_call_parser == "auto":
             resolve_auto_parsers(server_args)
 
@@ -1128,7 +1168,7 @@ class Engine(EngineScoreMixin, EngineBase):
         # rollback below restores that rather than clearing the process: a
         # caller that catches the launch error still has the context it had.
         context_before_publish = snapshot_context()
-        publish(server_args, role="tokenizer")
+        publish(server_args, role="tokenizer") # 将配置信息放到进程上下文中
 
         # Nothing below has spawned yet, so a failure here leaves a record the
         # caller can hand back -- but only once the publication goes with it:
@@ -1143,7 +1183,9 @@ class Engine(EngineScoreMixin, EngineBase):
             # Start the engine info bootstrap server if per-rank info is needed.
             engine_info_bootstrap_server = None
             if (
+                # 是否开启基于传输引擎(Transfer Engine)的种子实例(Seed Instance)模式。种子实例已经加载模型，可以向其他实例提供模型权重，帮助它们加载模型。这个开关默认是 False
                 get_model().remote_instance_weight_loader_start_seed_via_transfer_engine
+                # 当前是否为这次部署中的 0 号节点。
                 and get_parallel().node_rank == 0
             ):
                 bootstrap_port = get_model().engine_info_bootstrap_port
@@ -1168,27 +1210,34 @@ class Engine(EngineScoreMixin, EngineBase):
             restore_context(context_before_publish)
             raise
 
+        # note 启动 Scheduler、Detokenizer，并初始化 TokenizerManager
         # Launch scheduler processes
         # Passed only when there is one: this hook is an override point, and a
         # subclass written against the three-argument signature must keep working.
         launch_kwargs = (
-            {"placement_group": placement_group} if placement_group is not None else {}
+            {"placement_group": placement_group}
+            if placement_group is not None
+            else {}
         )
+        # NOTE 启动 schedule 进程
         scheduler_init_result, scheduler_procs = cls._launch_scheduler_processes(
-            server_args, port_args, run_scheduler_process_func, **launch_kwargs
+            server_args, port_args,
+            run_scheduler_process_func, # 默认是 run_scheduler_process
+            **launch_kwargs
         )
         scheduler_init_result.engine_info_bootstrap_server = (
             engine_info_bootstrap_server
         )
 
         if (
-            get_exec().moe.enable_elastic_expert_backup
-            and get_exec().moe.elastic_ep_backend is not None
+            get_exec().moe.enable_elastic_expert_backup  # 已开启专家权重备份
+            and get_exec().moe.elastic_ep_backend is not None  # 已配置弹性专家并行后端
         ):
             run_expert_backup_manager(server_args, port_args)
 
         if get_parallel().node_rank >= 1:
             # Non-zero-rank nodes do not run tokenizer processes.
+            # 非 零节点 不执行 tokenizer
             scheduler_init_result.wait_for_ready()
 
             try:
@@ -1274,18 +1323,20 @@ class Engine(EngineScoreMixin, EngineBase):
                 None,
             )
 
+        # NOTE 启动 detokenizer 子进程
         # Launch detokenizer process(es) — optionally fronted by a router when
         # detokenizer_worker_num > 1.
         detoken_procs, detoken_names = cls._launch_detokenizer_subprocesses(
             server_args=server_args,
             port_args=port_args,
-            run_detokenizer_process_func=run_detokenizer_process_func,
+            run_detokenizer_process_func=run_detokenizer_process_func, # tip 默认是 run_detokenizer_process
         )
         for p in detoken_procs:
             scheduler_init_result.all_child_pids.append(p.pid)
 
         # Init tokenizer manager first, as the bootstrap server is initialized here
         if get_serving().tokenizer_worker_num == 1:
+            # NOTE 初始化 tokenizer_manager；默认调用 init_tokenizer_manager。
             tokenizer_manager, template_manager = init_tokenizer_manager_func(
                 server_args, port_args
             )
@@ -1296,12 +1347,15 @@ class Engine(EngineScoreMixin, EngineBase):
 
         startup_complete = False
         try:
+            # 【Step 3】NOTE
             # Wait for the model to finish loading
+            # 等待相关 Scheduler 子进程完成初始化，包括模型加载，并向主进程报告就绪
             scheduler_init_result.wait_for_ready()
 
             cls._set_startup_time(tokenizer_manager, scheduler_init_result, startup_tic)
 
             # Get back some info from scheduler to tokenizer_manager
+            # 从调度器(Scheduler)取回一些信息，并交给分词管理器(TokenizerManager)。
             tokenizer_manager.max_req_input_len = scheduler_init_result.scheduler_infos[
                 0
             ]["max_req_input_len"]
@@ -1311,22 +1365,23 @@ class Engine(EngineScoreMixin, EngineBase):
             processes = list(scheduler_procs or [])
             names = [f"scheduler_{i}" for i in range(len(processes))]
             processes.extend(detoken_procs)
-            names.extend(detoken_names)
+            names.extend(detoken_names) # extend 是 list 追加拼接
             subprocess_watchdog = SubprocessWatchdog(
                 processes=processes, process_names=names
             )
             subprocess_watchdog.start()
             startup_complete = True
         finally:
-            if not startup_complete and isinstance(tokenizer_manager, TokenizerManager):
-                tokenizer_manager.cuda_vmm_feature_transport.shutdown()
+            if (not startup_complete # 启动流程尚未成功完成
+                    and isinstance(tokenizer_manager, TokenizerManager)): # 确认是 TokenizerManager 或其子类实例；MultiTokenizerRouter 不属于该类型
+                tokenizer_manager.cuda_vmm_feature_transport.shutdown() # 关闭该管理器持有的 CUDA VMM 多模态特征传输组件
 
         return (
-            tokenizer_manager,
-            template_manager,
+            tokenizer_manager, #
+            template_manager, # 指聊天模板(Chat Template)，负责把聊天消息组织成模型熟悉的输入格式。
             port_args,
-            scheduler_init_result,
-            subprocess_watchdog,
+            scheduler_init_result, #
+            subprocess_watchdog, #
             weight_cache_daemon_procs,
         )
 

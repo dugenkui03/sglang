@@ -1,0 +1,1284 @@
+{
+  "groups": [
+    {
+      "number": 1,
+      "title": "请求与模型加载",
+      "entries": [
+        {
+          "file": "python/sglang/srt/entrypoints/http_server.py",
+          "class": null,
+          "label": "http_server.py（模块函数）",
+          "id": "core-class-1-1-1",
+          "methods": [
+            {
+              "name": "set_global_state",
+              "qualname": "set_global_state",
+              "id": "method-0",
+              "label": "set_global_state()"
+            },
+            {
+              "name": "lifespan",
+              "qualname": "lifespan",
+              "id": "method-1",
+              "label": "lifespan()"
+            },
+            {
+              "name": "generate_request",
+              "qualname": "generate_request",
+              "id": "method-3",
+              "label": "generate_request()"
+            },
+            {
+              "name": "openai_v1_chat_completions",
+              "qualname": "openai_v1_chat_completions",
+              "id": "method-4",
+              "label": "openai_v1_chat_completions()"
+            },
+            {
+              "name": "_setup_and_run_http_server",
+              "qualname": "_setup_and_run_http_server",
+              "id": "method-5",
+              "label": "_setup_and_run_http_server()"
+            },
+            {
+              "name": "launch_server",
+              "qualname": "launch_server",
+              "id": "method-6",
+              "label": "launch_server()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/entrypoints/openai/serving_chat.py",
+          "class": "OpenAIServingChat",
+          "label": "OpenAIServingChat",
+          "id": "core-class-1-2-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "OpenAIServingChat.__init__",
+              "id": "method-7",
+              "label": "__init__()"
+            },
+            {
+              "name": "_convert_to_internal_request",
+              "qualname": "OpenAIServingChat._convert_to_internal_request",
+              "id": "method-8",
+              "label": "_convert_to_internal_request()"
+            },
+            {
+              "name": "_process_messages",
+              "qualname": "OpenAIServingChat._process_messages",
+              "id": "method-9",
+              "label": "_process_messages()"
+            },
+            {
+              "name": "_apply_jinja_template",
+              "qualname": "OpenAIServingChat._apply_jinja_template",
+              "id": "method-10",
+              "label": "_apply_jinja_template()"
+            },
+            {
+              "name": "_handle_non_streaming_request",
+              "qualname": "OpenAIServingChat._handle_non_streaming_request",
+              "id": "method-13",
+              "label": "_handle_non_streaming_request()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/tokenizer_manager.py",
+          "class": "ReqState",
+          "label": "ReqState",
+          "id": "core-class-1-3-1",
+          "methods": [
+            {
+              "name": "get_text",
+              "qualname": "ReqState.get_text",
+              "id": "method-14",
+              "label": "get_text()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/tokenizer_manager.py",
+          "class": "TokenizerManager",
+          "label": "TokenizerManager",
+          "id": "core-class-1-3-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "TokenizerManager.__init__",
+              "id": "method-15",
+              "label": "__init__()"
+            },
+            {
+              "name": "init_tokenizer_and_processor",
+              "qualname": "TokenizerManager.init_tokenizer_and_processor",
+              "id": "method-16",
+              "label": "init_tokenizer_and_processor()"
+            },
+            {
+              "name": "init_ipc_channels",
+              "qualname": "TokenizerManager.init_ipc_channels",
+              "id": "method-17",
+              "label": "init_ipc_channels()"
+            },
+            {
+              "name": "_dispatch_to_scheduler",
+              "qualname": "TokenizerManager._dispatch_to_scheduler",
+              "id": "method-18",
+              "label": "_dispatch_to_scheduler()"
+            },
+            {
+              "name": "init_running_status",
+              "qualname": "TokenizerManager.init_running_status",
+              "id": "method-19",
+              "label": "init_running_status()"
+            },
+            {
+              "name": "generate_request",
+              "qualname": "TokenizerManager.generate_request",
+              "id": "method-20",
+              "label": "generate_request()"
+            },
+            {
+              "name": "_tokenize_texts",
+              "qualname": "TokenizerManager._tokenize_texts",
+              "id": "method-21",
+              "label": "_tokenize_texts()"
+            },
+            {
+              "name": "_tokenize_one_request",
+              "qualname": "TokenizerManager._tokenize_one_request",
+              "id": "method-22",
+              "label": "_tokenize_one_request()"
+            },
+            {
+              "name": "_create_tokenized_object",
+              "qualname": "TokenizerManager._create_tokenized_object",
+              "id": "method-24",
+              "label": "_create_tokenized_object()"
+            },
+            {
+              "name": "_send_one_request",
+              "qualname": "TokenizerManager._send_one_request",
+              "id": "method-25",
+              "label": "_send_one_request()"
+            },
+            {
+              "name": "_wait_one_response",
+              "qualname": "TokenizerManager._wait_one_response",
+              "id": "method-26",
+              "label": "_wait_one_response()"
+            },
+            {
+              "name": "auto_create_handle_loop",
+              "qualname": "TokenizerManager.auto_create_handle_loop",
+              "id": "method-27",
+              "label": "auto_create_handle_loop()"
+            },
+            {
+              "name": "handle_loop",
+              "qualname": "TokenizerManager.handle_loop",
+              "id": "method-28",
+              "label": "handle_loop()"
+            },
+            {
+              "name": "_handle_batch_output",
+              "qualname": "TokenizerManager._handle_batch_output",
+              "id": "method-29",
+              "label": "_handle_batch_output()"
+            },
+            {
+              "name": "_init_req_state",
+              "qualname": "TokenizerManager._init_req_state",
+              "id": "method-30",
+              "label": "_init_req_state()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/tokenizer_manager.py",
+          "class": null,
+          "label": "tokenizer_manager.py（模块函数）",
+          "id": "core-class-1-3-3",
+          "methods": [
+            {
+              "name": "get_processor_wrapper",
+              "qualname": "get_processor_wrapper",
+              "id": "method-31",
+              "label": "get_processor_wrapper()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/model_loader/loader.py",
+          "class": null,
+          "label": "loader.py（模块函数）",
+          "id": "core-class-1-4-1",
+          "methods": [
+            {
+              "name": "_initialize_model",
+              "qualname": "_initialize_model",
+              "id": "method-32",
+              "label": "_initialize_model()"
+            },
+            {
+              "name": "get_model_loader",
+              "qualname": "get_model_loader",
+              "id": "method-33",
+              "label": "get_model_loader()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/model_loader/loader.py",
+          "class": "DefaultModelLoader",
+          "label": "DefaultModelLoader",
+          "id": "core-class-1-4-2",
+          "methods": [
+            {
+              "name": "load_model",
+              "qualname": "DefaultModelLoader.load_model",
+              "id": "method-34",
+              "label": "load_model()"
+            },
+            {
+              "name": "load_weights_and_postprocess",
+              "qualname": "DefaultModelLoader.load_weights_and_postprocess",
+              "id": "method-35",
+              "label": "load_weights_and_postprocess()"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "title": "调度与前向执行",
+      "entries": [
+        {
+          "file": "python/sglang/srt/managers/scheduler.py",
+          "class": "Scheduler",
+          "label": "Scheduler",
+          "id": "core-class-2-1-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Scheduler.__init__",
+              "id": "method-36",
+              "label": "__init__()"
+            },
+            {
+              "name": "init_tp_model_worker",
+              "qualname": "Scheduler.init_tp_model_worker",
+              "id": "method-37",
+              "label": "init_tp_model_worker()"
+            },
+            {
+              "name": "init_target_memory_pool",
+              "qualname": "Scheduler.init_target_memory_pool",
+              "id": "method-38",
+              "label": "init_target_memory_pool()"
+            },
+            {
+              "name": "init_memory_pools",
+              "qualname": "Scheduler.init_memory_pools",
+              "id": "method-39",
+              "label": "init_memory_pools()"
+            },
+            {
+              "name": "init_all_cuda_graphs",
+              "qualname": "Scheduler.init_all_cuda_graphs",
+              "id": "method-40",
+              "label": "init_all_cuda_graphs()"
+            },
+            {
+              "name": "init_model_worker",
+              "qualname": "Scheduler.init_model_worker",
+              "id": "method-41",
+              "label": "init_model_worker()"
+            },
+            {
+              "name": "init_running_status",
+              "qualname": "Scheduler.init_running_status",
+              "id": "method-42",
+              "label": "init_running_status()"
+            },
+            {
+              "name": "init_chunked_prefill",
+              "qualname": "Scheduler.init_chunked_prefill",
+              "id": "method-43",
+              "label": "init_chunked_prefill()"
+            },
+            {
+              "name": "init_request_dispatcher",
+              "qualname": "Scheduler.init_request_dispatcher",
+              "id": "method-44",
+              "label": "init_request_dispatcher()"
+            },
+            {
+              "name": "run_event_loop",
+              "qualname": "Scheduler.run_event_loop",
+              "id": "method-45",
+              "label": "run_event_loop()"
+            },
+            {
+              "name": "event_loop_overlap",
+              "qualname": "Scheduler.event_loop_overlap",
+              "id": "method-47",
+              "label": "event_loop_overlap()"
+            },
+            {
+              "name": "process_input_requests",
+              "qualname": "Scheduler.process_input_requests",
+              "id": "method-48",
+              "label": "process_input_requests()"
+            },
+            {
+              "name": "init_req_max_new_tokens",
+              "qualname": "Scheduler.init_req_max_new_tokens",
+              "id": "method-50",
+              "label": "init_req_max_new_tokens()"
+            },
+            {
+              "name": "handle_generate_request",
+              "qualname": "Scheduler.handle_generate_request",
+              "id": "method-52",
+              "label": "handle_generate_request()"
+            },
+            {
+              "name": "_add_request_to_queue",
+              "qualname": "Scheduler._add_request_to_queue",
+              "id": "method-53",
+              "label": "_add_request_to_queue()"
+            },
+            {
+              "name": "get_next_batch_to_run",
+              "qualname": "Scheduler.get_next_batch_to_run",
+              "id": "method-54",
+              "label": "get_next_batch_to_run()"
+            },
+            {
+              "name": "get_new_batch_prefill",
+              "qualname": "Scheduler.get_new_batch_prefill",
+              "id": "method-55",
+              "label": "get_new_batch_prefill()"
+            },
+            {
+              "name": "_get_new_batch_prefill_raw",
+              "qualname": "Scheduler._get_new_batch_prefill_raw",
+              "id": "method-56",
+              "label": "_get_new_batch_prefill_raw()"
+            },
+            {
+              "name": "update_running_batch",
+              "qualname": "Scheduler.update_running_batch",
+              "id": "method-58",
+              "label": "update_running_batch()"
+            },
+            {
+              "name": "run_batch",
+              "qualname": "Scheduler.run_batch",
+              "id": "method-59",
+              "label": "run_batch()"
+            },
+            {
+              "name": "process_batch_result",
+              "qualname": "Scheduler.process_batch_result",
+              "id": "method-60",
+              "label": "process_batch_result()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/scheduler.py",
+          "class": null,
+          "label": "scheduler.py（模块函数）",
+          "id": "core-class-2-1-2",
+          "methods": [
+            {
+              "name": "dispatch_event_loop",
+              "qualname": "dispatch_event_loop",
+              "id": "method-61",
+              "label": "dispatch_event_loop()"
+            },
+            {
+              "name": "run_scheduler_process",
+              "qualname": "run_scheduler_process",
+              "id": "method-62",
+              "label": "run_scheduler_process()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_policy.py",
+          "class": "SchedulePolicy",
+          "label": "SchedulePolicy",
+          "id": "core-class-2-2-1",
+          "methods": [
+            {
+              "name": "calc_priority",
+              "qualname": "SchedulePolicy.calc_priority",
+              "id": "method-63",
+              "label": "calc_priority()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_policy.py",
+          "class": "PrefillAdder",
+          "label": "PrefillAdder",
+          "id": "core-class-2-2-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "PrefillAdder.__init__",
+              "id": "method-64",
+              "label": "__init__()"
+            },
+            {
+              "name": "rem_total_tokens",
+              "qualname": "PrefillAdder.rem_total_tokens",
+              "id": "method-65",
+              "label": "rem_total_tokens（属性）"
+            },
+            {
+              "name": "_update_prefill_budget",
+              "qualname": "PrefillAdder._update_prefill_budget",
+              "id": "method-66",
+              "label": "_update_prefill_budget()"
+            },
+            {
+              "name": "_req_inc_lock_ref",
+              "qualname": "PrefillAdder._req_inc_lock_ref",
+              "id": "method-67",
+              "label": "_req_inc_lock_ref()"
+            },
+            {
+              "name": "add_chunked_req",
+              "qualname": "PrefillAdder.add_chunked_req",
+              "id": "method-68",
+              "label": "add_chunked_req()"
+            },
+            {
+              "name": "_lock_node",
+              "qualname": "PrefillAdder._lock_node",
+              "id": "method-69",
+              "label": "_lock_node()"
+            },
+            {
+              "name": "add_one_req",
+              "qualname": "PrefillAdder.add_one_req",
+              "id": "method-70",
+              "label": "add_one_req()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_policy.py",
+          "class": "CacheAwarePolicy",
+          "label": "CacheAwarePolicy",
+          "id": "core-class-2-2-3",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_policy.py",
+          "class": "CacheAgnosticPolicy",
+          "label": "CacheAgnosticPolicy",
+          "id": "core-class-2-2-4",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_batch.py",
+          "class": null,
+          "label": "schedule_batch.py（模块函数）",
+          "id": "core-class-2-3-1",
+          "methods": [
+            {
+              "name": "get_batch_return_hidden_states_mode",
+              "qualname": "get_batch_return_hidden_states_mode",
+              "id": "method-71",
+              "label": "get_batch_return_hidden_states_mode()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_batch.py",
+          "class": "Req",
+          "label": "Req",
+          "id": "core-class-2-3-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Req.__init__",
+              "id": "method-72",
+              "label": "__init__()"
+            },
+            {
+              "name": "set_extend_range",
+              "qualname": "Req.set_extend_range",
+              "id": "method-73",
+              "label": "set_extend_range()"
+            },
+            {
+              "name": "get_fill_ids",
+              "qualname": "Req.get_fill_ids",
+              "id": "method-74",
+              "label": "get_fill_ids()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_batch.py",
+          "class": "ScheduleBatch",
+          "label": "ScheduleBatch",
+          "id": "core-class-2-3-3",
+          "methods": [
+            {
+              "name": "init_new",
+              "qualname": "ScheduleBatch.init_new",
+              "id": "method-75",
+              "label": "init_new()"
+            },
+            {
+              "name": "prepare_for_extend",
+              "qualname": "ScheduleBatch.prepare_for_extend",
+              "id": "method-76",
+              "label": "prepare_for_extend()"
+            },
+            {
+              "name": "prepare_for_decode",
+              "qualname": "ScheduleBatch.prepare_for_decode",
+              "id": "method-77",
+              "label": "prepare_for_decode()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/schedule_batch.py",
+          "class": "NextBatchPlan",
+          "label": "NextBatchPlan",
+          "id": "core-class-2-3-4",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/managers/tp_worker.py",
+          "class": "TpModelWorker",
+          "label": "TpModelWorker",
+          "id": "core-class-2-4-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "TpModelWorker.__init__",
+              "id": "method-79",
+              "label": "__init__()"
+            },
+            {
+              "name": "alloc_memory_pool",
+              "qualname": "TpModelWorker.alloc_memory_pool",
+              "id": "method-80",
+              "label": "alloc_memory_pool()"
+            },
+            {
+              "name": "_init_model_config",
+              "qualname": "TpModelWorker._init_model_config",
+              "id": "method-81",
+              "label": "_init_model_config()"
+            },
+            {
+              "name": "_init_model_runner",
+              "qualname": "TpModelWorker._init_model_runner",
+              "id": "method-82",
+              "label": "_init_model_runner()"
+            },
+            {
+              "name": "forward_batch_generation",
+              "qualname": "TpModelWorker.forward_batch_generation",
+              "id": "method-83",
+              "label": "forward_batch_generation()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/model_executor/model_runner.py",
+          "class": "ModelRunner",
+          "label": "ModelRunner",
+          "id": "core-class-2-5-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "ModelRunner.__init__",
+              "id": "method-84",
+              "label": "__init__()"
+            },
+            {
+              "name": "initialize",
+              "qualname": "ModelRunner.initialize",
+              "id": "method-85",
+              "label": "initialize()"
+            },
+            {
+              "name": "alloc_memory_pool",
+              "qualname": "ModelRunner.alloc_memory_pool",
+              "id": "method-86",
+              "label": "alloc_memory_pool()"
+            },
+            {
+              "name": "init_torch_distributed",
+              "qualname": "ModelRunner.init_torch_distributed",
+              "id": "method-87",
+              "label": "init_torch_distributed()"
+            },
+            {
+              "name": "load_model",
+              "qualname": "ModelRunner.load_model",
+              "id": "method-88",
+              "label": "load_model()"
+            },
+            {
+              "name": "forward",
+              "qualname": "ModelRunner.forward",
+              "id": "method-89",
+              "label": "forward()"
+            },
+            {
+              "name": "_forward_raw",
+              "qualname": "ModelRunner._forward_raw",
+              "id": "method-90",
+              "label": "_forward_raw()"
+            },
+            {
+              "name": "sample",
+              "qualname": "ModelRunner.sample",
+              "id": "method-91",
+              "label": "sample()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+          "class": "ForwardBatch",
+          "label": "ForwardBatch",
+          "id": "core-class-2-6-1",
+          "methods": [
+            {
+              "name": "init_new",
+              "qualname": "ForwardBatch.init_new",
+              "id": "method-92",
+              "label": "init_new()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+          "class": "ForwardMode",
+          "label": "ForwardMode",
+          "id": "core-class-2-6-2",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/model_executor/forward_batch_info.py",
+          "class": "CaptureHiddenMode",
+          "label": "CaptureHiddenMode",
+          "id": "core-class-2-6-3",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/model_executor/runner/eager_runner.py",
+          "class": "EagerRunner",
+          "label": "EagerRunner",
+          "id": "core-class-2-7-1",
+          "methods": [
+            {
+              "name": "execute",
+              "qualname": "EagerRunner.execute",
+              "id": "method-93",
+              "label": "execute()"
+            },
+            {
+              "name": "_execute_decode",
+              "qualname": "EagerRunner._execute_decode",
+              "id": "method-94",
+              "label": "_execute_decode()"
+            },
+            {
+              "name": "_execute_extend",
+              "qualname": "EagerRunner._execute_extend",
+              "id": "method-95",
+              "label": "_execute_extend()"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "title": "模型结构与基础计算",
+      "entries": [
+        {
+          "file": "python/sglang/srt/models/qwen3_vl.py",
+          "class": "Qwen3VLForConditionalGeneration",
+          "label": "Qwen3VLForConditionalGeneration",
+          "id": "core-class-3-1-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3VLForConditionalGeneration.__init__",
+              "id": "method-96",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "Qwen3VLForConditionalGeneration.forward",
+              "id": "method-97",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/models/qwen3_5.py",
+          "class": "Qwen3_5GatedDeltaNet",
+          "label": "Qwen3_5GatedDeltaNet",
+          "id": "core-class-3-2-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3_5GatedDeltaNet.__init__",
+              "id": "method-98",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "Qwen3_5GatedDeltaNet.forward",
+              "id": "method-99",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/models/qwen3_5.py",
+          "class": "Qwen3_5LinearDecoderLayer",
+          "label": "Qwen3_5LinearDecoderLayer",
+          "id": "core-class-3-2-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3_5LinearDecoderLayer.__init__",
+              "id": "method-100",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "Qwen3_5LinearDecoderLayer.forward",
+              "id": "method-101",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/models/qwen3_5.py",
+          "class": "Qwen3_5AttentionDecoderLayer",
+          "label": "Qwen3_5AttentionDecoderLayer",
+          "id": "core-class-3-2-3",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3_5AttentionDecoderLayer.__init__",
+              "id": "method-102",
+              "label": "__init__()"
+            },
+            {
+              "name": "_apply_qk_norm",
+              "qualname": "Qwen3_5AttentionDecoderLayer._apply_qk_norm",
+              "id": "method-103",
+              "label": "_apply_qk_norm()"
+            },
+            {
+              "name": "forward_prepare_native",
+              "qualname": "Qwen3_5AttentionDecoderLayer.forward_prepare_native",
+              "id": "method-104",
+              "label": "forward_prepare_native()"
+            },
+            {
+              "name": "self_attention",
+              "qualname": "Qwen3_5AttentionDecoderLayer.self_attention",
+              "id": "method-105",
+              "label": "self_attention()"
+            },
+            {
+              "name": "forward",
+              "qualname": "Qwen3_5AttentionDecoderLayer.forward",
+              "id": "method-106",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/models/qwen3_5.py",
+          "class": "Qwen3_5ForCausalLM",
+          "label": "Qwen3_5ForCausalLM",
+          "id": "core-class-3-2-4",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3_5ForCausalLM.__init__",
+              "id": "method-107",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "Qwen3_5ForCausalLM.forward",
+              "id": "method-108",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/models/qwen3_5.py",
+          "class": "Qwen3_5ForConditionalGeneration",
+          "label": "Qwen3_5ForConditionalGeneration",
+          "id": "core-class-3-2-5",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "Qwen3_5ForConditionalGeneration.__init__",
+              "id": "method-109",
+              "label": "__init__()"
+            },
+            {
+              "name": "load_weights",
+              "qualname": "Qwen3_5ForConditionalGeneration.load_weights",
+              "id": "method-110",
+              "label": "load_weights()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/vocab_parallel_embedding.py",
+          "class": "VocabParallelEmbedding",
+          "label": "VocabParallelEmbedding",
+          "id": "core-class-3-3-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "VocabParallelEmbedding.__init__",
+              "id": "method-111",
+              "label": "__init__()"
+            },
+            {
+              "name": "_embed_local_shard",
+              "qualname": "VocabParallelEmbedding._embed_local_shard",
+              "id": "method-112",
+              "label": "_embed_local_shard()"
+            },
+            {
+              "name": "forward",
+              "qualname": "VocabParallelEmbedding.forward",
+              "id": "method-113",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/linear.py",
+          "class": "LinearBase",
+          "label": "LinearBase",
+          "id": "core-class-3-4-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "LinearBase.__init__",
+              "id": "method-114",
+              "label": "__init__()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/linear.py",
+          "class": "ColumnParallelLinear",
+          "label": "ColumnParallelLinear",
+          "id": "core-class-3-4-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "ColumnParallelLinear.__init__",
+              "id": "method-115",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "ColumnParallelLinear.forward",
+              "id": "method-116",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/linear.py",
+          "class": "QKVParallelLinear",
+          "label": "QKVParallelLinear",
+          "id": "core-class-3-4-3",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "QKVParallelLinear.__init__",
+              "id": "method-117",
+              "label": "__init__()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/linear.py",
+          "class": "RowParallelLinear",
+          "label": "RowParallelLinear",
+          "id": "core-class-3-4-4",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "RowParallelLinear.__init__",
+              "id": "method-118",
+              "label": "__init__()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/quantization/unquant.py",
+          "class": "UnquantizedEmbeddingMethod",
+          "label": "UnquantizedEmbeddingMethod",
+          "id": "core-class-3-5-1",
+          "methods": [
+            {
+              "name": "create_weights",
+              "qualname": "UnquantizedEmbeddingMethod.create_weights",
+              "id": "method-119",
+              "label": "create_weights()"
+            },
+            {
+              "name": "embedding",
+              "qualname": "UnquantizedEmbeddingMethod.embedding",
+              "id": "method-120",
+              "label": "embedding()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/quantization/unquant.py",
+          "class": "UnquantizedLinearMethod",
+          "label": "UnquantizedLinearMethod",
+          "id": "core-class-3-5-2",
+          "methods": [
+            {
+              "name": "create_weights",
+              "qualname": "UnquantizedLinearMethod.create_weights",
+              "id": "method-121",
+              "label": "create_weights()"
+            },
+            {
+              "name": "apply",
+              "qualname": "UnquantizedLinearMethod.apply",
+              "id": "method-122",
+              "label": "apply()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/layernorm.py",
+          "class": "GemmaRMSNorm",
+          "label": "GemmaRMSNorm",
+          "id": "core-class-3-6-1",
+          "methods": []
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "title": "注意力与缓存",
+      "entries": [
+        {
+          "file": "python/sglang/srt/layers/radix_attention.py",
+          "class": "RadixAttention",
+          "label": "RadixAttention",
+          "id": "core-class-4-1-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "RadixAttention.__init__",
+              "id": "method-123",
+              "label": "__init__()"
+            },
+            {
+              "name": "forward",
+              "qualname": "RadixAttention.forward",
+              "id": "method-124",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/radix_linear_attention.py",
+          "class": "RadixLinearAttention",
+          "label": "RadixLinearAttention",
+          "id": "core-class-4-2-1",
+          "methods": [
+            {
+              "name": "forward",
+              "qualname": "RadixLinearAttention.forward",
+              "id": "method-125",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/mem_cache/memory_pool.py",
+          "class": "ReqToTokenPool",
+          "label": "ReqToTokenPool",
+          "id": "core-class-4-3-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "ReqToTokenPool.__init__",
+              "id": "method-126",
+              "label": "__init__()"
+            },
+            {
+              "name": "alloc",
+              "qualname": "ReqToTokenPool.alloc",
+              "id": "method-127",
+              "label": "alloc()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/mem_cache/memory_pool.py",
+          "class": "MHATokenToKVPool",
+          "label": "MHATokenToKVPool",
+          "id": "core-class-4-3-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "MHATokenToKVPool.__init__",
+              "id": "method-128",
+              "label": "__init__()"
+            },
+            {
+              "name": "_get_key_buffer",
+              "qualname": "MHATokenToKVPool._get_key_buffer",
+              "id": "method-129",
+              "label": "_get_key_buffer()"
+            },
+            {
+              "name": "get_key_buffer",
+              "qualname": "MHATokenToKVPool.get_key_buffer",
+              "id": "method-130",
+              "label": "get_key_buffer()"
+            },
+            {
+              "name": "set_kv_buffer",
+              "qualname": "MHATokenToKVPool.set_kv_buffer",
+              "id": "method-131",
+              "label": "set_kv_buffer()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/mem_cache/radix_cache.py",
+          "class": "RadixKey",
+          "label": "RadixKey",
+          "id": "core-class-4-4-1",
+          "methods": [
+            {
+              "name": "__len__",
+              "qualname": "RadixKey.__len__",
+              "id": "method-132",
+              "label": "__len__()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/mem_cache/radix_cache.py",
+          "class": "TreeNode",
+          "label": "TreeNode",
+          "id": "core-class-4-4-2",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "TreeNode.__init__",
+              "id": "method-133",
+              "label": "__init__()"
+            },
+            {
+              "name": "evicted",
+              "qualname": "TreeNode.evicted",
+              "id": "method-134",
+              "label": "evicted（属性）"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/mem_cache/radix_cache.py",
+          "class": "RadixCache",
+          "label": "RadixCache",
+          "id": "core-class-4-4-3",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "RadixCache.__init__",
+              "id": "method-135",
+              "label": "__init__()"
+            },
+            {
+              "name": "inc_lock_ref",
+              "qualname": "RadixCache.inc_lock_ref",
+              "id": "method-136",
+              "label": "inc_lock_ref()"
+            },
+            {
+              "name": "_update_leaf_status",
+              "qualname": "RadixCache._update_leaf_status",
+              "id": "method-137",
+              "label": "_update_leaf_status()"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "number": 5,
+      "title": "采样与输出",
+      "entries": [
+        {
+          "file": "python/sglang/srt/layers/logits_processor.py",
+          "class": "LogitsProcessor",
+          "label": "LogitsProcessor",
+          "id": "core-class-5-1-1",
+          "methods": [
+            {
+              "name": "forward",
+              "qualname": "LogitsProcessor.forward",
+              "id": "method-138",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/layers/sampler.py",
+          "class": "Sampler",
+          "label": "Sampler",
+          "id": "core-class-5-2-1",
+          "methods": [
+            {
+              "name": "forward",
+              "qualname": "Sampler.forward",
+              "id": "method-139",
+              "label": "forward()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/detokenizer_manager.py",
+          "class": "DetokenizerManager",
+          "label": "DetokenizerManager",
+          "id": "core-class-5-3-1",
+          "methods": [
+            {
+              "name": "__init__",
+              "qualname": "DetokenizerManager.__init__",
+              "id": "method-140",
+              "label": "__init__()"
+            },
+            {
+              "name": "init_ipc_channels",
+              "qualname": "DetokenizerManager.init_ipc_channels",
+              "id": "method-141",
+              "label": "init_ipc_channels()"
+            },
+            {
+              "name": "init_tokenizer",
+              "qualname": "DetokenizerManager.init_tokenizer",
+              "id": "method-142",
+              "label": "init_tokenizer()"
+            },
+            {
+              "name": "init_running_status",
+              "qualname": "DetokenizerManager.init_running_status",
+              "id": "method-143",
+              "label": "init_running_status()"
+            },
+            {
+              "name": "init_request_dispatcher",
+              "qualname": "DetokenizerManager.init_request_dispatcher",
+              "id": "method-144",
+              "label": "init_request_dispatcher()"
+            },
+            {
+              "name": "event_loop",
+              "qualname": "DetokenizerManager.event_loop",
+              "id": "method-145",
+              "label": "event_loop()"
+            },
+            {
+              "name": "trim_matched_stop",
+              "qualname": "DetokenizerManager.trim_matched_stop",
+              "id": "method-146",
+              "label": "trim_matched_stop()"
+            },
+            {
+              "name": "_clamp_decode_ids",
+              "qualname": "DetokenizerManager._clamp_decode_ids",
+              "id": "method-148",
+              "label": "_clamp_decode_ids()"
+            },
+            {
+              "name": "_grouped_batch_decode",
+              "qualname": "DetokenizerManager._grouped_batch_decode",
+              "id": "method-149",
+              "label": "_grouped_batch_decode()"
+            },
+            {
+              "name": "_decode_batch_token_id_output",
+              "qualname": "DetokenizerManager._decode_batch_token_id_output",
+              "id": "method-150",
+              "label": "_decode_batch_token_id_output()"
+            },
+            {
+              "name": "handle_batch_token_id_out",
+              "qualname": "DetokenizerManager.handle_batch_token_id_out",
+              "id": "method-151",
+              "label": "handle_batch_token_id_out()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/detokenizer_manager.py",
+          "class": null,
+          "label": "detokenizer_manager.py（模块函数）",
+          "id": "core-class-5-3-2",
+          "methods": [
+            {
+              "name": "run_detokenizer_process",
+              "qualname": "run_detokenizer_process",
+              "id": "method-152",
+              "label": "run_detokenizer_process()"
+            }
+          ]
+        },
+        {
+          "file": "python/sglang/srt/managers/detokenizer_manager.py",
+          "class": "DecodeStatus",
+          "label": "DecodeStatus",
+          "id": "core-class-5-3-3",
+          "methods": []
+        },
+        {
+          "file": "python/sglang/srt/managers/detokenizer_manager.py",
+          "class": "LimitedCapacityDict",
+          "label": "LimitedCapacityDict",
+          "id": "core-class-5-3-4",
+          "methods": []
+        }
+      ]
+    }
+  ]
+}

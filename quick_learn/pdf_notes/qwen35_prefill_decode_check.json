@@ -1,0 +1,43 @@
+{
+  "pdf": "user_guide_zh/Qwen3.5推理链路_Prefill与Decode四图.pdf",
+  "pages": 4,
+  "font_pt": 10,
+  "line_heights_pt": [
+    12.38,
+    12.38,
+    12.79,
+    12.79
+  ],
+  "introductory_descriptions": false,
+  "page_info": [
+    {
+      "page": 1,
+      "width_pt": 595.2755737304688,
+      "height_pt": 841.8897705078125,
+      "content_bottom_pt": 823.6668701171875,
+      "bottom_whitespace_mm": 6.43
+    },
+    {
+      "page": 2,
+      "width_pt": 595.2755737304688,
+      "height_pt": 841.8897705078125,
+      "content_bottom_pt": 823.6668701171875,
+      "bottom_whitespace_mm": 6.43
+    },
+    {
+      "page": 3,
+      "width_pt": 595.2755737304688,
+      "height_pt": 841.8897705078125,
+      "content_bottom_pt": 823.7118530273438,
+      "bottom_whitespace_mm": 6.41
+    },
+    {
+      "page": 4,
+      "width_pt": 595.2755737304688,
+      "height_pt": 841.8897705078125,
+      "content_bottom_pt": 823.7118530273438,
+      "bottom_whitespace_mm": 6.41
+    }
+  ],
+  "issues": []
+}

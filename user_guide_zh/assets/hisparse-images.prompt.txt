@@ -1,0 +1,78 @@
+生成方式：内置 imagegen；三张独立生成的横向 4:3 科普图。
+
+===== 图 1 =====
+Use case: infographic-diagram
+Asset type: 中文 SGLang / HiSparse 学习文章的三张连续科普图之一。
+Canvas: 必须横向4:3，高分辨率，白色背景，深蓝色标题，清晰简体中文，代码与编号用等宽字体。学术科普信息图，线条精确、简洁圆角面板、大字体、舒适留白，流程从左往右，禁止装饰性机器人、照片、水印。
+Series invariants: 12个历史词元固定编号 T01,T02,T03,T04,T05,T06,T07,T08,T09,T10,T11,T12；本轮被选中的4个位置永远是 T02,T05,T09,T12。教学示例 top_k=4。每个词元有自己的KV。蓝色表示普通历史词元；绿色表示本轮被选中；浅灰表示未选中；橙色箭头表示CPU到GPU传输。保留明确图例。不要混淆选择历史位置与预测下一个词元。
+Typography: 要求中文与英文标识准确，所有数字、编号、公式按给定内容打印，不得增加或遗漏编号，正文字号足够阅读。所有文字在画布内。
+Title: “① 全注意力与稀疏注意力：少算了哪些连接？”
+Subtitle: “同一个当前查询 Q，面对相同的 12 个历史词元”
+Layout: 上下两个同构的宽面板进行对比，面板内部从左向右；最底部是简短矩阵解释。重点是画图，不堆大段文字。
+上面板标题：“全注意力(Full Attention)”
+左侧一个当前查询卡片“当前 Q”，中间横向12个历史位置小格，编号T01至T12完整且顺序不变，12个均蓝色。显示当前Q与全部12个K位置的连接；右侧一个“加权汇总 V”输出框。图中让箭头清晰可追踪。
+下面板标题：“稀疏注意力(Sparse Attention)”
+同样一个当前Q和同样12个历史位置，T02,T05,T09,T12四格绿色，其余8格浅灰；只画当前Q到这4个位置的连接，再连接右侧“汇总选中的 V”。每个历史位置仍保留原编号。不要从未选中的8格画计算连接。
+每个面板下方各画一个长度12格的一行矩阵。第一行12格均着色，第二行只在第2、5、9、12格着绿色，其余为空白。两个矩阵列编号1至12完全对齐。总说明：“矩阵的一行 = 一个 Q 对各个历史 K 的关注关系”
+图例：“着色：参与本轮注意力计算” / “留白：该位置被屏蔽”
+底部强调句：“稀疏：参与计算的位置更少；图中展示位置选择，实际注意力权重各不相同。”
+小注：“12选4仅为教学示例；下一步、下一层可选择不同位置。”
+Accuracy: 这是一个解码查询的一行注意力关系，12个位置都已经是历史，不画未来位置。空白代表被屏蔽，对应归一化后的注意力权重为零，不表示删除历史KV。不要称所画矩阵是模型权重矩阵。
+
+===== 图 2 =====
+Use case: infographic-diagram
+Asset type: 中文 SGLang / HiSparse 学习文章的三张连续科普图之一。
+Canvas: 必须横向4:3，高分辨率，白色背景，深蓝色标题，清晰简体中文，代码与编号用等宽字体。学术科普信息图，线条精确、简洁圆角面板、大字体、舒适留白，流程从左往右，禁止装饰性机器人、照片、水印。
+Series invariants: 12个历史词元固定编号 T01,T02,T03,T04,T05,T06,T07,T08,T09,T10,T11,T12；本轮被选中的4个位置永远是 T02,T05,T09,T12。教学示例 top_k=4。每个词元有自己的KV。蓝色表示普通历史词元；绿色表示本轮被选中；浅灰表示未选中；橙色箭头表示CPU到GPU传输。保留明确图例。不要混淆选择历史位置与预测下一个词元。
+Typography: 要求中文与英文标识准确，所有数字、编号、公式按给定内容打印，不得增加或遗漏编号，正文字号足够阅读。所有文字在画布内。
+Title: “② DSA 如何选择：先轻量打分，再计算注意力”
+Subtitle: “沿用 12 个历史词元，选中 T02、T05、T09、T12”
+Layout: 三个编号步骤，左右流向清楚；第一步上半部较大，第二步和第三步并列在下半部；使用流程箭头连接。少量清晰文本+大示意图。
+Step 1 heading：“1 轻量索引器(Indexer)：为历史位置打分”
+输入是“当前查询”和“历史索引键(Index Keys)”。注意这是轻量索引表示，图中不要将CPU完整KV都提前搬入GPU。
+画12张评分小卡，排列成两行，每行6张，所有编号与分数对应必须正确：
+T01 0.12；T02 0.94；T03 0.21；T04 0.08；T05 0.89；T06 0.31；
+T07 0.16；T08 0.27；T09 0.96；T10 0.19；T11 0.34；T12 0.91。
+T02,T05,T09,T12四卡绿色，其他浅蓝。小字：“索引分数，仅为教学示例”。
+Step 2 heading：“2 Top-k 选择：保留分数最高的4个位置”
+把四个绿色卡片按历史位置顺序排成“T02”“T05”“T09”“T12”，上标“top_k = 4”。这4个编号必须准确，四卡只出现一次。
+Step 3 heading：“3 主注意力：读取选中的 KV 并加权汇总”
+从上述4位置连到4个对应KV卡：“KV(T02)”“KV(T05)”“KV(T09)”“KV(T12)”；加上“当前 Q”输入，再指向“注意力输出”。这一阶段做主要注意力计算，不要让未选中的历史KV进入它。
+底部两条简短说明：“索引器扫描轻量表示，主注意力计算集中在选中的位置。” / “收益：减少主要注意力计算与 KV 读取；筛选本身也有开销。”
+Small note: “展示 DSA 的动态选择；稀疏注意力还可以采用固定窗口等规则。”
+Avoid: 不画草稿模型、不画输出词表抽样，不将索引分数标成生成概率，不声称12选4等于端到端加速3倍。
+
+===== 图 3 =====
+Use case: infographic-diagram
+Asset type: 中文 SGLang / HiSparse 学习文章的三张连续科普图之一。
+Canvas: 必须横向4:3，高分辨率，白色背景，深蓝色标题，清晰简体中文，代码与编号用等宽字体。学术科普信息图，线条精确、简洁圆角面板、大字体、舒适留白，流程从左往右，禁止装饰性机器人、照片、水印。
+Series invariants: 12个历史词元固定编号 T01,T02,T03,T04,T05,T06,T07,T08,T09,T10,T11,T12；本轮被选中的4个位置永远是 T02,T05,T09,T12。教学示例 top_k=4。每个词元有自己的KV。蓝色表示普通历史词元；绿色表示本轮被选中；浅灰表示未选中；橙色箭头表示CPU到GPU传输。保留明确图例。不要混淆选择历史位置与预测下一个词元。
+Typography: 要求中文与英文标识准确，所有数字、编号、公式按给定内容打印，不得增加或遗漏编号，正文字号足够阅读。所有文字在画布内。
+Title: “③ HiSparse：完整 KV 放 CPU，热点 KV 留 GPU”
+Subtitle: “以 DSA 主 KV 缓存为例：本轮需要 T02、T05、T09、T12”
+Layout: 左侧CPU主机内存大盒、中间按需传输箭头、右侧GPU显存与计算，左右关系明确；下方补充锁页内存和PD分离小图。白底技术科普，避免过密。
+左侧盒标题：“CPU 锁页内存(Pinned Memory)”
+内部恰好12张小卡，编号T01到T12，明确写“完整历史 KV”。选中的T02,T05,T09,T12卡绿色，但CPU仍保存全部12个位置。
+右侧盒标题：“GPU 设备缓冲区(Device Buffer)：6个槽位”
+上排标“本轮之前”：按顺序六格“T02”“T03”“T06”“T09”“空”“空”。T02,T09绿色，T03,T06浅蓝，空格灰色。
+在中间设置缓存检查注释：“已命中：T02、T09，直接复用” / “待换入：T05、T12”
+只从CPU的T05和T12向GPU空槽画橙色传输箭头，标“仅搬运缺失 KV”；不得画所有12个KV迁移，也不重复传输T02和T09。
+下排标“换入之后”：六格按顺序“T02”“T03”“T06”“T09”“T05”“T12”，T02,T09,T05,T12绿色，其中T05,T12加橙色边框表示刚搬入；T03,T06浅灰注明“缓存保留，本轮未使用”。
+右侧下方再画仅包含四个绿色编号的“本轮注意力计算：T02 + T05 + T09 + T12”，确保从正确的四个槽位连线到GPU计算芯片。标签：“计算仍在 GPU 上完成”。
+底部左卡解释：“锁页内存(Pinned Memory)是什么？”
+正文两行：“内存页固定驻留 RAM，避免被换出到磁盘。” / “便于高效、异步地进行 CPU 与 GPU 数据传输。”
+底部右卡标题：“PD 分离与结果备份”
+两条独立简洁流程：“预填充 GPU → RDMA → 解码 CPU 内存池” / “解码生成的新 KV → 异步备份到 CPU”
+小注：“索引器所需的轻量索引数据另外维护；这里展示主 KV 的分层存储。”
+Footer: “稀疏注意力决定用哪些 KV；HiSparse 管理这些 KV 放在哪里、何时搬运。”
+Accuracy: 图中GPU缓冲区6个槽位大于top_k=4；本轮使用4个槽位但并非GPU只存4个KV。CPU存完整KV，GPU存热点副本，不是搬入后删除CPU版本。无GPU直接在CPU上做主注意力的箭头。Pinned memory支持异步传输但不宣称任何传输必然与计算重叠。
+
+===== 审图后的定向修正 =====
+图 2 修正提示词：
+Use case: text-localization. Edit this Chinese educational infographic with one precise correction only. In the upper-left '历史索引键 (Index Keys)' card, replace its bottom parenthetical text '（常驻在 CPU 上）' with '（供索引器轻量评分）'. The original CPU placement label is erroneous and must disappear completely. Keep every other character, number, score, token ID, color, layout, diagram, arrow and title unchanged. Preserve exact landscape 4:3 aspect ratio and image dimensions, sharp Chinese text and white background. This is the second image of a three-part series. Do not change the current-query GPU label, do not add any new hardware-placement claims.
+
+图 3 修正提示词：
+Use case: precise-object-edit. Correct the KV ownership labels and transfer arrows in this educational infographic, preserving all other content and the landscape 4:3 layout. 1) Inside each of the 12 individual token cards in the CPU box, replace the small repeated text '完整历史 KV' with '该词元的 KV'. The CPU box overall still says it stores complete history, but each token card stores only that position's KV. Keep all T01..T12 IDs, colors and card positions. 2) The two orange transfer arrows currently visually start at the T12 card, including the one labeled 'T05 的 KV'. Remove those two arrows and redraw a SINGLE clear orange arrow spanning only the gap from the CPU pool's OUTER RIGHT BOUNDARY to the GPU pool's OUTER LEFT BOUNDARY, without touching any particular CPU token card. Label it exactly '换入 T05、T12 的 KV'. The arrow should enter the GPU '换入之后' panel. It represents copying these two missing entries from the overall CPU pool; do not draw any orange arrow leaving an individual T12 or other token card. 3) Preserve the GPU before array [T02,T03,T06,T09,空,空], after array [T02,T03,T06,T09,T05,T12], active set [T02,T05,T09,T12], and all pinned-memory/PD explanations. No other modifications, no extra arrows, no extra text. Keep typography sharp and all exact numerical information intact.
+
+图 3 最终文字简化提示词：
+Use case: text-localization. Make ONE tiny typography correction to this image and preserve everything else EXACTLY. Inside the large CPU box there are 12 token cards labeled T01 through T12. Each card has a small second line under its token ID, currently containing variants or misspellings of '该词元的 KV'. Replace that small second line in ALL TWELVE cards with just the two uppercase Latin letters 'KV'. This removes repeated Chinese labels and typos. Do not change any T01..T12 token IDs, card colors, card sizes, CPU box title or explanatory sentences outside the cards, any GPU content, arrows, bottom panels, or diagram layout. Same landscape 4:3 image and resolution. Only 12 small text labels change to 'KV'; no other edits.

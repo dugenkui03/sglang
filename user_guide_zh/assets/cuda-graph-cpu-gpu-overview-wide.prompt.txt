@@ -1,0 +1,23 @@
+Use case: scientific-educational
+Asset type: A conceptual bitmap infographic embedded in a Chinese SGLang learning article, not a poster or a code flowchart.
+Primary request: Explain the division of work between CPU and GPU, and why CUDA Graph reduces repeated CPU submission overhead. Create a very wide, low landscape image with an exact 3:1 aspect ratio, target 3072 x 1024. Opaque white background.
+
+Composition: Two equally sized comparison panels side by side, with small panel headings and generous margins. No large overall title. Both panels show the SAME kind of CPU chip and GPU accelerator, drawn as polished, recognizable hardware illustrations with a slight 3D perspective. GPU computation is still present in BOTH panels. Use clear arrows and task-ticket illustrations to show command submission, not data transfer bandwidth. Make the CPU and GPU roles obvious. Keep typography large and sparse for an article banner.
+
+Left panel heading, verbatim: "即时执行 Eager".
+A blue CPU chip labelled "CPU" on the left issues three separate small command tickets toward a green GPU board labelled "GPU" on the right. The three command tickets are labelled "矩阵乘法", "激活函数", "矩阵乘法". Draw three separate launch arrows, each going to its corresponding operation on the GPU.
+Inside the GPU area, show three calculation modules in an ordered chain: a small matrix multiplication visualization, an activation curve, then another matrix multiplication visualization. The order is explicitly top to bottom with small dependency arrows. Label these modules "乘法 1", "激活", "乘法 2".
+Left bottom caption, verbatim: "每轮逐个提交，多次调用有开销".
+
+Right panel heading, verbatim: "CUDA 图 CUDA Graph".
+At the top of this panel show a compact reusable execution-plan card with three connected operation symbols and the label "提前捕获 Capture"; a smaller label reads "记录操作与依赖". This is a prepared execution plan, not cached output values.
+Below it, show a matching blue CPU chip labelled "CPU", a tiny input buffer containing fresh colored numerical tiles and the label "更新输入", then ONE prominent launch arrow into a matching green GPU board labelled "GPU". Label this single arrow "一次回放 Replay". Within the right GPU, reproduce the SAME three calculation modules and dependency chain as on the left, labelled "乘法 1", "激活", "乘法 2". They still execute with the new input, and do not all execute independently or simultaneously.
+Right bottom caption, verbatim: "每轮更新输入，启动已捕获的图".
+
+A compact shared footer across the full width contains exactly these two lines:
+"减少 CPU 提交开销，GPU 仍执行本轮计算"
+"提交通常异步 · 运算依赖保留 · 性能收益需实测"
+
+Style: Clean scientific explainer with tangible hardware, matrix tiles and command tickets, friendly but precise. Crisp Chinese sans-serif typography, high contrast, visually calm. Functional color coding: blue for CPU control, green for GPU work, orange for submission arrows, purple accent for the saved graph. Avoid dense paragraphs, tiny text, excessive decorative objects, robots, people, logos, watermarks and magazine cover styling.
+
+Accuracy constraints: One graph replay launch applies to one captured graph, not to the entire multi-token generation. Do not imply the CPU waits after each eager operation. Do not depict CPU performing the matrix multiplication. Do not depict CUDA Graph skipping the actual GPU computation, reusing old outputs, removing dependencies, fusing all operators into a single kernel, or guaranteeing any particular speedup. Do not include clocks, numeric speedup multipliers, benchmark bars, timing scales or extra copy. Keep the whole composition distinctly wide and low, exact 3:1.

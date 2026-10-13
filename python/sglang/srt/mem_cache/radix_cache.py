@@ -94,6 +94,8 @@ class RadixKey:
         return t if n == len(t) else t[:n]
 
     def __len__(self) -> int:
+        """ __len__ 是特殊方法，len(obj) 会调用它
+        """
         n = self._raw_len()
         if self.is_bigram:
             return n - 1 if n > 0 else 0
@@ -248,17 +250,24 @@ class RadixKey:
 
 
 class TreeNode:
+    """前缀缓存树上的节点，保存连续 token（key）及其 KV 编号（value）。
+
+    分析文档：radix_cache.py.TreeNode.md（同目录）。
+    """
+
     counter = 0
 
     def __init__(self, id: Optional[int] = None, priority: int = 0):
-        self.children = defaultdict(TreeNode)
-        self.parent: TreeNode = None
+        self.children = defaultdict(TreeNode)  # NOTE: sons; dict key is the first page of that edge
+        self.parent: TreeNode = None  # NOTE: parent
+        # NOTE: token ids stored on this edge
         self.key: RadixKey = None
-        self.value: Optional[torch.Tensor] = None
+        self.value: Optional[torch.Tensor] = None  # device KV indices for tokens on this edge
+        # NOTE 节点只要大于0则表示被锁住、不会被淘汰
         self.lock_ref = 0
         self.last_access_time = time.monotonic()
         self.creation_time = time.monotonic()
-
+        # tip insert() 经过本节点的次数；LFU/SLRU 淘汰策略读取。
         self.hit_count = 0
         # store hash values of each pages
         self.hash_value: Optional[List[str]] = None
@@ -272,6 +281,8 @@ class TreeNode:
 
     @property
     def evicted(self):
+        # tip value 为空时，此节点不持有有效的 KV 编号。
+        # NOTE 普通的 RadixCache 直接调用 _delete_leaf 将节点从树上删除，但 value 不会变化
         return self.value is None
 
     def __lt__(self, other: TreeNode):
@@ -279,6 +290,9 @@ class TreeNode:
 
 
 class RadixCache(BasePrefixCache):
+    """
+    NOTE 每个调度器(Scheduler)维护本地前缀缓存，管理本进程的 KV 编号。
+    """
     def __init__(self, params: CacheInitParams):
         self.disable = params.disable
         self.req_to_token_pool = params.req_to_token_pool
@@ -311,6 +325,7 @@ class RadixCache(BasePrefixCache):
             None if self.disable else params.eviction_policy_config,
         )
 
+        # 保存现在可被淘汰的叶子节点集合
         self.evictable_leaves = set()
         self.reset()
 
@@ -544,12 +559,16 @@ class RadixCache(BasePrefixCache):
         return self._total_size_helper()
 
     def evict(self, params: EvictParams) -> EvictResult:
+        """NOTE 淘汰未锁定叶子，归还 KV 编号并更新树节点与容量统计。"""
         if self.disable:
             return EvictResult()
 
         start_time = time.perf_counter()
+        # NOTE 需要释放的 token 数量（对应到 KV Index 数量）
         num_tokens = params.num_tokens
+        # NOTE 获取现在可以被淘汰的节点
         leaves = list(self.evictable_leaves)
+        # NOTE 对可淘汰的节点进行排序
         eviction_heap = [
             (self.eviction_strategy.get_priority(node), node) for node in leaves
         ]
@@ -557,6 +576,7 @@ class RadixCache(BasePrefixCache):
 
         num_evicted = 0
         while num_evicted < num_tokens and len(eviction_heap):
+            # NOTE 按淘汰优先级取出节点，返回 (优先级, TreeNode)。
             _priority, x = heapq.heappop(eviction_heap)
 
             # Tree values are page-aligned copies of a kv row: page-exact segment.
@@ -574,17 +594,26 @@ class RadixCache(BasePrefixCache):
         return EvictResult(num_tokens_evicted=num_evicted)
 
     def inc_lock_ref(self, node: TreeNode) -> IncLockRefResult:
-        if self.disable:
+        if self.disable: # 如果禁用了缓存
             return IncLockRefResult(delta=0)
 
         delta = 0
-        while node != self.root_node:
-            if node.lock_ref == 0:
+        while node != self.root_node: # 如果当前节点不等于 root node
+            if node.lock_ref == 0: # NOTE 如果还没有被锁住
+                # NOTE
+                #   len(node.key) 表示当前节点缓存的token数量，可能是多个
+                #
+                # 注意：
+                #   KV Cache Pool 中的 KV Index 分为3类：
+                #       1. 空闲的；
+                #       2. 被分配但是没有使用的：比如decode计算对应的KV Index；
+                #       3. 进入缓存、在 RadixCache 前缀缓存中，总数是 evictable_size_ 和 protected_size_
+                #   Scheduler.RadixCache 中可释放的 KV Index 减少 len(node.key)，被保护的 KV Index 相应增加
                 self.evictable_size_ -= len(node.key)
                 self.protected_size_ += len(node.key)
-                delta -= len(node.key)
-            node.lock_ref += 1
-            self._update_leaf_status(node)
+                delta -= len(node.key) # tip 当前节点到父节点的 token 统计：仅仅统计 0 变 1 的 token 数量
+            node.lock_ref += 1 # 锁住 node 节点
+            self._update_leaf_status(node) # 将该节点从可被淘汰的叶子节点集合中移除
             node = node.parent
         return IncLockRefResult(delta=delta)
 
@@ -782,8 +811,8 @@ class RadixCache(BasePrefixCache):
         self._update_leaf_status(node.parent)
 
     def _update_leaf_status(self, node: TreeNode):
-        if node.evicted or node.lock_ref > 0:
-            if node in self.evictable_leaves:
+        if node.evicted or node.lock_ref > 0: # tip inc_lock_ref 调用过来的时候 node.lock_ref > 0 为true
+            if node in self.evictable_leaves: # 如果入参 node 在 RadixCache 中可被淘汰的叶子节点中，则移除
                 self.evictable_leaves.remove(node)
             return
 
